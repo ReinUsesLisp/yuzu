@@ -68,6 +68,7 @@ add_subdirectory(audio_core)
 add_subdirectory(video_core)
 add_subdirectory(input_common)
 add_subdirectory(tests)
+add_subdirectory(glsl_decompiler)
 
 if (ENABLE_SDL2)
     add_subdirectory(yuzu_cmd)
