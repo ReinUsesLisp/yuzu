@@ -1010,7 +1010,7 @@ void RasterizerOpenGL::SetupTextures(Maxwell::ShaderStage stage, const Shader& s
         const u32 current_bindpoint = base_bindings.sampler + bindpoint;
         auto& unit = state.texture_units[current_bindpoint];
 
-        const auto texture = maxwell3d.GetStageTexture(entry.GetStage(), entry.GetOffset());
+        const auto texture = maxwell3d.GetStageTexture(stage, entry.GetOffset());
         if (!texture.enabled) {
             unit.texture = 0;
             continue;
