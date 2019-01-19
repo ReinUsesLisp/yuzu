@@ -5,7 +5,9 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -66,7 +68,9 @@ public:
                            u32 pixel_stride) override;
     bool AccelerateDrawBatch(bool is_indexed) override;
     void UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) override;
-    void LoadDiskResources() override;
+    void LoadDiskResources(
+        const std::atomic<bool>& stop_run_watch,
+        const std::function<void(std::size_t, std::size_t)>& progress_callback) override;
 
     /// Maximum supported size that a constbuffer can have in bytes.
     static constexpr std::size_t MaxConstbufferSize = 0x10000;

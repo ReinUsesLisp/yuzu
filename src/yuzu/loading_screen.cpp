@@ -30,6 +30,22 @@ LoadingScreen::LoadingScreen(QWidget* parent)
     ui->setupUi(this);
     // Progress bar is hidden until we have a use for it.
     ui->progress_bar->hide();
+    ui->progress_bar->setStyleSheet(R"(
+QProgressBar {
+    border: 3px solid white;
+    border-radius: 4px;
+    background: rgb(32, 32, 32);
+    padding: 1px;
+    text-align: center;
+    margin-right: 64ex;
+    margin-left: 64ex;
+    font-size: 18px;
+    color: white;
+}
+QProgressBar::chunk {
+    background: rgb(240, 240, 240);
+}
+)");
 }
 
 void LoadingScreen::Prepare(Loader::AppLoader& loader) {
@@ -63,6 +79,7 @@ void LoadingScreen::OnLoadProgress(std::size_t value, std::size_t total) {
         previous_total = total;
     }
     ui->progress_bar->setValue(value);
+    ui->progress_bar->show();
 }
 
 void LoadingScreen::paintEvent(QPaintEvent* event) {

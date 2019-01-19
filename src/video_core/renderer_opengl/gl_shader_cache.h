@@ -5,6 +5,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -114,13 +116,16 @@ public:
     explicit ShaderCacheOpenGL(RasterizerOpenGL& rasterizer, Core::System& system);
 
     /// Loads disk cache for the current game
-    void LoadDiskCache();
+    void LoadDiskCache(const std::atomic<bool>& stop_run_watch,
+                       const std::function<void(std::size_t, std::size_t)>& progress_callback);
 
     /// Gets the current specified shader stage program
     Shader GetStageProgram(Maxwell::ShaderProgram program);
 
 private:
     std::map<u64, UnspecializedShader> GenerateUnspecializedShaders(
+        const std::atomic<bool>& stop_run_watch,
+        const std::function<void(std::size_t, std::size_t)>& progress_callback,
         const std::vector<ShaderDiskCacheRaw>& raws,
         const std::map<u64, ShaderDiskCacheDecompiled>& decompiled);
 

@@ -343,20 +343,28 @@ ShaderDiskCacheUsage CachedShader::GetUsage(GLenum primitive_mode,
 ShaderCacheOpenGL::ShaderCacheOpenGL(RasterizerOpenGL& rasterizer, Core::System& system)
     : RasterizerCache{rasterizer}, disk_cache{system} {}
 
-void ShaderCacheOpenGL::LoadDiskCache() {
+void ShaderCacheOpenGL::LoadDiskCache(
+    const std::atomic<bool>& stop_run_watch,
+    const std::function<void(std::size_t, std::size_t)>& progress_callback) {
+
     const auto transferable = disk_cache.LoadTransferable();
-    if (!transferable) {
+    if (!transferable)
         return;
-    }
     const auto [raws, usages] = *transferable;
 
     auto [decompiled, dumps] = disk_cache.LoadPrecompiled();
 
     const auto supported_formats{GetSupportedFormats()};
-    const auto unspecialized{GenerateUnspecializedShaders(raws, decompiled)};
+    const auto unspecialized{
+        GenerateUnspecializedShaders(stop_run_watch, progress_callback, raws, decompiled)};
 
     // Build shaders
     for (std::size_t i = 0; i < usages.size(); ++i) {
+        if (stop_run_watch)
+            return;
+        if (progress_callback)
+            progress_callback(/* usages */ i, usages.size());
+
         const auto& usage{usages[i]};
         LOG_INFO(Render_OpenGL, "Building shader {:016x} ({} of {})", usage.unique_identifier,
                  i + 1, usages.size());
@@ -418,11 +426,19 @@ CachedProgram ShaderCacheOpenGL::GeneratePrecompiledProgram(
 }
 
 std::map<u64, UnspecializedShader> ShaderCacheOpenGL::GenerateUnspecializedShaders(
+    const std::atomic<bool>& stop_run_watch,
+    const std::function<void(std::size_t, std::size_t)>& progress_callback,
     const std::vector<ShaderDiskCacheRaw>& raws,
     const std::map<u64, ShaderDiskCacheDecompiled>& decompiled) {
     std::map<u64, UnspecializedShader> unspecialized;
 
-    for (const auto& raw : raws) {
+    for (std::size_t i = 0; i < raws.size(); ++i) {
+        if (stop_run_watch)
+            return {};
+        if (progress_callback)
+            progress_callback(/* raws */ i, raws.size());
+
+        const auto& raw = raws[i];
         const u64 unique_identifier = raw.GetUniqueIdentifier();
         const u64 calculated_hash =
             GetUniqueIdentifier(raw.GetProgramType(), raw.GetProgramCode(), raw.GetProgramCodeB());

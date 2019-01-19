@@ -477,8 +477,12 @@ void RasterizerOpenGL::UpdatePagesCachedCount(VAddr addr, u64 size, int delta) {
         cached_pages.add({pages_interval, delta});
 }
 
-void RasterizerOpenGL::LoadDiskResources() {
-    shader_cache.LoadDiskCache();
+void RasterizerOpenGL::LoadDiskResources(
+    const std::atomic<bool>& stop_run_watch,
+    const std::function<void(std::size_t, std::size_t)>& progress_callback) {
+
+    ScopeAcquireGLContext acquire_context{emu_window};
+    shader_cache.LoadDiskCache(stop_run_watch, progress_callback);
 }
 
 void RasterizerOpenGL::ConfigureFramebuffers(OpenGLState& current_state, bool using_color_fb,

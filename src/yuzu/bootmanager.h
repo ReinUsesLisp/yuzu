@@ -22,11 +22,13 @@ class GGLWidgetInternal;
 class GMainWindow;
 class GRenderWindow;
 
+class LoadingScreen;
+
 class EmuThread : public QThread {
     Q_OBJECT
 
 public:
-    explicit EmuThread(GRenderWindow* render_window);
+    explicit EmuThread(GRenderWindow* render_window, LoadingScreen* loading_screen);
 
     /**
      * Start emulation (on new thread)
@@ -80,6 +82,7 @@ private:
     std::condition_variable running_cv;
 
     GRenderWindow* render_window;
+    LoadingScreen* loading_screen;
 
 signals:
     /**
@@ -101,6 +104,8 @@ signals:
     void DebugModeLeft();
 
     void ErrorThrown(Core::System::ResultStatus, std::string);
+
+    void LoadProgress(std::size_t current, std::size_t total);
 };
 
 class GRenderWindow : public QWidget, public Core::Frontend::EmuWindow {

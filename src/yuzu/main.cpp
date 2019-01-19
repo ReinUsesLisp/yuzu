@@ -866,7 +866,7 @@ void GMainWindow::BootGame(const QString& filename) {
         return;
 
     // Create and start the emulation thread
-    emu_thread = std::make_unique<EmuThread>(render_window);
+    emu_thread = std::make_unique<EmuThread>(render_window, loading_screen);
     emit EmulationStarting(emu_thread.get());
     render_window->moveContext();
     emu_thread->start();
@@ -878,6 +878,8 @@ void GMainWindow::BootGame(const QString& filename) {
             &WaitTreeWidget::OnDebugModeEntered, Qt::BlockingQueuedConnection);
     connect(emu_thread.get(), &EmuThread::DebugModeLeft, waitTreeWidget,
             &WaitTreeWidget::OnDebugModeLeft, Qt::BlockingQueuedConnection);
+    connect(emu_thread.get(), &EmuThread::LoadProgress, loading_screen,
+            &LoadingScreen::OnLoadProgress, Qt::BlockingQueuedConnection);
 
     // Update the GUI
     if (ui.action_Single_Window_Mode->isChecked()) {
