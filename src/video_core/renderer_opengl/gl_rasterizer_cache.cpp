@@ -876,7 +876,7 @@ void CachedSurface::UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle,
                                 static_cast<GLsizei>(rect.GetHeight()), tuple.format, tuple.type,
                                 &gl_buffer[mip_map][buffer_offset]);
         }
-    }
+    } // namespace OpenGL
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 }

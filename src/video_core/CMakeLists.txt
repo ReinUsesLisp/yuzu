@@ -104,10 +104,44 @@ add_library(video_core STATIC
 if (ENABLE_VULKAN)
     target_sources(video_core PRIVATE
         renderer_vulkan/declarations.h
+        renderer_vulkan/maxwell_to_vk.cpp
+        renderer_vulkan/maxwell_to_vk.h
+        renderer_vulkan/renderer_vulkan.cpp
+        renderer_vulkan/renderer_vulkan.h
+        renderer_vulkan/vk_blit_screen.cpp
+        renderer_vulkan/vk_blit_screen.h
+        renderer_vulkan/vk_buffer_cache.cpp
+        renderer_vulkan/vk_buffer_cache.h
         renderer_vulkan/vk_device.cpp
-        renderer_vulkan/vk_device.h)
+        renderer_vulkan/vk_device.h
+        renderer_vulkan/vk_pipeline_cache.cpp
+        renderer_vulkan/vk_pipeline_cache.h
+        renderer_vulkan/vk_rasterizer.cpp
+        renderer_vulkan/vk_rasterizer.h
+        renderer_vulkan/vk_rasterizer_cache.cpp
+        renderer_vulkan/vk_rasterizer_cache.h
+        renderer_vulkan/vk_renderpass_cache.cpp
+        renderer_vulkan/vk_renderpass_cache.h
+        renderer_vulkan/vk_resource_manager.cpp
+        renderer_vulkan/vk_resource_manager.h
+        renderer_vulkan/vk_scheduler.cpp
+        renderer_vulkan/vk_scheduler.h
+        renderer_vulkan/vk_shader_decompiler.cpp
+        renderer_vulkan/vk_shader_decompiler.h
+        renderer_vulkan/vk_shader_gen.cpp
+        renderer_vulkan/vk_shader_gen.h
+        renderer_vulkan/vk_shader_util.cpp
+        renderer_vulkan/vk_shader_util.h
+        renderer_vulkan/vk_stream_buffer.cpp
+        renderer_vulkan/vk_stream_buffer.h
+        renderer_vulkan/vk_swapchain.cpp
+        renderer_vulkan/vk_swapchain.h
+        renderer_vulkan/vk_image.cpp
+        renderer_vulkan/vk_image.h
+        renderer_vulkan/vk_memory_manager.cpp
+        renderer_vulkan/vk_memory_manager.h)
 
-    target_include_directories(video_core PRIVATE ../../externals/Vulkan-Headers/include)
+    target_include_directories(video_core PRIVATE sirit ../../externals/Vulkan-Headers/include)
     target_compile_definitions(video_core PRIVATE HAS_VULKAN)
 endif()
 
@@ -115,3 +149,6 @@ create_target_directory_groups(video_core)
 
 target_link_libraries(video_core PUBLIC common core)
 target_link_libraries(video_core PRIVATE glad lz4_static)
+if (ENABLE_VULKAN)
+    target_link_libraries(video_core PRIVATE sirit)
+endif()

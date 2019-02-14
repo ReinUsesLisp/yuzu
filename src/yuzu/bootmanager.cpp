@@ -167,6 +167,13 @@ void GRenderWindow::DoneCurrent() {
 
 void GRenderWindow::PollEvents() {}
 
+bool GRenderWindow::IsShown() const {
+    return !isMinimized();
+}
+
+void GRenderWindow::RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
+                                           void** surface) const {}
+
 // On Qt 5.0+, this correctly gets the size of the framebuffer (pixels).
 //
 // Older versions get the window size (density independent pixels),

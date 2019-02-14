@@ -121,6 +121,9 @@ public:
     void MakeCurrent() override;
     void DoneCurrent() override;
     void PollEvents() override;
+    bool IsShown() const override;
+    void RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
+                                void** surface) const override;
 
     void BackupGeometry();
     void RestoreGeometry();

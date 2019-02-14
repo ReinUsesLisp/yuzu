@@ -83,6 +83,7 @@ public:
                 // Skip duplicates
                 continue;
             }
+            ObjectInvalidated(object);
             Unregister(object);
         }
     }
@@ -90,7 +91,9 @@ public:
     /// Invalidates everything in the cache
     void InvalidateAll() {
         while (interval_cache.begin() != interval_cache.end()) {
-            Unregister(*interval_cache.begin()->second.begin());
+            auto& object = *interval_cache.begin()->second.begin();
+            ObjectInvalidated(object);
+            Unregister(object);
         }
     }
 
@@ -128,6 +131,9 @@ protected:
     u64 GetModifiedTicks() {
         return ++modified_ticks;
     }
+
+    /// Called when an object is invalidated and unregistered.
+    virtual void ObjectInvalidated(const T& object){};
 
 private:
     /// Returns a list of cached objects from the specified memory region, ordered by access time

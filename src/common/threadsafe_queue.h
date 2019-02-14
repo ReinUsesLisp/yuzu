@@ -7,16 +7,17 @@
 // a simple lockless thread-safe,
 // single reader, single writer queue
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <mutex>
-#include <utility>
+#include "common/common_types.h"
 
 namespace Common {
-template <typename T>
+template <typename T, bool NeedSize = true>
 class SPSCQueue {
 public:
-    SPSCQueue() {
+    SPSCQueue() : size(0) {
         write_ptr = read_ptr = new ElementPtr();
     }
     ~SPSCQueue() {
@@ -24,12 +25,13 @@ public:
         delete read_ptr;
     }
 
-    std::size_t Size() const {
+    u32 Size() const {
+        static_assert(NeedSize, "using Size() on FifoQueue without NeedSize");
         return size.load();
     }
 
     bool Empty() const {
-        return Size() == 0;
+        return !read_ptr->next.load();
     }
 
     T& Front() const {
@@ -45,13 +47,13 @@ public:
         ElementPtr* new_ptr = new ElementPtr();
         write_ptr->next.store(new_ptr, std::memory_order_release);
         write_ptr = new_ptr;
-
-        ++size;
+        if (NeedSize)
+            size++;
     }
 
     void Pop() {
-        --size;
-
+        if (NeedSize)
+            size--;
         ElementPtr* tmpptr = read_ptr;
         // advance the read pointer
         read_ptr = tmpptr->next.load();
@@ -64,7 +66,8 @@ public:
         if (Empty())
             return false;
 
-        --size;
+        if (NeedSize)
+            size--;
 
         ElementPtr* tmpptr = read_ptr;
         read_ptr = tmpptr->next.load(std::memory_order_acquire);
@@ -86,7 +89,7 @@ private:
     // and a pointer to the next ElementPtr
     class ElementPtr {
     public:
-        ElementPtr() {}
+        ElementPtr() : next(nullptr) {}
         ~ElementPtr() {
             ElementPtr* next_ptr = next.load();
 
@@ -95,21 +98,21 @@ private:
         }
 
         T current;
-        std::atomic<ElementPtr*> next{nullptr};
+        std::atomic<ElementPtr*> next;
     };
 
     ElementPtr* write_ptr;
     ElementPtr* read_ptr;
-    std::atomic_size_t size{0};
+    std::atomic<u32> size;
 };
 
 // a simple thread-safe,
 // single reader, multiple writer queue
 
-template <typename T>
+template <typename T, bool NeedSize = true>
 class MPSCQueue {
 public:
-    std::size_t Size() const {
+    u32 Size() const {
         return spsc_queue.Size();
     }
 
@@ -141,7 +144,7 @@ public:
     }
 
 private:
-    SPSCQueue<T> spsc_queue;
+    SPSCQueue<T, NeedSize> spsc_queue;
     std::mutex write_lock;
 };
 } // namespace Common

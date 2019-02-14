@@ -1154,7 +1154,7 @@ private:
     Texture::TSCEntry GetTSCEntry(u32 tsc_index) const;
 
     /**
-     * Call a macro on this engine.
+     * Pass a macro on this engine.
      * @param method Method to call
      * @param parameters Arguments to the method call
      */

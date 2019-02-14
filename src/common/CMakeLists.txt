@@ -102,6 +102,7 @@ add_library(common STATIC
     scm_rev.cpp
     scm_rev.h
     scope_exit.h
+    static_vector.h
     string_util.cpp
     string_util.h
     swap.h

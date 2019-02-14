@@ -54,10 +54,10 @@ static std::vector<Event> event_queue;
 static u64 event_fifo_id;
 // the queue for storing the events from other threads threadsafe until they will be added
 // to the event_queue by the emu thread
-static Common::MPSCQueue<Event> ts_queue;
+static Common::MPSCQueue<Event, false> ts_queue;
 
 // the queue for unscheduling the events from other threads threadsafe
-static Common::MPSCQueue<std::pair<const EventType*, u64>> unschedule_queue;
+static Common::MPSCQueue<std::pair<const EventType*, u64>, false> unschedule_queue;
 
 constexpr int MAX_SLICE_LENGTH = 20000;
 
@@ -69,6 +69,8 @@ static s64 idled_cycles;
 static bool is_global_timer_sane;
 
 static EventType* ev_lost = nullptr;
+
+static void EmptyTimedCallback(u64 userdata, s64 cyclesLate) {}
 
 EventType* RegisterEvent(const std::string& name, TimedCallback callback) {
     // check for existing type with same name.
@@ -102,9 +104,7 @@ void Init() {
     is_global_timer_sane = true;
 
     event_fifo_id = 0;
-
-    const auto empty_timed_callback = [](u64, s64) {};
-    ev_lost = RegisterEvent("_lost_event", empty_timed_callback);
+    ev_lost = RegisterEvent("_lost_event", &EmptyTimedCallback);
 }
 
 void Shutdown() {
