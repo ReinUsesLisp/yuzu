@@ -18,10 +18,10 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
-#include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_texture_cache.h"
 
 namespace Vulkan {
 
@@ -152,8 +152,8 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
       screen_info{screen_info}, device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, sched{sched}, uniform_buffer_alignment{
                                                         device.GetUniformBufferAlignment()} {
-    res_cache = std::make_unique<VKRasterizerCache>(system, *this, device, resource_manager,
-                                                    memory_manager);
+    texture_cache =
+        std::make_unique<VKTextureCache>(system, *this, device, resource_manager, memory_manager);
     shader_cache = std::make_unique<VKPipelineCache>(system, *this, device);
     buffer_cache = std::make_unique<VKBufferCache>(system, *this, resource_manager, device,
                                                    memory_manager, sched, STREAM_BUFFER_SIZE);
@@ -284,7 +284,7 @@ void RasterizerVulkan::Clear() {
     if (use_color) {
         Surface color_surface;
         std::tie(color_surface, exctx) =
-            res_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
+            texture_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
 
         color_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
                                   vk::PipelineStageFlagBits::eTransfer,
@@ -298,7 +298,7 @@ void RasterizerVulkan::Clear() {
     }
     if (use_depth || use_stencil) {
         Surface zeta_surface;
-        std::tie(zeta_surface, exctx) = res_cache->GetDepthBufferSurface(exctx, false);
+        std::tie(zeta_surface, exctx) = texture_cache->GetDepthBufferSurface(exctx, false);
 
         zeta_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
                                  vk::PipelineStageFlagBits::eTransfer,
@@ -317,7 +317,7 @@ void RasterizerVulkan::FlushAll() {}
 void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
 
 void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
-    res_cache->InvalidateRegion(addr, size);
+    texture_cache->InvalidateRegion(addr, size);
     shader_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
 }
@@ -333,7 +333,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
         return {};
     }
 
-    const auto& surface{res_cache->TryFindFramebufferSurface(framebuffer_addr)};
+    const auto& surface{texture_cache->TryFindFramebufferSurface(framebuffer_addr)};
     if (!surface) {
         return {};
     }
@@ -400,12 +400,13 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
     Surface color_surface, zeta_surface;
     if (using_color_fb) {
         std::tie(color_surface, exctx) =
-            res_cache->GetColorBufferSurface(exctx, 0, preserve_contents);
-        color_surface->MarkAsModified(true, *res_cache);
+            texture_cache->GetColorBufferSurface(exctx, 0, preserve_contents);
+        color_surface->MarkAsModified(true, *texture_cache);
     }
     if (using_zeta_fb) {
-        std::tie(zeta_surface, exctx) = res_cache->GetDepthBufferSurface(exctx, preserve_contents);
-        zeta_surface->MarkAsModified(true, *res_cache);
+        std::tie(zeta_surface, exctx) =
+            texture_cache->GetDepthBufferSurface(exctx, preserve_contents);
+        zeta_surface->MarkAsModified(true, *texture_cache);
     }
 
     FramebufferCacheKey fbkey;
@@ -559,7 +560,7 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, Pip
         const auto texture = gpu.GetStageTexture(stage, entry.GetOffset());
 
         Surface surface;
-        std::tie(surface, exctx) = res_cache->GetTextureSurface(exctx, texture, entry);
+        std::tie(surface, exctx) = texture_cache->GetTextureSurface(exctx, texture, entry);
         UNIMPLEMENTED_IF(surface == nullptr);
 
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;

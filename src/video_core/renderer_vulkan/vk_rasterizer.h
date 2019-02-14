@@ -24,7 +24,7 @@ namespace Vulkan {
 
 struct VKScreenInfo;
 class VKFence;
-class VKRasterizerCache;
+class VKTextureCache;
 class VKResourceManager;
 class VKMemoryManager;
 class VKDevice;
@@ -99,7 +99,7 @@ private:
     VKScheduler& sched;
     const u64 uniform_buffer_alignment;
 
-    std::unique_ptr<VKRasterizerCache> res_cache;
+    std::unique_ptr<VKTextureCache> texture_cache;
     std::unique_ptr<VKPipelineCache> shader_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
     std::unique_ptr<VKRenderPassCache> renderpass_cache;

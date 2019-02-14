@@ -179,12 +179,12 @@ struct hash<SurfaceReserveKey> {
 
 namespace Vulkan {
 
-class VKRasterizerCache final : public RasterizerCache<Surface> {
+class VKTextureCache final : public RasterizerCache<Surface> {
 public:
-    explicit VKRasterizerCache(Core::System& system, RasterizerVulkan& rasterizer,
-                               const VKDevice& device, VKResourceManager& resource_manager,
-                               VKMemoryManager& memory_manager);
-    ~VKRasterizerCache();
+    explicit VKTextureCache(Core::System& system, RasterizerVulkan& rasterizer,
+                            const VKDevice& device, VKResourceManager& resource_manager,
+                            VKMemoryManager& memory_manager);
+    ~VKTextureCache();
 
     /// Get a surface based on the texture configuration
     [[nodiscard]] std::tuple<Surface, VKExecutionContext> GetTextureSurface(

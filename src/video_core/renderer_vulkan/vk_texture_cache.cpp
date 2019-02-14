@@ -15,7 +15,7 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
-#include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
+#include "video_core/renderer_vulkan/vk_texture_cache.h"
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
@@ -317,21 +317,21 @@ VKExecutionContext CachedSurface::UploadVKTexture(VKExecutionContext exctx) {
     return exctx;
 }
 
-VKRasterizerCache::VKRasterizerCache(Core::System& system, RasterizerVulkan& rasterizer,
-                                     const VKDevice& device, VKResourceManager& resource_manager,
-                                     VKMemoryManager& memory_manager)
+VKTextureCache::VKTextureCache(Core::System& system, RasterizerVulkan& rasterizer,
+                               const VKDevice& device, VKResourceManager& resource_manager,
+                               VKMemoryManager& memory_manager)
     : RasterizerCache{rasterizer}, system{system}, device{device},
       resource_manager{resource_manager}, memory_manager{memory_manager} {}
 
-VKRasterizerCache::~VKRasterizerCache() = default;
+VKTextureCache::~VKTextureCache() = default;
 
-std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetTextureSurface(
+std::tuple<Surface, VKExecutionContext> VKTextureCache::GetTextureSurface(
     VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config,
     const VKShader::SamplerEntry& entry) {
     return GetSurface(exctx, SurfaceParams::CreateForTexture(system, config, entry));
 }
 
-std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetDepthBufferSurface(
+std::tuple<Surface, VKExecutionContext> VKTextureCache::GetDepthBufferSurface(
     VKExecutionContext exctx, bool preserve_contents) {
     const auto& regs{system.GPU().Maxwell3D().regs};
     if (!regs.zeta.Address() || !regs.zeta_enable) {
@@ -346,7 +346,7 @@ std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetDepthBufferSurface
     return GetSurface(exctx, depth_params, preserve_contents);
 }
 
-std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetColorBufferSurface(
+std::tuple<Surface, VKExecutionContext> VKTextureCache::GetColorBufferSurface(
     VKExecutionContext exctx, std::size_t index, bool preserve_contents) {
     const auto& regs{system.GPU().Maxwell3D().regs};
     ASSERT(index < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets);
@@ -361,21 +361,20 @@ std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetColorBufferSurface
     return GetSurface(exctx, SurfaceParams::CreateForFramebuffer(system, index), preserve_contents);
 }
 
-Surface VKRasterizerCache::TryFindFramebufferSurface(VAddr addr) const {
+Surface VKTextureCache::TryFindFramebufferSurface(VAddr addr) const {
     return TryGet(addr);
 }
 
-VKExecutionContext VKRasterizerCache::LoadSurface(VKExecutionContext exctx,
-                                                  const Surface& surface) {
+VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const Surface& surface) {
     surface->LoadVKBuffer();
     exctx = surface->UploadVKTexture(exctx);
     surface->MarkAsModified(false, *this);
     return exctx;
 }
 
-std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetSurface(VKExecutionContext exctx,
-                                                                      const SurfaceParams& params,
-                                                                      bool preserve_contents) {
+std::tuple<Surface, VKExecutionContext> VKTextureCache::GetSurface(VKExecutionContext exctx,
+                                                                   const SurfaceParams& params,
+                                                                   bool preserve_contents) {
     if (params.addr == 0 || params.height * params.width == 0) {
         return {};
     }
@@ -412,7 +411,7 @@ std::tuple<Surface, VKExecutionContext> VKRasterizerCache::GetSurface(VKExecutio
     return {surface, exctx};
 }
 
-Surface VKRasterizerCache::GetUncachedSurface(const SurfaceParams& params) {
+Surface VKTextureCache::GetUncachedSurface(const SurfaceParams& params) {
     Surface surface{TryGetReservedSurface(params)};
     if (!surface) {
         // No reserved surface available, create a new one and reserve it
@@ -423,46 +422,18 @@ Surface VKRasterizerCache::GetUncachedSurface(const SurfaceParams& params) {
     return surface;
 }
 
-std::tuple<Surface, VKExecutionContext> VKRasterizerCache::RecreateSurface(
+std::tuple<Surface, VKExecutionContext> VKTextureCache::RecreateSurface(
     VKExecutionContext exctx, const Surface& old_surface, const SurfaceParams& new_params) {
-    // Verify surface is compatible for blitting
-    const auto old_params{old_surface->GetSurfaceParams()};
-
-    // Get a new surface with the new parameters, and blit the previous surface to it
-    Surface new_surface = GetUncachedSurface(new_params);
-
-    const auto cmdbuf = exctx.GetCommandBuffer();
-    old_surface->Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal,
-                            vk::PipelineStageFlagBits::eTransfer,
-                            vk::AccessFlagBits::eTransferRead);
-    new_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                            vk::PipelineStageFlagBits::eTransfer,
-                            vk::AccessFlagBits::eTransferWrite);
-
-    ASSERT(old_params.target == new_params.target);
-    ASSERT(old_params.type == new_params.type);
-    ASSERT(old_params.depth == new_params.depth);
-    ASSERT(old_params.depth == 1);
-    ASSERT(GetFormatBpp(old_params.pixel_format) == GetFormatBpp(new_params.pixel_format));
-
-    const vk::ImageSubresourceLayers src_subresource(old_surface->GetAspectMask(), 0, 0, 1);
-    const vk::ImageSubresourceLayers dst_subresource(new_surface->GetAspectMask(), 0, 0, 1);
-    const vk::ImageCopy copy(src_subresource, {0, 0, 0}, dst_subresource, {0, 0, 0},
-                             {new_params.width, new_params.height, new_params.depth});
-
-    const auto& dld = device.GetDispatchLoader();
-    cmdbuf.copyImage(old_surface->GetHandle(), vk::ImageLayout::eTransferSrcOptimal,
-                     new_surface->GetHandle(), vk::ImageLayout::eTransferDstOptimal, {copy}, dld);
-
-    return {new_surface, exctx};
+    UNIMPLEMENTED();
+    return {nullptr, exctx};
 }
 
-void VKRasterizerCache::ReserveSurface(const Surface& surface) {
+void VKTextureCache::ReserveSurface(const Surface& surface) {
     const auto& surface_reserve_key{SurfaceReserveKey::Create(surface->GetSurfaceParams())};
     surface_reserve[surface_reserve_key] = surface;
 }
 
-Surface VKRasterizerCache::TryGetReservedSurface(const SurfaceParams& params) {
+Surface VKTextureCache::TryGetReservedSurface(const SurfaceParams& params) {
     const auto& surface_reserve_key{SurfaceReserveKey::Create(params)};
     auto search{surface_reserve.find(surface_reserve_key)};
     if (search != surface_reserve.end()) {

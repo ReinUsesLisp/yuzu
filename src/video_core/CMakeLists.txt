@@ -114,12 +114,14 @@ if (ENABLE_VULKAN)
         renderer_vulkan/vk_buffer_cache.h
         renderer_vulkan/vk_device.cpp
         renderer_vulkan/vk_device.h
+        renderer_vulkan/vk_image.cpp
+        renderer_vulkan/vk_image.h
+        renderer_vulkan/vk_memory_manager.cpp
+        renderer_vulkan/vk_memory_manager.h
         renderer_vulkan/vk_pipeline_cache.cpp
         renderer_vulkan/vk_pipeline_cache.h
         renderer_vulkan/vk_rasterizer.cpp
         renderer_vulkan/vk_rasterizer.h
-        renderer_vulkan/vk_rasterizer_cache.cpp
-        renderer_vulkan/vk_rasterizer_cache.h
         renderer_vulkan/vk_renderpass_cache.cpp
         renderer_vulkan/vk_renderpass_cache.h
         renderer_vulkan/vk_resource_manager.cpp
@@ -136,10 +138,8 @@ if (ENABLE_VULKAN)
         renderer_vulkan/vk_stream_buffer.h
         renderer_vulkan/vk_swapchain.cpp
         renderer_vulkan/vk_swapchain.h
-        renderer_vulkan/vk_image.cpp
-        renderer_vulkan/vk_image.h
-        renderer_vulkan/vk_memory_manager.cpp
-        renderer_vulkan/vk_memory_manager.h)
+        renderer_vulkan/vk_texture_cache.cpp
+        renderer_vulkan/vk_texture_cache.h)
 
     target_include_directories(video_core PRIVATE sirit ../../externals/Vulkan-Headers/include)
     target_compile_definitions(video_core PRIVATE HAS_VULKAN)
