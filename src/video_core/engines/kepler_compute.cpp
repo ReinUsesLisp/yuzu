@@ -21,11 +21,26 @@ void KeplerCompute::CallMethod(const GPU::MethodCall& method_call) {
     regs.reg_array[method_call.method] = method_call.argument;
 
     switch (method_call.method) {
-    case KEPLER_COMPUTE_REG_INDEX(launch):
-        // Abort execution since compute shaders can be used to alter game memory (e.g. CUDA
-        // kernels)
-        UNREACHABLE_MSG("Compute shaders are not implemented");
+    case KEPLER_COMPUTE_REG_INDEX(launch): {
+        FILE* file = fopen("D:\\compute.bin", "wb");
+
+        const auto gpu_desc_addr = regs.launch_address.LaunchAddress();
+        const auto cpu_desc_addr = memory_manager.GpuToCpuAddress(gpu_desc_addr);
+        ASSERT(cpu_desc_addr);
+        const auto desc = reinterpret_cast<const LaunchDesc*>(Memory::GetPointer(*cpu_desc_addr));
+        UNIMPLEMENTED_IF(desc->prog_start != 0);
+
+        const auto code_gpu_addr = regs.code_address.CodeAddress();
+        const auto code_cpu_addr = memory_manager.GpuToCpuAddress(code_gpu_addr);
+        ASSERT(code_cpu_addr);
+        const auto ptr = Memory::GetPointer(*code_cpu_addr);
+        fwrite(Memory::GetPointer(*code_cpu_addr), 1, 0x1000, file);
+        fclose(file);
+
+        LOG_CRITICAL(HW_GPU, "Compute shaders are not implemented");
+        UNREACHABLE();
         break;
+    }
     default:
         break;
     }
