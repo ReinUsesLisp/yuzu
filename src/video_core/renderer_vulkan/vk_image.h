@@ -15,10 +15,8 @@ class VKDevice;
 class VKImage {
 public:
     VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
-            vk::ImageViewType view_type, vk::ImageAspectFlags aspect_mask);
+            vk::ImageAspectFlags aspect_mask);
     ~VKImage();
-
-    vk::ImageView GetImageView();
 
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageSubresourceRange subresource_range,
                     vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
@@ -32,6 +30,12 @@ public:
                           new_family);
     }
 
+    vk::ImageView GetPresentView() {
+        if (!present_view)
+            CreatePresentView();
+        return *present_view;
+    }
+
     void UpdateLayout(vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
                       vk::AccessFlags new_access) {
         current_layout = new_layout;
@@ -43,10 +47,6 @@ public:
         return *image;
     }
 
-    operator vk::Image() const {
-        return GetHandle();
-    }
-
     vk::Format GetFormat() const {
         return format;
     }
@@ -56,13 +56,14 @@ public:
     }
 
 private:
+    void CreatePresentView();
+
     const VKDevice& device;
     const vk::Format format;
-    const vk::ImageViewType view_type;
     const vk::ImageAspectFlags aspect_mask;
 
     UniqueImage image;
-    UniqueImageView image_view;
+    UniqueImageView present_view;
 
     vk::ImageLayout current_layout;
     // Note(Rodrigo): Using eTransferWrite and eTopOfPipe here is a hack to have a valid value for

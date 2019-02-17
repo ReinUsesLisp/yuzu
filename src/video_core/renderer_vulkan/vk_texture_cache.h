@@ -38,6 +38,7 @@ class VKResourceManager;
 
 using VideoCore::Surface::ComponentType;
 using VideoCore::Surface::PixelFormat;
+using VideoCore::Surface::SurfaceFamily;
 using VideoCore::Surface::SurfaceTarget;
 using VideoCore::Surface::SurfaceType;
 
@@ -80,11 +81,10 @@ struct SurfaceParams {
 
     /// Checks if surfaces are compatible for caching
     bool IsCompatibleSurface(const SurfaceParams& other) const {
-        return std::tie(pixel_format, type, width, height, target, depth, block_height, block_depth,
-                        tile_width_spacing) == std::tie(other.pixel_format, other.type, other.width,
-                                                        other.height, other.target, other.depth,
-                                                        other.block_height, other.block_depth,
-                                                        other.tile_width_spacing);
+        return std::tie(pixel_format, type, family, block_height, block_depth,
+                        tile_width_spacing) ==
+               std::tie(other.pixel_format, other.type, other.family, other.block_height,
+                        other.block_depth, other.tile_width_spacing);
     }
 
     /// Initializes parameters for caching, should be called after everything has been initialized
@@ -100,11 +100,11 @@ struct SurfaceParams {
     PixelFormat pixel_format;
     ComponentType component_type;
     SurfaceType type;
+    SurfaceFamily family;
     u32 width;
     u32 height;
     u32 depth;
     u32 unaligned_height;
-    SurfaceTarget target;
 
     // Parameters used for caching
     VAddr addr;
@@ -112,6 +112,34 @@ struct SurfaceParams {
     std::size_t size_in_bytes;
     std::size_t size_in_bytes_vk;
 };
+
+struct ViewKey {
+    u32 layer;
+    u32 level;
+
+    bool operator==(const ViewKey& rhs) const {
+        return std::tie(layer, level) == std::tie(rhs.layer, rhs.level);
+    }
+};
+
+} // namespace Vulkan
+
+namespace std {
+
+template <>
+struct hash<Vulkan::ViewKey> {
+    std::size_t operator()(const Vulkan::ViewKey& key) const {
+        if constexpr (sizeof(std::size_t) >= sizeof(u64)) {
+            return key.layer | static_cast<u64>(key.level) << 32;
+        } else {
+            return key.layer ^ key.level;
+        }
+    }
+};
+
+} // namespace std
+
+namespace Vulkan {
 
 class CachedSurface : public VKImage {
 public:
@@ -148,7 +176,7 @@ public:
     }
 
     VKExecutionContext Flush(VKExecutionContext exctx) {
-        UNIMPLEMENTED();
+        // UNIMPLEMENTED();
         return exctx;
     }
 
@@ -156,24 +184,27 @@ public:
         return params;
     }
 
-    View GetSupersetView() const {
-        return superset_view.get();
-    }
-
-    View TryGetView(const SurfaceParams& params) const {
-        if (params.addr == GetSurfaceParams().addr) {
-            return GetSupersetView();
+    View TryGetView(const SurfaceParams& rhs) {
+        if (params.addr == rhs.addr && params.width == rhs.width && params.height == rhs.height) {
+            return GetView(0, 0);
         }
         // Unimplemented
         return nullptr;
     }
 
-    bool IsFamiliar(const SurfaceParams& params) const {
-        // Unimplemented
-        return true;
+    bool IsFamiliar(const SurfaceParams& rhs) const {
+        return std::tie(params.is_tiled, params.block_width, params.block_height,
+                        params.block_depth, params.tile_width_spacing, params.pixel_format,
+                        params.component_type, params.type, params.width, params.height,
+                        params.depth, params.unaligned_height) ==
+               std::tie(rhs.is_tiled, rhs.block_width, rhs.block_height, rhs.block_depth,
+                        rhs.tile_width_spacing, rhs.pixel_format, rhs.component_type, rhs.type,
+                        rhs.width, rhs.height, rhs.depth, rhs.unaligned_height);
     }
 
 private:
+    View GetView(u32 layer, u32 level);
+
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
@@ -187,7 +218,7 @@ private:
     VKMemoryCommit buffer_commit;
     u8* vk_buffer{};
 
-    std::unique_ptr<CachedView> superset_view;
+    std::unordered_map<ViewKey, std::unique_ptr<CachedView>> views;
 
     std::size_t cached_size_in_bytes;
     bool is_modified{};

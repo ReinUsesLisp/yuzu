@@ -11,8 +11,8 @@
 namespace Vulkan {
 
 VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
-                 vk::ImageViewType view_type, vk::ImageAspectFlags aspect_mask)
-    : device{device}, format{image_ci.format}, view_type{view_type}, aspect_mask{aspect_mask},
+                 vk::ImageAspectFlags aspect_mask)
+    : device{device}, format{image_ci.format}, aspect_mask{aspect_mask},
       current_layout{image_ci.initialLayout} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
@@ -20,22 +20,6 @@ VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
 }
 
 VKImage::~VKImage() = default;
-
-vk::ImageView VKImage::GetImageView() {
-    if (image_view) {
-        return *image_view;
-    }
-    const auto dev = device.GetLogical();
-    const auto& dld = device.GetDispatchLoader();
-
-    const vk::ImageViewCreateInfo image_view_ci(
-        {}, *image, view_type, format,
-        {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-         vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
-        {aspect_mask, 0, 1, 0, 1});
-    image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
-    return *image_view;
-}
 
 void VKImage::Transition(vk::CommandBuffer cmdbuf, vk::ImageSubresourceRange subresource_range,
                          vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
@@ -49,6 +33,15 @@ void VKImage::Transition(vk::CommandBuffer cmdbuf, vk::ImageSubresourceRange sub
     current_stage_mask = new_stage_mask;
     current_access = new_access;
     current_family = new_family;
+}
+
+void VKImage::CreatePresentView() {
+    // Image type has to be 2D to be presented
+    const vk::ImageViewCreateInfo image_view_ci({}, *image, vk::ImageViewType::e2D, format, {},
+                                                {aspect_mask, 0, 1, 0, 1});
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
+    present_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
 }
 
 } // namespace Vulkan

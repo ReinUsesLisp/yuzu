@@ -202,7 +202,7 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
 
     VKImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
 
-    UpdateDescriptorSet(image_index, blit_image->GetImageView());
+    UpdateDescriptorSet(image_index, blit_image->GetPresentView());
     SetUniformData(framebuffer);
     SetVertexData(framebuffer);
 
@@ -504,8 +504,8 @@ void VKBlitScreen::CreateRawImages(const Tegra::FramebufferConfig& framebuffer) 
             vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
             vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
 
-        raw_images[i] = std::make_unique<VKImage>(device, image_ci, vk::ImageViewType::e2D,
-                                                  vk::ImageAspectFlagBits::eColor);
+        raw_images[i] =
+            std::make_unique<VKImage>(device, image_ci, vk::ImageAspectFlagBits::eColor);
         raw_buffer_commits[i] = memory_manager.Commit(raw_images[i]->GetHandle(), false);
     }
 }

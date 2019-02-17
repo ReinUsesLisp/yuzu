@@ -29,14 +29,14 @@ using VideoCore::Surface::ComponentTypeFromTexture;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
 using VideoCore::Surface::PixelFormatFromTextureFormat;
-using VideoCore::Surface::SurfaceTargetFromTextureType;
+using VideoCore::Surface::SurfaceFamilyFromTextureType;
 
-static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
-    switch (target) {
-    case SurfaceTarget::Texture2D:
+static vk::ImageType SurfaceFamilyToImageVK(SurfaceFamily family) {
+    switch (family) {
+    case SurfaceFamily::Texture2D:
         return vk::ImageType::e2D;
     }
-    UNIMPLEMENTED_MSG("Unimplemented texture target={}", static_cast<u32>(target));
+    UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(family));
     return vk::ImageType::e2D;
 }
 
@@ -80,17 +80,10 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     params.width = Common::AlignUp(config.tic.Width(), GetCompressionFactor(params.pixel_format));
     params.height = Common::AlignUp(config.tic.Height(), GetCompressionFactor(params.pixel_format));
     params.unaligned_height = config.tic.Height();
-    params.target = SurfaceTargetFromTextureType(config.tic.texture_type);
+    params.family = SurfaceFamilyFromTextureType(config.tic.texture_type);
 
-    switch (params.target) {
-    case SurfaceTarget::Texture2D:
-        params.depth = 1;
-        break;
-    default:
-        UNIMPLEMENTED_MSG("Unknown depth for target={}", static_cast<u32>(params.target));
-        params.depth = 1;
-        break;
-    }
+    // Unimplemented
+    params.depth = 1;
 
     // params.is_layered = SurfaceTargetIsLayered(params.target);
     // params.max_mip_level = config.tic.max_mip_level + 1;
@@ -119,7 +112,7 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     params.width = zeta_width;
     params.height = zeta_height;
     params.unaligned_height = zeta_height;
-    params.target = SurfaceTarget::Texture2D;
+    params.family = SurfaceFamily::Texture2D;
     params.depth = 1;
     // params.max_mip_level = 1;
     // params.is_layered = false;
@@ -149,7 +142,7 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     params.width = config.width;
     params.height = config.height;
     params.unaligned_height = config.height;
-    params.target = SurfaceTarget::Texture2D;
+    params.family = SurfaceFamily::Texture2D;
     params.depth = 1;
     // params.max_mip_level = 0;
     // params.is_layered = false;
@@ -229,7 +222,7 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
         image_usage |= is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
                                : vk::ImageUsageFlagBits::eColorAttachment;
     }
-    return vk::ImageCreateInfo({}, SurfaceTargetToImageVK(target), format, {width, height, depth},
+    return vk::ImageCreateInfo({}, SurfaceFamilyToImageVK(family), format, {width, height, depth},
                                mipmaps, array_layers, sample_count, tiling, image_usage,
                                vk::SharingMode::eExclusive, 0, nullptr,
                                vk::ImageLayout::eUndefined);
@@ -248,8 +241,7 @@ static void SwizzleFunc(const MortonSwizzleMode& mode, const SurfaceParams& para
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
                              const SurfaceParams& params)
-    : VKImage(device, params.CreateInfo(device), SurfaceTargetToImageViewVK(params.target),
-              PixelFormatToImageAspect(params.pixel_format)),
+    : VKImage(device, params.CreateInfo(device), PixelFormatToImageAspect(params.pixel_format)),
       device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, params{params}, cached_size_in_bytes{params.size_in_bytes},
       buffer_size{std::max(params.size_in_bytes, params.size_in_bytes_vk)} {
@@ -274,16 +266,14 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
         LOG_ERROR(HW_GPU, "Surface size {} exceeds region size {}", params.size_in_bytes, max_size);
         cached_size_in_bytes = max_size;
     }
-
-    superset_view = std::make_unique<CachedView>(device, this, 0, 0);
 }
 
 CachedSurface::~CachedSurface() = default;
 
 void CachedSurface::LoadVKBuffer() {
     if (params.is_tiled) {
-        ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture type {}",
-                   params.block_width, static_cast<u32>(params.target));
+        ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture family {}",
+                   params.block_width, static_cast<u32>(params.family));
         SwizzleFunc(MortonSwizzleMode::MortonToLinear, params, vk_buffer, 0);
     } else {
         std::memcpy(vk_buffer, Memory::GetPointer(params.addr), params.size_in_bytes_vk);
@@ -317,6 +307,18 @@ VKExecutionContext CachedSurface::UploadVKTexture(VKExecutionContext exctx) {
         cmdbuf.copyBufferToImage(*buffer, image, vk::ImageLayout::eTransferDstOptimal, {copy}, dld);
     }
     return exctx;
+}
+
+View CachedSurface::GetView(u32 layer, u32 level) {
+    ViewKey key;
+    key.layer = layer;
+    key.level = level;
+    const auto [entry, is_cache_miss] = views.try_emplace(key);
+    auto& view = entry->second;
+    if (is_cache_miss) {
+        view = std::make_unique<CachedView>(device, this, layer, level);
+    }
+    return view.get();
 }
 
 CachedView::CachedView(const VKDevice& device, Surface surface, u32 layer, u32 level)
@@ -433,7 +435,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext
     if (preserve_contents) {
         exctx = LoadSurface(exctx, new_surface.get());
     }
-    const View superset_view = new_surface->GetSupersetView();
+    const View superset_view = new_surface->TryGetView(params);
+    ASSERT(superset_view);
     Register(std::move(new_surface));
     return {superset_view, exctx};
 }
@@ -461,7 +464,7 @@ void VKTextureCache::Unregister(Surface surface) {
     const auto it =
         std::find_if(registered_surfaces.begin(), registered_surfaces.end(),
                      [surface](const auto& registered) { return surface == registered.get(); });
-    ASSERT(it == registered_surfaces.end());
+    ASSERT(it != registered_surfaces.end());
     registered_surfaces.erase(it);
 }
 
