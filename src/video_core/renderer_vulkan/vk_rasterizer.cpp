@@ -30,8 +30,8 @@ using ImageViewsPack = StaticVector<vk::ImageView, Maxwell::NumRenderTargets + 1
 
 struct FramebufferInfo {
     vk::Framebuffer framebuffer;
-    std::array<Surface, Maxwell::NumRenderTargets> color_surfaces;
-    Surface zeta_surface;
+    std::array<View, Maxwell::NumRenderTargets> color_views;
+    View zeta_view;
     u32 width;
     u32 height;
 };
@@ -226,24 +226,24 @@ void RasterizerVulkan::DrawArrays() {
 
     FramebufferInfo fb_info;
     std::tie(fb_info, exctx) = ConfigureFramebuffers(exctx, renderpass);
-    const Surface& color_surface = fb_info.color_surfaces[0];
-    const Surface& zeta_surface = fb_info.zeta_surface;
+    const View color_view = fb_info.color_views[0];
+    const View zeta_view = fb_info.zeta_view;
 
     state.UpdateDescriptorSets(device);
 
     exctx = buffer_cache->Send(exctx);
 
     const auto cmdbuf = exctx.GetCommandBuffer();
-    color_surface->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                              vk::AccessFlagBits::eColorAttachmentRead |
-                                  vk::AccessFlagBits::eColorAttachmentWrite);
+    color_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
+                                         vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                         vk::AccessFlagBits::eColorAttachmentRead |
+                                             vk::AccessFlagBits::eColorAttachmentWrite);
 
-    if (zeta_surface != nullptr) {
-        zeta_surface->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
-                                 vk::PipelineStageFlagBits::eLateFragmentTests,
-                                 vk::AccessFlagBits::eDepthStencilAttachmentRead |
-                                     vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+    if (zeta_view != nullptr) {
+        zeta_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                                            vk::PipelineStageFlagBits::eLateFragmentTests,
+                                            vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                                                vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
     const vk::RenderPassBeginInfo renderpass_bi(
@@ -282,33 +282,34 @@ void RasterizerVulkan::Clear() {
     const auto& dld = device.GetDispatchLoader();
 
     if (use_color) {
-        Surface color_surface;
-        std::tie(color_surface, exctx) =
+        View color_view{};
+        std::tie(color_view, exctx) =
             texture_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
 
-        color_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                                  vk::PipelineStageFlagBits::eTransfer,
-                                  vk::AccessFlagBits::eTransferWrite);
+        color_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                                             vk::PipelineStageFlagBits::eTransfer,
+                                             vk::AccessFlagBits::eTransferWrite);
 
         const vk::ClearColorValue clear(std::array<float, 4>{
             regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});
         cmdbuf.clearColorImage(
-            color_surface->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
+            color_view->GetSurface()->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
             {vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)}, dld);
     }
     if (use_depth || use_stencil) {
-        Surface zeta_surface;
+        View zeta_surface{};
         std::tie(zeta_surface, exctx) = texture_cache->GetDepthBufferSurface(exctx, false);
 
-        zeta_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                                 vk::PipelineStageFlagBits::eTransfer,
-                                 vk::AccessFlagBits::eTransferWrite);
+        zeta_surface->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                                               vk::PipelineStageFlagBits::eTransfer,
+                                               vk::AccessFlagBits::eTransferWrite);
 
         const vk::ClearDepthStencilValue clear(regs.clear_depth,
                                                static_cast<u32>(regs.clear_stencil));
         cmdbuf.clearDepthStencilImage(
-            zeta_surface->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
-            {vk::ImageSubresourceRange(zeta_surface->GetAspectMask(), 0, 1, 0, 1)}, dld);
+            zeta_surface->GetSurface()->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
+            {vk::ImageSubresourceRange(zeta_surface->GetSurface()->GetAspectMask(), 0, 1, 0, 1)},
+            dld);
     }
 }
 
@@ -346,8 +347,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     ASSERT_MSG(params.height == config.height, "Framebuffer height is different");
     ASSERT_MSG(params.pixel_format == pixel_format, "Framebuffer pixel_format is different");
 
-    screen_info.image = surface.get();
-
+    screen_info.image = surface;
     return true;
 }
 
@@ -397,16 +397,13 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
     bool preserve_contents) {
     const auto& regs = system.GPU().Maxwell3D().regs;
 
-    Surface color_surface, zeta_surface;
+    View color_view{}, zeta_view{};
     if (using_color_fb) {
-        std::tie(color_surface, exctx) =
+        std::tie(color_view, exctx) =
             texture_cache->GetColorBufferSurface(exctx, 0, preserve_contents);
-        color_surface->MarkAsModified(true, *texture_cache);
     }
     if (using_zeta_fb) {
-        std::tie(zeta_surface, exctx) =
-            texture_cache->GetDepthBufferSurface(exctx, preserve_contents);
-        zeta_surface->MarkAsModified(true, *texture_cache);
+        std::tie(zeta_view, exctx) = texture_cache->GetDepthBufferSurface(exctx, preserve_contents);
     }
 
     FramebufferCacheKey fbkey;
@@ -414,15 +411,17 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
     fbkey.width = std::numeric_limits<u32>::max();
     fbkey.height = std::numeric_limits<u32>::max();
 
-    if (color_surface != nullptr) {
-        fbkey.views.Push(color_surface->GetImageView());
-        fbkey.width = std::min(fbkey.width, color_surface->GetSurfaceParams().width);
-        fbkey.height = std::min(fbkey.height, color_surface->GetSurfaceParams().height);
+    if (color_view != nullptr) {
+        color_view->MarkAsModified(true);
+        fbkey.views.Push(color_view->GetHandle());
+        fbkey.width = std::min(fbkey.width, color_view->GetSurface()->GetSurfaceParams().width);
+        fbkey.height = std::min(fbkey.height, color_view->GetSurface()->GetSurfaceParams().height);
     }
-    if (zeta_surface != nullptr) {
-        fbkey.views.Push(zeta_surface->GetImageView());
-        fbkey.width = std::min(fbkey.width, zeta_surface->GetSurfaceParams().width);
-        fbkey.height = std::min(fbkey.height, zeta_surface->GetSurfaceParams().height);
+    if (zeta_view != nullptr) {
+        zeta_view->MarkAsModified(true);
+        fbkey.views.Push(zeta_view->GetHandle());
+        fbkey.width = std::min(fbkey.width, zeta_view->GetSurface()->GetSurfaceParams().width);
+        fbkey.height = std::min(fbkey.height, zeta_view->GetSurface()->GetSurfaceParams().height);
     }
 
     const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
@@ -438,12 +437,8 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
 
     FramebufferInfo info;
     info.framebuffer = *framebuffer;
-    if (color_surface != nullptr) {
-        info.color_surfaces[0] = std::move(color_surface);
-    }
-    if (zeta_surface != nullptr) {
-        info.zeta_surface = std::move(zeta_surface);
-    }
+    info.color_views[0] = color_view;
+    info.zeta_view = zeta_view;
     info.width = fbkey.width;
     info.height = fbkey.height;
     return {info, exctx};
@@ -534,7 +529,7 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& sha
         // Align the actual size so it ends up being a multiple of vec4 to meet the OpenGL
         // std140 UBO alignment requirements.
         size = Common::AlignUp(size, 4 * sizeof(float));
-        ASSERT_MSG(size <= MaxConstbufferSize, "Constbuffer too big");
+        ASSERT_MSG(size <= MaxConstbufferSize, "Constant buffer is too big");
 
         const auto [offset, buffer_handle] =
             buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
@@ -559,16 +554,17 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, Pip
 
         const auto texture = gpu.GetStageTexture(stage, entry.GetOffset());
 
-        Surface surface;
-        std::tie(surface, exctx) = texture_cache->GetTextureSurface(exctx, texture, entry);
-        UNIMPLEMENTED_IF(surface == nullptr);
+        View view{};
+        std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture, entry);
+        UNIMPLEMENTED_IF(view == nullptr);
 
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        surface->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
-                            pipeline_stage, vk::AccessFlagBits::eShaderRead);
+        view->GetSurface()->Transition(exctx.GetCommandBuffer(),
+                                       vk::ImageLayout::eShaderReadOnlyOptimal, pipeline_stage,
+                                       vk::AccessFlagBits::eShaderRead);
 
         const auto [write, image_info] = state.CaptureDescriptorWriteImage();
-        image_info = vk::DescriptorImageInfo(*dummy_sampler, surface->GetImageView(),
+        image_info = vk::DescriptorImageInfo(*dummy_sampler, view->GetHandle(),
                                              vk::ImageLayout::eShaderReadOnlyOptimal);
         write = vk::WriteDescriptorSet(descriptor_set, entry.GetBinding(), 0, 1,
                                        vk::DescriptorType::eCombinedImageSampler, &image_info,

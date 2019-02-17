@@ -26,6 +26,10 @@ namespace Core {
 class System;
 } // namespace Core
 
+namespace VideoCore {
+class RasterizerInterface;
+} // namespace VideoCore
+
 namespace Vulkan {
 
 class RasterizerVulkan;
@@ -38,8 +42,9 @@ using VideoCore::Surface::SurfaceTarget;
 using VideoCore::Surface::SurfaceType;
 
 class CachedSurface;
-using Surface = std::shared_ptr<CachedSurface>;
-using SurfaceSurfaceRect_Tuple = std::tuple<Surface, Surface, MathUtil::Rectangle<u32>>;
+class CachedView;
+using Surface = CachedSurface*;
+using View = const CachedView*;
 
 struct SurfaceParams {
     /// Creates SurfaceParams from a texture configuration
@@ -57,20 +62,20 @@ struct SurfaceParams {
     static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
 
     /// Returns the total size of this surface in bytes, adjusted for compression
-    std::size_t SizeInBytesRaw(bool ignore_tiled = false) const {
+    std::size_t GetSizeInBytes(bool ignore_tiled = false) const {
         const u32 compression_factor{GetCompressionFactor(pixel_format)};
         const u32 bytes_per_pixel{GetBytesPerPixel(pixel_format)};
-        const size_t uncompressed_size{
-            Tegra::Texture::CalculateSize((ignore_tiled ? false : is_tiled), bytes_per_pixel, width,
-                                          height, depth, block_height, block_depth)};
+        const bool tiled{ignore_tiled ? false : is_tiled};
+        const std::size_t uncompressed_size{Tegra::Texture::CalculateSize(
+            tiled, bytes_per_pixel, width, height, depth, block_height, block_depth)};
 
         // Divide by compression_factor^2, as height and width are factored by this
         return uncompressed_size / (compression_factor * compression_factor);
     }
 
     /// Returns the size of this surface as an Vulkan texture in bytes
-    std::size_t SizeInBytesVK() const {
-        return SizeInBytesRaw(true);
+    std::size_t GetSizeInBytesVK() const {
+        return GetSizeInBytes(true);
     }
 
     /// Checks if surfaces are compatible for caching
@@ -100,6 +105,7 @@ struct SurfaceParams {
     u32 depth;
     u32 unaligned_height;
     SurfaceTarget target;
+
     // Parameters used for caching
     VAddr addr;
     Tegra::GPUVAddr gpu_addr;
@@ -107,7 +113,7 @@ struct SurfaceParams {
     std::size_t size_in_bytes_vk;
 };
 
-class CachedSurface final : public RasterizerCacheObject, public VKImage {
+class CachedSurface : public VKImage {
 public:
     explicit CachedSurface(Core::System& system, const VKDevice& device,
                            VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
@@ -121,20 +127,50 @@ public:
     // Upload data in vk_buffer to this surface's texture
     VKExecutionContext UploadVKTexture(VKExecutionContext exctx);
 
-    VAddr GetAddr() const override {
+    VAddr GetAddr() const {
         return params.addr;
     }
 
-    std::size_t GetSizeInBytes() const override {
+    std::size_t GetSizeInBytes() const {
         return cached_size_in_bytes;
     }
 
-    void Flush() override {
+    bool IsOverlap(VAddr addr, std::size_t size) const {
+        const VAddr this_left = GetAddr();
+        const VAddr this_right = this_left + static_cast<VAddr>(GetSizeInBytes());
+        const VAddr other_left = addr;
+        const VAddr other_right = other_left + static_cast<VAddr>(size);
+        return this_left < other_right && other_left < this_right;
+    }
+
+    void MarkAsModified(bool is_modified_) {
+        is_modified = is_modified_;
+    }
+
+    VKExecutionContext Flush(VKExecutionContext exctx) {
         UNIMPLEMENTED();
+        return exctx;
     }
 
     const SurfaceParams& GetSurfaceParams() const {
         return params;
+    }
+
+    View GetSupersetView() const {
+        return superset_view.get();
+    }
+
+    View TryGetView(const SurfaceParams& params) const {
+        if (params.addr == GetSurfaceParams().addr) {
+            return GetSupersetView();
+        }
+        // Unimplemented
+        return nullptr;
+    }
+
+    bool IsFamiliar(const SurfaceParams& params) const {
+        // Unimplemented
+        return true;
     }
 
 private:
@@ -151,86 +187,83 @@ private:
     VKMemoryCommit buffer_commit;
     u8* vk_buffer{};
 
-    UniqueImageView image_view;
+    std::unique_ptr<CachedView> superset_view;
 
     std::size_t cached_size_in_bytes;
+    bool is_modified{};
 };
 
-} // namespace Vulkan
-
-/// Hashable variation of SurfaceParams, used for a key in the surface cache
-struct SurfaceReserveKey : Common::HashableStruct<Vulkan::SurfaceParams> {
-    static SurfaceReserveKey Create(const Vulkan::SurfaceParams& params) {
-        SurfaceReserveKey res;
-        res.state = params;
-        res.state.gpu_addr = {}; // Ignore GPU vaddr in caching
-        // res.state.rt = {};       // Ignore rt config in caching
-        return res;
-    }
-};
-namespace std {
-template <>
-struct hash<SurfaceReserveKey> {
-    std::size_t operator()(const SurfaceReserveKey& k) const {
-        return k.Hash();
-    }
-};
-} // namespace std
-
-namespace Vulkan {
-
-class VKTextureCache final : public RasterizerCache<Surface> {
+class CachedView {
 public:
-    explicit VKTextureCache(Core::System& system, RasterizerVulkan& rasterizer,
+    CachedView(const VKDevice& device, Surface surface, u32 layer, u32 level);
+    ~CachedView();
+
+    vk::ImageView GetHandle() const {
+        return *image_view;
+    }
+
+    Surface GetSurface() const {
+        return surface;
+    }
+
+    void MarkAsModified(bool is_modified) const {
+        surface->MarkAsModified(is_modified);
+    }
+
+private:
+    const VKDevice& device;
+    Surface surface;
+    UniqueImageView image_view;
+};
+
+class VKTextureCache {
+public:
+    explicit VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                             const VKDevice& device, VKResourceManager& resource_manager,
                             VKMemoryManager& memory_manager);
     ~VKTextureCache();
 
+    void InvalidateRegion(VAddr addr, std::size_t size);
+
     /// Get a surface based on the texture configuration
-    [[nodiscard]] std::tuple<Surface, VKExecutionContext> GetTextureSurface(
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetTextureSurface(
         VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config,
         const VKShader::SamplerEntry& entry);
 
     /// Get the depth surface based on the framebuffer configuration
-    [[nodiscard]] std::tuple<Surface, VKExecutionContext> GetDepthBufferSurface(
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetDepthBufferSurface(
         VKExecutionContext exctx, bool preserve_contents);
 
     /// Get the color surface based on the framebuffer configuration and the specified render target
-    [[nodiscard]] std::tuple<Surface, VKExecutionContext> GetColorBufferSurface(
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetColorBufferSurface(
         VKExecutionContext exctx, std::size_t index, bool preserve_contents);
 
     /// Tries to find a framebuffer using on the provided CPU address
-    Surface TryFindFramebufferSurface(VAddr addr) const;
+    [[nodiscard]] Surface TryFindFramebufferSurface(VAddr addr) const;
 
 private:
+    [[nodiscard]] VKExecutionContext LoadSurface(VKExecutionContext exctx, const Surface& surface);
+
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetView(VKExecutionContext exctx,
+                                                               const SurfaceParams& params,
+                                                               bool preserve_contents);
+
+    [[nodiscard]] std::tuple<View, VKExecutionContext> LoadView(VKExecutionContext exctx,
+                                                                const SurfaceParams& params,
+                                                                bool preserve_contents);
+
+    [[nodiscard]] std::vector<Surface> GetOverlappingSurfaces(const SurfaceParams& params) const;
+
+    void Register(std::unique_ptr<CachedSurface>&& surface);
+
+    void Unregister(Surface surface);
+
     Core::System& system;
+    VideoCore::RasterizerInterface& rasterizer;
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
-
-    [[nodiscard]] VKExecutionContext LoadSurface(VKExecutionContext exctx, const Surface& surface);
-
-    [[nodiscard]] std::tuple<Surface, VKExecutionContext> GetSurface(VKExecutionContext exctx,
-                                                                     const SurfaceParams& params,
-                                                                     bool preserve_contents = true);
-
-    /// Gets an uncached surface, creating it if need be
-    Surface GetUncachedSurface(const SurfaceParams& params);
-
-    /// Recreates a surface with new parameters
-    [[nodiscard]] std::tuple<Surface, VKExecutionContext> RecreateSurface(
-        VKExecutionContext exctx, const Surface& old_surface, const SurfaceParams& new_params);
-
-    /// Reserves a unique surface that can be reused later
-    void ReserveSurface(const Surface& surface);
-
-    /// Tries to get a reserved surface for the specified parameters
-    Surface TryGetReservedSurface(const SurfaceParams& params);
-
-    /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
-    /// previously been used. This is to prevent surfaces from being constantly created and
-    /// destroyed when used with different surface parameters.
-    std::unordered_map<SurfaceReserveKey, Surface> surface_reserve;
+    std::vector<std::unique_ptr<CachedSurface>> registered_surfaces;
 };
 
 } // namespace Vulkan

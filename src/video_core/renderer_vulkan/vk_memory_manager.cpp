@@ -69,7 +69,7 @@ public:
             std::find_if(commits.begin(), commits.end(),
                          [&](const auto& stored_commit) { return stored_commit == commit; });
         if (it == commits.end()) {
-            LOG_ERROR(Render_Vulkan, "Freeing unallocated commit!");
+            LOG_CRITICAL(Render_Vulkan, "Freeing unallocated commit!");
             UNREACHABLE();
             return;
         }
@@ -87,9 +87,10 @@ private:
         return 1 << type;
     }
 
-    /// This function is basically a memory allocator, it may return a free region between "start"
-    /// and "end" with the solicited requeriments.
-    inline std::optional<u64> TryFindFreeSection(u64 start, u64 end, u64 size, u64 alignment) {
+    /// A memory allocator, it may return a free region between "start" and "end" with the solicited
+    /// requeriments.
+    inline std::optional<u64> TryFindFreeSection(u64 start, u64 end, u64 size,
+                                                 u64 alignment) const {
         u64 iterator = start;
         while (iterator + size < end) {
             const u64 try_left = Common::AlignUp(iterator, alignment);
@@ -99,8 +100,7 @@ private:
             for (const auto& commit : commits) {
                 const auto [commit_left, commit_right] = commit->interval;
                 if (try_left < commit_right && commit_left < try_right) {
-                    // There's an overlap, continue the search where the overlapping commit
-                    // ends.
+                    // There's an overlap, continue the search where the overlapping commit ends.
                     iterator = commit_right;
                     overlap = true;
                     break;
