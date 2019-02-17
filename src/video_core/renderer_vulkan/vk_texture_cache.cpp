@@ -395,7 +395,7 @@ Surface VKTextureCache::TryFindFramebufferSurface(VAddr addr) const {
     const auto it =
         std::find_if(registered_surfaces.begin(), registered_surfaces.end(),
                      [addr](const auto& surface) { return surface->GetAddr() == addr; });
-    return it != registered_surfaces.end() ? it->get() : nullptr;
+    return it != registered_surfaces.end() ? *it : nullptr;
 }
 
 VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const Surface& surface) {
@@ -430,14 +430,13 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext 
 std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext exctx,
                                                               const SurfaceParams& params,
                                                               bool preserve_contents) {
-    auto new_surface =
-        std::make_unique<CachedSurface>(system, device, resource_manager, memory_manager, params);
+    const Surface surface = GetUncachedSurface(params);
     if (preserve_contents) {
-        exctx = LoadSurface(exctx, new_surface.get());
+        exctx = LoadSurface(exctx, surface);
     }
-    const View superset_view = new_surface->TryGetView(params);
+    const View superset_view = surface->TryGetView(params);
     ASSERT(superset_view);
-    Register(std::move(new_surface));
+    Register(surface);
     return {superset_view, exctx};
 }
 
@@ -448,24 +447,48 @@ std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(const SurfaceParams&
     std::vector<Surface> overlaps;
     for (const auto& surface : registered_surfaces) {
         if (surface->IsOverlap(addr, size)) {
-            overlaps.push_back(surface.get());
+            overlaps.push_back(surface);
         }
     }
     return overlaps;
 }
 
-void VKTextureCache::Register(std::unique_ptr<CachedSurface>&& surface) {
+void VKTextureCache::Register(Surface surface) {
     rasterizer.UpdatePagesCachedCount(surface->GetAddr(), surface->GetSizeInBytes(), 1);
-    registered_surfaces.push_back(std::move(surface));
+    registered_surfaces.push_back(surface);
 }
 
 void VKTextureCache::Unregister(Surface surface) {
     rasterizer.UpdatePagesCachedCount(surface->GetAddr(), surface->GetSizeInBytes(), -1);
-    const auto it =
-        std::find_if(registered_surfaces.begin(), registered_surfaces.end(),
-                     [surface](const auto& registered) { return surface == registered.get(); });
+    const auto it = std::find(registered_surfaces.begin(), registered_surfaces.end(), surface);
     ASSERT(it != registered_surfaces.end());
     registered_surfaces.erase(it);
+}
+
+Surface VKTextureCache::GetUncachedSurface(const SurfaceParams& params) {
+    Surface surface{TryGetReservedSurface(params)};
+    if (!surface) {
+        // No reserved surface available, create a new one and reserve it
+        auto new_surface = std::make_unique<CachedSurface>(system, device, resource_manager,
+                                                           memory_manager, params);
+        surface = new_surface.get();
+        ReserveSurface(std::move(new_surface));
+    }
+    return surface;
+}
+
+void VKTextureCache::ReserveSurface(std::unique_ptr<CachedSurface> surface) {
+    const auto& surface_reserve_key{SurfaceReserveKey::Create(surface->GetSurfaceParams())};
+    surface_reserve[surface_reserve_key] = std::move(surface);
+}
+
+Surface VKTextureCache::TryGetReservedSurface(const SurfaceParams& params) {
+    const auto& surface_reserve_key{SurfaceReserveKey::Create(params)};
+    auto search{surface_reserve.find(surface_reserve_key)};
+    if (search != surface_reserve.end()) {
+        return search->second.get();
+    }
+    return {};
 }
 
 } // namespace Vulkan

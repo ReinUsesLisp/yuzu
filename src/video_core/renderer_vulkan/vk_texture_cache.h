@@ -113,6 +113,17 @@ struct SurfaceParams {
     std::size_t size_in_bytes_vk;
 };
 
+struct SurfaceReserveKey : Common::HashableStruct<SurfaceParams> {
+    static SurfaceReserveKey Create(const SurfaceParams& params) {
+        SurfaceReserveKey res;
+        res.state = params;
+        // res.state.identity = {}; // Ignore the origin of the texture
+        res.state.gpu_addr = {}; // Ignore GPU vaddr in caching
+        // res.state.rt = {};       // Ignore rt config in caching
+        return res;
+    }
+};
+
 struct ViewKey {
     u32 layer;
     u32 level;
@@ -125,6 +136,13 @@ struct ViewKey {
 } // namespace Vulkan
 
 namespace std {
+
+template <>
+struct hash<Vulkan::SurfaceReserveKey> {
+    std::size_t operator()(const Vulkan::SurfaceReserveKey& k) const {
+        return k.Hash();
+    }
+};
 
 template <>
 struct hash<Vulkan::ViewKey> {
@@ -285,16 +303,28 @@ private:
 
     [[nodiscard]] std::vector<Surface> GetOverlappingSurfaces(const SurfaceParams& params) const;
 
-    void Register(std::unique_ptr<CachedSurface>&& surface);
+    void Register(Surface surface);
 
     void Unregister(Surface surface);
+
+    Surface GetUncachedSurface(const SurfaceParams& params);
+
+    void ReserveSurface(std::unique_ptr<CachedSurface> surface);
+
+    Surface TryGetReservedSurface(const SurfaceParams& params);
 
     Core::System& system;
     VideoCore::RasterizerInterface& rasterizer;
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
-    std::vector<std::unique_ptr<CachedSurface>> registered_surfaces;
+
+    std::vector<Surface> registered_surfaces;
+
+    /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
+    /// previously been used. This is to prevent surfaces from being constantly created and
+    /// destroyed when used with different surface parameters.
+    std::unordered_map<SurfaceReserveKey, std::unique_ptr<CachedSurface>> surface_reserve;
 };
 
 } // namespace Vulkan
