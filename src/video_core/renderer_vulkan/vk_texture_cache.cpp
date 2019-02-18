@@ -345,14 +345,13 @@ VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterf
 VKTextureCache::~VKTextureCache() = default;
 
 void VKTextureCache::InvalidateRegion(VAddr address, std::size_t size) {
-    registered_surfaces.erase(std::remove_if(registered_surfaces.begin(), registered_surfaces.end(),
-                                             [address, size](const auto& surface) {
-                                                 if (!surface->IsOverlap(address, size))
-                                                     return false;
-                                                 surface->Unregister();
-                                                 return true;
-                                             }),
-                              registered_surfaces.end());
+    for (const Surface surface : GetSurfacesInRegion(address, size)) {
+        if (!surface->IsRegistered()) {
+            // Skip duplicates
+            continue;
+        }
+        Unregister(surface);
+    }
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetTextureSurface(
@@ -399,11 +398,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetColorBufferSurface(VKExe
 }
 
 Surface VKTextureCache::TryFindFramebufferSurface(VAddr address) const {
-    // FIXME: This is kinda horrible
-    const auto it =
-        std::find_if(registered_surfaces.begin(), registered_surfaces.end(),
-                     [address](const auto& surface) { return surface->GetAddress() == address; });
-    return it != registered_surfaces.end() ? *it : nullptr;
+    const auto it = registered_surfaces.find(address);
+    return it != registered_surfaces.end() ? *it->second.begin() : nullptr;
 }
 
 VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const Surface& surface) {
@@ -417,7 +413,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext 
                                                              VAddr address,
                                                              const SurfaceParams& params,
                                                              bool preserve_contents) {
-    const std::vector<Surface> overlaps = GetOverlappingSurfaces(address, params);
+    const std::vector<Surface> overlaps = GetSurfacesInRegion(address, params.GetSizeInBytes());
     if (overlaps.empty()) {
         return LoadView(exctx, address, params, preserve_contents);
     }
@@ -452,32 +448,33 @@ std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext
     return {superset_view, exctx};
 }
 
-std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(VAddr address,
-                                                            const SurfaceParams& params) const {
-    const std::size_t size = params.GetSizeInBytes();
-
-    std::vector<Surface> overlaps;
-    for (const auto& surface : registered_surfaces) {
-        if (surface->IsOverlap(address, size)) {
-            overlaps.push_back(surface);
-        }
+std::vector<Surface> VKTextureCache::GetSurfacesInRegion(VAddr address, std::size_t size) const {
+    if (size == 0) {
+        return {};
     }
-    return overlaps;
+    const boost::icl::interval_map<VAddr, Surface>::interval_type interval{
+        address, address + static_cast<VAddr>(size)};
+
+    std::vector<Surface> surfaces;
+    for (auto& pair : boost::make_iterator_range(registered_surfaces.equal_range(interval))) {
+        surfaces.push_back(*pair.second.begin());
+    }
+    return surfaces;
 }
 
 void VKTextureCache::Register(Surface surface, VAddr address) {
     surface->Register(address);
-    registered_surfaces.push_back(surface);
+    registered_surfaces.add(
+        {{address, address + static_cast<VAddr>(surface->GetSizeInBytes())}, {surface}});
 
     rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), 1);
 }
 
 void VKTextureCache::Unregister(Surface surface) {
     surface->Unregister();
-
-    const auto it = std::find(registered_surfaces.begin(), registered_surfaces.end(), surface);
-    ASSERT(it != registered_surfaces.end());
-    registered_surfaces.erase(it);
+    const auto interval = boost::icl::interval_map<VAddr, Surface>::interval_type::right_open(
+        surface->GetAddress(), surface->GetAddress() + surface->GetSizeInBytes());
+    registered_surfaces.subtract({interval, {surface}});
 
     rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), -1);
 }

@@ -4,11 +4,10 @@
 
 #pragma once
 
-#include <list>
-#include <map>
 #include <memory>
 #include <tuple>
 #include <unordered_map>
+#include <boost/icl/interval_map.hpp>
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "common/hash.h"
@@ -26,11 +25,11 @@
 
 namespace Core {
 class System;
-} // namespace Core
+}
 
 namespace VideoCore {
 class RasterizerInterface;
-} // namespace VideoCore
+}
 
 namespace Vulkan {
 
@@ -310,8 +309,7 @@ private:
                                                                 const SurfaceParams& params,
                                                                 bool preserve_contents);
 
-    [[nodiscard]] std::vector<Surface> GetOverlappingSurfaces(VAddr addr,
-                                                              const SurfaceParams& params) const;
+    [[nodiscard]] std::vector<Surface> GetSurfacesInRegion(VAddr address, std::size_t size) const;
 
     void Register(Surface surface, VAddr address);
 
@@ -329,7 +327,7 @@ private:
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
 
-    std::vector<Surface> registered_surfaces;
+    boost::icl::interval_map<VAddr, std::set<Surface>> registered_surfaces;
 
     /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
     /// previously been used. This is to prevent surfaces from being constantly created and
