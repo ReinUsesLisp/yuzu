@@ -348,7 +348,10 @@ VKTextureCache::~VKTextureCache() = default;
 void VKTextureCache::InvalidateRegion(VAddr addr, std::size_t size) {
     registered_surfaces.erase(std::remove_if(registered_surfaces.begin(), registered_surfaces.end(),
                                              [addr, size](const auto& surface) {
-                                                 return surface->IsOverlap(addr, size);
+                                                 if (!surface->IsOverlap(addr, size))
+                                                     return false;
+                                                 surface->Unregister();
+                                                 return true;
                                              }),
                               registered_surfaces.end());
 }
@@ -455,11 +458,13 @@ std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(const SurfaceParams&
 
 void VKTextureCache::Register(Surface surface) {
     rasterizer.UpdatePagesCachedCount(surface->GetAddr(), surface->GetSizeInBytes(), 1);
+    surface->Register();
     registered_surfaces.push_back(surface);
 }
 
 void VKTextureCache::Unregister(Surface surface) {
     rasterizer.UpdatePagesCachedCount(surface->GetAddr(), surface->GetSizeInBytes(), -1);
+    surface->Unregister();
     const auto it = std::find(registered_surfaces.begin(), registered_surfaces.end(), surface);
     ASSERT(it != registered_surfaces.end());
     registered_surfaces.erase(it);
@@ -479,14 +484,19 @@ Surface VKTextureCache::GetUncachedSurface(const SurfaceParams& params) {
 
 void VKTextureCache::ReserveSurface(std::unique_ptr<CachedSurface> surface) {
     const auto& surface_reserve_key{SurfaceReserveKey::Create(surface->GetSurfaceParams())};
-    surface_reserve[surface_reserve_key] = std::move(surface);
+    surface_reserve[surface_reserve_key].push_back(std::move(surface));
 }
 
 Surface VKTextureCache::TryGetReservedSurface(const SurfaceParams& params) {
     const auto& surface_reserve_key{SurfaceReserveKey::Create(params)};
     auto search{surface_reserve.find(surface_reserve_key)};
-    if (search != surface_reserve.end()) {
-        return search->second.get();
+    if (search == surface_reserve.end()) {
+        return {};
+    }
+    for (auto& surface : search->second) {
+        if (!surface->IsRegistered()) {
+            return surface.get();
+        }
     }
     return {};
 }

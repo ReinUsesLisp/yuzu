@@ -4,9 +4,11 @@
 
 #pragma once
 
+#include <list>
 #include <map>
 #include <memory>
 #include <tuple>
+#include <unordered_map>
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "common/hash.h"
@@ -220,6 +222,20 @@ public:
                         rhs.width, rhs.height, rhs.depth, rhs.unaligned_height);
     }
 
+    bool Register() {
+        ASSERT(!is_registered);
+        is_registered = true;
+    }
+
+    bool Unregister() {
+        ASSERT(is_registered);
+        is_registered = false;
+    }
+
+    bool IsRegistered() const {
+        return is_registered;
+    }
+
 private:
     View GetView(u32 layer, u32 level);
 
@@ -240,6 +256,7 @@ private:
 
     std::size_t cached_size_in_bytes;
     bool is_modified{};
+    bool is_registered{};
 };
 
 class CachedView {
@@ -324,7 +341,8 @@ private:
     /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
     /// previously been used. This is to prevent surfaces from being constantly created and
     /// destroyed when used with different surface parameters.
-    std::unordered_map<SurfaceReserveKey, std::unique_ptr<CachedSurface>> surface_reserve;
+    std::unordered_map<SurfaceReserveKey, std::list<std::unique_ptr<CachedSurface>>>
+        surface_reserve;
 };
 
 } // namespace Vulkan

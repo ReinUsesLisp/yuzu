@@ -81,8 +81,6 @@ std::tuple<u8*, u64, vk::Buffer, bool> VKStreamBuffer::Reserve(u64 size, bool ke
             mark_invalidation};
 }
 
-#pragma optimize("", off)
-
 VKExecutionContext VKStreamBuffer::Send(VKExecutionContext exctx, u64 size) {
     ASSERT(size <= mapped_size);
 
