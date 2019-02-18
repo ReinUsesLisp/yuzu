@@ -81,16 +81,8 @@ struct SurfaceParams {
         return GetSizeInBytes(true);
     }
 
-    /// Checks if surfaces are compatible for caching
-    bool IsCompatibleSurface(const SurfaceParams& other) const {
-        return std::tie(pixel_format, type, family, block_height, block_depth,
-                        tile_width_spacing) ==
-               std::tie(other.pixel_format, other.type, other.family, other.block_height,
-                        other.block_depth, other.tile_width_spacing);
-    }
-
     /// Initializes parameters for caching, should be called after everything has been initialized
-    void InitCacheParameters(Core::System& system);
+    void CalculateSizes();
 
     vk::ImageCreateInfo CreateInfo(const VKDevice& device) const;
 

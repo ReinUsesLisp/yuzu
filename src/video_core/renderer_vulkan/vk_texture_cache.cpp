@@ -105,8 +105,7 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     // params.max_mip_level = config.tic.max_mip_level + 1;
     // params.rt = {};
 
-    params.InitCacheParameters(system);
-
+    params.CalculateSizes();
     return params;
 }
 
@@ -134,8 +133,7 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     // params.is_layered = false;
     // params.rt = {};
 
-    params.InitCacheParameters(system);
-
+    params.CalculateSizes();
     return params;
 }
 
@@ -170,8 +168,7 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     // params.rt.volume = config.volume;
     // params.rt.base_layer = config.base_layer;
 
-    params.InitCacheParameters(system);
-
+    params.CalculateSizes();
     return params;
 }
 
@@ -204,7 +201,7 @@ static void ConvertFormatAsNeeded_LoadVKBuffer(u8* data, PixelFormat pixel_forma
     }
 }
 
-void SurfaceParams::InitCacheParameters(Core::System& system) {
+void SurfaceParams::CalculateSizes() {
     size_in_bytes = GetSizeInBytes();
 
     if (IsPixelFormatASTC(pixel_format)) {
