@@ -62,6 +62,22 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     }
 }
 
+static VAddr GetAddressForTexture(Core::System& system,
+                                  const Tegra::Texture::FullTextureInfo& config) {
+    auto& memory_manager{system.GPU().MemoryManager()};
+    const auto cpu_addr{memory_manager.GpuToCpuAddress(config.tic.Address())};
+    ASSERT(cpu_addr);
+    return *cpu_addr;
+}
+
+static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
+    auto& memory_manager{system.GPU().MemoryManager()};
+    const auto& config{system.GPU().Maxwell3D().regs.rt[index]};
+    const auto cpu_addr{memory_manager.GpuToCpuAddress(config.Address())};
+    ASSERT(cpu_addr);
+    return *cpu_addr;
+}
+
 /*static*/ SurfaceParams SurfaceParams::CreateForTexture(
     Core::System& system, const Tegra::Texture::FullTextureInfo& config,
     const VKShader::SamplerEntry& entry) {
@@ -89,14 +105,14 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     // params.max_mip_level = config.tic.max_mip_level + 1;
     // params.rt = {};
 
-    params.InitCacheParameters(system, config.tic.Address());
+    params.InitCacheParameters(system);
 
     return params;
 }
 
 /*static*/ SurfaceParams SurfaceParams::CreateForDepthBuffer(
-    Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::GPUVAddr zeta_address,
-    Tegra::DepthFormat format, u32 block_width, u32 block_height, u32 block_depth,
+    Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::DepthFormat format,
+    u32 block_width, u32 block_height, u32 block_depth,
     Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type) {
 
     SurfaceParams params{};
@@ -118,7 +134,7 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     // params.is_layered = false;
     // params.rt = {};
 
-    params.InitCacheParameters(system, zeta_address);
+    params.InitCacheParameters(system);
 
     return params;
 }
@@ -154,7 +170,7 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     // params.rt.volume = config.volume;
     // params.rt.base_layer = config.base_layer;
 
-    params.InitCacheParameters(system, config.Address());
+    params.InitCacheParameters(system);
 
     return params;
 }
@@ -188,13 +204,7 @@ static void ConvertFormatAsNeeded_LoadVKBuffer(u8* data, PixelFormat pixel_forma
     }
 }
 
-void SurfaceParams::InitCacheParameters(Core::System& system, Tegra::GPUVAddr gpu_addr_) {
-    auto& memory_manager{system.GPU().MemoryManager()};
-    const auto cpu_addr{memory_manager.GpuToCpuAddress(gpu_addr_)};
-    ASSERT(cpu_addr);
-
-    addr = cpu_addr ? *cpu_addr : 0;
-    gpu_addr = gpu_addr_;
+void SurfaceParams::InitCacheParameters(Core::System& system) {
     size_in_bytes = GetSizeInBytes();
 
     if (IsPixelFormatASTC(pixel_format)) {
@@ -228,14 +238,14 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
                                vk::ImageLayout::eUndefined);
 }
 
-static void SwizzleFunc(const MortonSwizzleMode& mode, const SurfaceParams& params, u8* vk_buffer,
-                        u32 mip_level) {
+static void SwizzleFunc(const MortonSwizzleMode& mode, VAddr addr, const SurfaceParams& params,
+                        u8* vk_buffer, u32 mip_level) {
     UNIMPLEMENTED_IF(params.depth != 1);
 
     const u64 offset = 0;
     MortonSwizzle(mode, params.pixel_format, params.width, params.block_height, params.height,
                   params.block_depth, params.depth, params.tile_width_spacing, vk_buffer, 0,
-                  params.addr + offset);
+                  addr + offset);
 }
 
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
@@ -245,12 +255,10 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
       device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, params{params}, cached_size_in_bytes{params.size_in_bytes},
       buffer_size{std::max(params.size_in_bytes, params.size_in_bytes_vk)} {
-
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
 
-    image = GetHandle();
-    image_commit = memory_manager.Commit(image, false);
+    image_commit = memory_manager.Commit(GetHandle(), false);
 
     const vk::BufferCreateInfo buffer_ci({}, buffer_size,
                                          vk::BufferUsageFlagBits::eTransferDst |
@@ -261,11 +269,13 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
     vk_buffer = buffer_commit->GetData();
 
     auto& emu_memory_manager{system.GPU().MemoryManager()};
+    /*
     const u64 max_size{emu_memory_manager.GetRegionEnd(params.gpu_addr) - params.gpu_addr};
     if (cached_size_in_bytes > max_size) {
         LOG_ERROR(HW_GPU, "Surface size {} exceeds region size {}", params.size_in_bytes, max_size);
         cached_size_in_bytes = max_size;
     }
+    */
 }
 
 CachedSurface::~CachedSurface() = default;
@@ -274,9 +284,9 @@ void CachedSurface::LoadVKBuffer() {
     if (params.is_tiled) {
         ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture family {}",
                    params.block_width, static_cast<u32>(params.family));
-        SwizzleFunc(MortonSwizzleMode::MortonToLinear, params, vk_buffer, 0);
+        SwizzleFunc(MortonSwizzleMode::MortonToLinear, addr, params, vk_buffer, 0);
     } else {
-        std::memcpy(vk_buffer, Memory::GetPointer(params.addr), params.size_in_bytes_vk);
+        std::memcpy(vk_buffer, Memory::GetPointer(addr), params.size_in_bytes_vk);
     }
     ConvertFormatAsNeeded_LoadVKBuffer(vk_buffer, params.pixel_format, params.width, params.height,
                                        params.depth);
@@ -301,10 +311,11 @@ VKExecutionContext CachedSurface::UploadVKTexture(VKExecutionContext exctx) {
         depth.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
         stencil.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eStencil;
 
-        cmdbuf.copyBufferToImage(*buffer, image, vk::ImageLayout::eTransferDstOptimal,
+        cmdbuf.copyBufferToImage(*buffer, GetHandle(), vk::ImageLayout::eTransferDstOptimal,
                                  {depth, stencil}, dld);
     } else {
-        cmdbuf.copyBufferToImage(*buffer, image, vk::ImageLayout::eTransferDstOptimal, {copy}, dld);
+        cmdbuf.copyBufferToImage(*buffer, GetHandle(), vk::ImageLayout::eTransferDstOptimal, {copy},
+                                 dld);
     }
     return exctx;
 }
@@ -359,7 +370,8 @@ void VKTextureCache::InvalidateRegion(VAddr addr, std::size_t size) {
 std::tuple<View, VKExecutionContext> VKTextureCache::GetTextureSurface(
     VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config,
     const VKShader::SamplerEntry& entry) {
-    return GetView(exctx, SurfaceParams::CreateForTexture(system, config, entry), true);
+    return GetView(exctx, GetAddressForTexture(system, config),
+                   SurfaceParams::CreateForTexture(system, config, entry), true);
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetDepthBufferSurface(VKExecutionContext exctx,
@@ -369,12 +381,16 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetDepthBufferSurface(VKExe
         return {{}, exctx};
     }
 
+    auto& memory_manager{system.GPU().MemoryManager()};
+    const auto cpu_addr{memory_manager.GpuToCpuAddress(regs.zeta.Address())};
+    ASSERT(cpu_addr);
+
     const SurfaceParams depth_params{SurfaceParams::CreateForDepthBuffer(
-        system, regs.zeta_width, regs.zeta_height, regs.zeta.Address(), regs.zeta.format,
+        system, regs.zeta_width, regs.zeta_height, regs.zeta.format,
         regs.zeta.memory_layout.block_width, regs.zeta.memory_layout.block_height,
         regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type)};
 
-    return GetView(exctx, depth_params, preserve_contents);
+    return GetView(exctx, *cpu_addr, depth_params, preserve_contents);
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetColorBufferSurface(VKExecutionContext exctx,
@@ -390,14 +406,15 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetColorBufferSurface(VKExe
         return {{}, exctx};
     }
 
-    return GetView(exctx, SurfaceParams::CreateForFramebuffer(system, index), preserve_contents);
+    return GetView(exctx, GetAddressForFramebuffer(system, index),
+                   SurfaceParams::CreateForFramebuffer(system, index), preserve_contents);
 }
 
 Surface VKTextureCache::TryFindFramebufferSurface(VAddr addr) const {
     // FIXME: This is kinda horrible
     const auto it =
         std::find_if(registered_surfaces.begin(), registered_surfaces.end(),
-                     [addr](const auto& surface) { return surface->GetAddr() == addr; });
+                     [addr](const auto& surface) { return surface->GetAddress() == addr; });
     return it != registered_surfaces.end() ? *it : nullptr;
 }
 
@@ -408,43 +425,45 @@ VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const S
     return exctx;
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext exctx,
+std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext exctx, VAddr addr,
                                                              const SurfaceParams& params,
                                                              bool preserve_contents) {
-    const std::vector<Surface> overlaps = GetOverlappingSurfaces(params);
-    if (overlaps.empty())
-        return LoadView(exctx, params, preserve_contents);
+    const std::vector<Surface> overlaps = GetOverlappingSurfaces(addr, params);
+    if (overlaps.empty()) {
+        return LoadView(exctx, addr, params, preserve_contents);
+    }
 
     if (overlaps.size() == 1) {
-        if (Surface overlap = overlaps[0]; overlap->IsFamiliar(params)) {
-            if (View view = overlap->TryGetView(params); view)
+        if (const Surface overlap = overlaps[0]; overlap->IsFamiliar(params)) {
+            if (const View view = overlap->TryGetView(params); view)
                 return {view, exctx};
         }
     }
 
-    for (Surface overlap : overlaps) {
+    for (const Surface overlap : overlaps) {
         exctx = overlap->Flush(exctx);
         Unregister(overlap);
     }
 
-    return LoadView(exctx, params, preserve_contents);
+    return LoadView(exctx, addr, params, preserve_contents);
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext exctx,
+std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext exctx, VAddr addr,
                                                               const SurfaceParams& params,
                                                               bool preserve_contents) {
     const Surface surface = GetUncachedSurface(params);
+    Register(surface, addr);
+
     if (preserve_contents) {
         exctx = LoadSurface(exctx, surface);
     }
     const View superset_view = surface->TryGetView(params);
     ASSERT(superset_view);
-    Register(surface);
     return {superset_view, exctx};
 }
 
-std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(const SurfaceParams& params) const {
-    const VAddr addr = params.addr;
+std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(VAddr addr,
+                                                            const SurfaceParams& params) const {
     const std::size_t size = params.GetSizeInBytes();
 
     std::vector<Surface> overlaps;
@@ -456,29 +475,31 @@ std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(const SurfaceParams&
     return overlaps;
 }
 
-void VKTextureCache::Register(Surface surface) {
-    rasterizer.UpdatePagesCachedCount(surface->GetAddr(), surface->GetSizeInBytes(), 1);
-    surface->Register();
+void VKTextureCache::Register(Surface surface, VAddr addr) {
+    surface->Register(addr);
     registered_surfaces.push_back(surface);
+
+    rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), 1);
 }
 
 void VKTextureCache::Unregister(Surface surface) {
-    rasterizer.UpdatePagesCachedCount(surface->GetAddr(), surface->GetSizeInBytes(), -1);
     surface->Unregister();
+
     const auto it = std::find(registered_surfaces.begin(), registered_surfaces.end(), surface);
     ASSERT(it != registered_surfaces.end());
     registered_surfaces.erase(it);
+
+    rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), -1);
 }
 
 Surface VKTextureCache::GetUncachedSurface(const SurfaceParams& params) {
-    Surface surface{TryGetReservedSurface(params)};
-    if (!surface) {
-        // No reserved surface available, create a new one and reserve it
-        auto new_surface = std::make_unique<CachedSurface>(system, device, resource_manager,
-                                                           memory_manager, params);
-        surface = new_surface.get();
-        ReserveSurface(std::move(new_surface));
-    }
+    if (const Surface surface = TryGetReservedSurface(params); surface)
+        return surface;
+    // No reserved surface available, create a new one and reserve it
+    auto new_surface =
+        std::make_unique<CachedSurface>(system, device, resource_manager, memory_manager, params);
+    const Surface surface = new_surface.get();
+    ReserveSurface(std::move(new_surface));
     return surface;
 }
 

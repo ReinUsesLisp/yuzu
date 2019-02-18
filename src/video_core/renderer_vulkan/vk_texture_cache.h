@@ -57,8 +57,8 @@ struct SurfaceParams {
 
     /// Creates SurfaceParams for a depth buffer configuration
     static SurfaceParams CreateForDepthBuffer(
-        Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::GPUVAddr zeta_address,
-        Tegra::DepthFormat format, u32 block_width, u32 block_height, u32 block_depth,
+        Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::DepthFormat format,
+        u32 block_width, u32 block_height, u32 block_depth,
         Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
 
     /// Creates SurfaceParams from a framebuffer configuration
@@ -90,7 +90,7 @@ struct SurfaceParams {
     }
 
     /// Initializes parameters for caching, should be called after everything has been initialized
-    void InitCacheParameters(Core::System& system, Tegra::GPUVAddr gpu_addr);
+    void InitCacheParameters(Core::System& system);
 
     vk::ImageCreateInfo CreateInfo(const VKDevice& device) const;
 
@@ -108,9 +108,7 @@ struct SurfaceParams {
     u32 depth;
     u32 unaligned_height;
 
-    // Parameters used for caching
-    VAddr addr;
-    Tegra::GPUVAddr gpu_addr;
+    // Cached data
     std::size_t size_in_bytes;
     std::size_t size_in_bytes_vk;
 };
@@ -120,7 +118,6 @@ struct SurfaceReserveKey : Common::HashableStruct<SurfaceParams> {
         SurfaceReserveKey res;
         res.state = params;
         // res.state.identity = {}; // Ignore the origin of the texture
-        res.state.gpu_addr = {}; // Ignore GPU vaddr in caching
         // res.state.rt = {};       // Ignore rt config in caching
         return res;
     }
@@ -175,8 +172,8 @@ public:
     // Upload data in vk_buffer to this surface's texture
     VKExecutionContext UploadVKTexture(VKExecutionContext exctx);
 
-    VAddr GetAddr() const {
-        return params.addr;
+    VAddr GetAddress() const {
+        return addr;
     }
 
     std::size_t GetSizeInBytes() const {
@@ -184,7 +181,7 @@ public:
     }
 
     bool IsOverlap(VAddr addr, std::size_t size) const {
-        const VAddr this_left = GetAddr();
+        const VAddr this_left = GetAddress();
         const VAddr this_right = this_left + static_cast<VAddr>(GetSizeInBytes());
         const VAddr other_left = addr;
         const VAddr other_right = other_left + static_cast<VAddr>(size);
@@ -205,7 +202,7 @@ public:
     }
 
     View TryGetView(const SurfaceParams& rhs) {
-        if (params.addr == rhs.addr && params.width == rhs.width && params.height == rhs.height) {
+        if (params.width == rhs.width && params.height == rhs.height) {
             return GetView(0, 0);
         }
         // Unimplemented
@@ -222,12 +219,13 @@ public:
                         rhs.width, rhs.height, rhs.depth, rhs.unaligned_height);
     }
 
-    bool Register() {
+    void Register(VAddr addr_) {
         ASSERT(!is_registered);
         is_registered = true;
+        addr = addr_;
     }
 
-    bool Unregister() {
+    void Unregister() {
         ASSERT(is_registered);
         is_registered = false;
     }
@@ -245,7 +243,6 @@ private:
     const SurfaceParams params;
     const std::size_t buffer_size;
 
-    vk::Image image;
     VKMemoryCommit image_commit;
 
     UniqueBuffer buffer;
@@ -254,7 +251,8 @@ private:
 
     std::unordered_map<ViewKey, std::unique_ptr<CachedView>> views;
 
-    std::size_t cached_size_in_bytes;
+    VAddr addr{};
+    std::size_t cached_size_in_bytes{};
     bool is_modified{};
     bool is_registered{};
 };
@@ -310,17 +308,19 @@ public:
 private:
     [[nodiscard]] VKExecutionContext LoadSurface(VKExecutionContext exctx, const Surface& surface);
 
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetView(VKExecutionContext exctx,
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetView(VKExecutionContext exctx, VAddr addr,
                                                                const SurfaceParams& params,
                                                                bool preserve_contents);
 
     [[nodiscard]] std::tuple<View, VKExecutionContext> LoadView(VKExecutionContext exctx,
+                                                                VAddr addr,
                                                                 const SurfaceParams& params,
                                                                 bool preserve_contents);
 
-    [[nodiscard]] std::vector<Surface> GetOverlappingSurfaces(const SurfaceParams& params) const;
+    [[nodiscard]] std::vector<Surface> GetOverlappingSurfaces(VAddr addr,
+                                                              const SurfaceParams& params) const;
 
-    void Register(Surface surface);
+    void Register(Surface surface, VAddr addr);
 
     void Unregister(Surface surface);
 
