@@ -173,17 +173,17 @@ public:
     VKExecutionContext UploadVKTexture(VKExecutionContext exctx);
 
     VAddr GetAddress() const {
-        return addr;
+        return address;
     }
 
     std::size_t GetSizeInBytes() const {
         return cached_size_in_bytes;
     }
 
-    bool IsOverlap(VAddr addr, std::size_t size) const {
+    bool IsOverlap(VAddr address, std::size_t size) const {
         const VAddr this_left = GetAddress();
         const VAddr this_right = this_left + static_cast<VAddr>(GetSizeInBytes());
-        const VAddr other_left = addr;
+        const VAddr other_left = address;
         const VAddr other_right = other_left + static_cast<VAddr>(size);
         return this_left < other_right && other_left < this_right;
     }
@@ -219,10 +219,10 @@ public:
                         rhs.width, rhs.height, rhs.depth, rhs.unaligned_height);
     }
 
-    void Register(VAddr addr_) {
+    void Register(VAddr address_) {
         ASSERT(!is_registered);
         is_registered = true;
-        addr = addr_;
+        address = address_;
     }
 
     void Unregister() {
@@ -251,7 +251,7 @@ private:
 
     std::unordered_map<ViewKey, std::unique_ptr<CachedView>> views;
 
-    VAddr addr{};
+    VAddr address{};
     std::size_t cached_size_in_bytes{};
     bool is_modified{};
     bool is_registered{};
@@ -287,7 +287,7 @@ public:
                             VKMemoryManager& memory_manager);
     ~VKTextureCache();
 
-    void InvalidateRegion(VAddr addr, std::size_t size);
+    void InvalidateRegion(VAddr address, std::size_t size);
 
     /// Get a surface based on the texture configuration
     [[nodiscard]] std::tuple<View, VKExecutionContext> GetTextureSurface(
@@ -303,24 +303,25 @@ public:
         VKExecutionContext exctx, std::size_t index, bool preserve_contents);
 
     /// Tries to find a framebuffer using on the provided CPU address
-    [[nodiscard]] Surface TryFindFramebufferSurface(VAddr addr) const;
+    [[nodiscard]] Surface TryFindFramebufferSurface(VAddr address) const;
 
 private:
     [[nodiscard]] VKExecutionContext LoadSurface(VKExecutionContext exctx, const Surface& surface);
 
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetView(VKExecutionContext exctx, VAddr addr,
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetView(VKExecutionContext exctx,
+                                                               VAddr address,
                                                                const SurfaceParams& params,
                                                                bool preserve_contents);
 
     [[nodiscard]] std::tuple<View, VKExecutionContext> LoadView(VKExecutionContext exctx,
-                                                                VAddr addr,
+                                                                VAddr address,
                                                                 const SurfaceParams& params,
                                                                 bool preserve_contents);
 
     [[nodiscard]] std::vector<Surface> GetOverlappingSurfaces(VAddr addr,
                                                               const SurfaceParams& params) const;
 
-    void Register(Surface surface, VAddr addr);
+    void Register(Surface surface, VAddr address);
 
     void Unregister(Surface surface);
 

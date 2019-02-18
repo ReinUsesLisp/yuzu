@@ -238,14 +238,14 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
                                vk::ImageLayout::eUndefined);
 }
 
-static void SwizzleFunc(const MortonSwizzleMode& mode, VAddr addr, const SurfaceParams& params,
+static void SwizzleFunc(const MortonSwizzleMode& mode, VAddr address, const SurfaceParams& params,
                         u8* vk_buffer, u32 mip_level) {
     UNIMPLEMENTED_IF(params.depth != 1);
 
     const u64 offset = 0;
     MortonSwizzle(mode, params.pixel_format, params.width, params.block_height, params.height,
                   params.block_depth, params.depth, params.tile_width_spacing, vk_buffer, 0,
-                  addr + offset);
+                  address + offset);
 }
 
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
@@ -267,15 +267,6 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
     buffer = dev.createBufferUnique(buffer_ci, nullptr, dld);
     buffer_commit = memory_manager.Commit(*buffer, true);
     vk_buffer = buffer_commit->GetData();
-
-    auto& emu_memory_manager{system.GPU().MemoryManager()};
-    /*
-    const u64 max_size{emu_memory_manager.GetRegionEnd(params.gpu_addr) - params.gpu_addr};
-    if (cached_size_in_bytes > max_size) {
-        LOG_ERROR(HW_GPU, "Surface size {} exceeds region size {}", params.size_in_bytes, max_size);
-        cached_size_in_bytes = max_size;
-    }
-    */
 }
 
 CachedSurface::~CachedSurface() = default;
@@ -284,9 +275,9 @@ void CachedSurface::LoadVKBuffer() {
     if (params.is_tiled) {
         ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture family {}",
                    params.block_width, static_cast<u32>(params.family));
-        SwizzleFunc(MortonSwizzleMode::MortonToLinear, addr, params, vk_buffer, 0);
+        SwizzleFunc(MortonSwizzleMode::MortonToLinear, address, params, vk_buffer, 0);
     } else {
-        std::memcpy(vk_buffer, Memory::GetPointer(addr), params.size_in_bytes_vk);
+        std::memcpy(vk_buffer, Memory::GetPointer(address), params.size_in_bytes_vk);
     }
     ConvertFormatAsNeeded_LoadVKBuffer(vk_buffer, params.pixel_format, params.width, params.height,
                                        params.depth);
@@ -356,10 +347,10 @@ VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterf
 
 VKTextureCache::~VKTextureCache() = default;
 
-void VKTextureCache::InvalidateRegion(VAddr addr, std::size_t size) {
+void VKTextureCache::InvalidateRegion(VAddr address, std::size_t size) {
     registered_surfaces.erase(std::remove_if(registered_surfaces.begin(), registered_surfaces.end(),
-                                             [addr, size](const auto& surface) {
-                                                 if (!surface->IsOverlap(addr, size))
+                                             [address, size](const auto& surface) {
+                                                 if (!surface->IsOverlap(address, size))
                                                      return false;
                                                  surface->Unregister();
                                                  return true;
@@ -410,11 +401,11 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetColorBufferSurface(VKExe
                    SurfaceParams::CreateForFramebuffer(system, index), preserve_contents);
 }
 
-Surface VKTextureCache::TryFindFramebufferSurface(VAddr addr) const {
+Surface VKTextureCache::TryFindFramebufferSurface(VAddr address) const {
     // FIXME: This is kinda horrible
     const auto it =
         std::find_if(registered_surfaces.begin(), registered_surfaces.end(),
-                     [addr](const auto& surface) { return surface->GetAddress() == addr; });
+                     [address](const auto& surface) { return surface->GetAddress() == address; });
     return it != registered_surfaces.end() ? *it : nullptr;
 }
 
@@ -425,12 +416,13 @@ VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const S
     return exctx;
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext exctx, VAddr addr,
+std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext exctx,
+                                                             VAddr address,
                                                              const SurfaceParams& params,
                                                              bool preserve_contents) {
-    const std::vector<Surface> overlaps = GetOverlappingSurfaces(addr, params);
+    const std::vector<Surface> overlaps = GetOverlappingSurfaces(address, params);
     if (overlaps.empty()) {
-        return LoadView(exctx, addr, params, preserve_contents);
+        return LoadView(exctx, address, params, preserve_contents);
     }
 
     if (overlaps.size() == 1) {
@@ -445,14 +437,15 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext 
         Unregister(overlap);
     }
 
-    return LoadView(exctx, addr, params, preserve_contents);
+    return LoadView(exctx, address, params, preserve_contents);
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext exctx, VAddr addr,
+std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext exctx,
+                                                              VAddr address,
                                                               const SurfaceParams& params,
                                                               bool preserve_contents) {
     const Surface surface = GetUncachedSurface(params);
-    Register(surface, addr);
+    Register(surface, address);
 
     if (preserve_contents) {
         exctx = LoadSurface(exctx, surface);
@@ -462,21 +455,21 @@ std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext
     return {superset_view, exctx};
 }
 
-std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(VAddr addr,
+std::vector<Surface> VKTextureCache::GetOverlappingSurfaces(VAddr address,
                                                             const SurfaceParams& params) const {
     const std::size_t size = params.GetSizeInBytes();
 
     std::vector<Surface> overlaps;
     for (const auto& surface : registered_surfaces) {
-        if (surface->IsOverlap(addr, size)) {
+        if (surface->IsOverlap(address, size)) {
             overlaps.push_back(surface);
         }
     }
     return overlaps;
 }
 
-void VKTextureCache::Register(Surface surface, VAddr addr) {
-    surface->Register(addr);
+void VKTextureCache::Register(Surface surface, VAddr address) {
+    surface->Register(address);
     registered_surfaces.push_back(surface);
 
     rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), 1);
