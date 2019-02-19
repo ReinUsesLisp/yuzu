@@ -879,11 +879,11 @@ private:
     Id PopFlowStack(Operation) {
         const Id current = Emit(OpLoad(t_uint, flow_stack_top));
         const Id previous = Emit(OpISub(t_uint, current, Constant(t_uint, 1)));
-        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, {current}));
+        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, {previous}));
         const Id target = Emit(OpLoad(t_uint, access));
 
         Emit(OpStore(flow_stack_top, previous));
-        Emit(OpStore(jmp_to, current));
+        Emit(OpStore(jmp_to, target));
         BranchingOp([&]() { Emit(OpBranch(continue_label)); });
         return {};
     }
