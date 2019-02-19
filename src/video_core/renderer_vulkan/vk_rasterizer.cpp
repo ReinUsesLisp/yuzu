@@ -152,8 +152,8 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
       screen_info{screen_info}, device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, sched{sched}, uniform_buffer_alignment{
                                                         device.GetUniformBufferAlignment()} {
-    texture_cache =
-        std::make_unique<VKTextureCache>(system, *this, device, resource_manager, memory_manager);
+    texture_cache = std::make_unique<VKTextureCache>(system, *this, device, resource_manager,
+                                                     memory_manager, sched);
     shader_cache = std::make_unique<VKPipelineCache>(system, *this, device);
     buffer_cache = std::make_unique<VKBufferCache>(system, *this, resource_manager, device,
                                                    memory_manager, sched, STREAM_BUFFER_SIZE);
@@ -276,9 +276,6 @@ void RasterizerVulkan::Clear() {
     }
 
     auto exctx = sched.GetExecutionContext();
-    const auto cmdbuf = exctx.GetCommandBuffer();
-    auto& fence = exctx.GetFence();
-
     const auto& dld = device.GetDispatchLoader();
 
     if (use_color) {
@@ -286,6 +283,7 @@ void RasterizerVulkan::Clear() {
         std::tie(color_view, exctx) =
             texture_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
 
+        const auto cmdbuf = exctx.GetCommandBuffer();
         color_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
                                              vk::PipelineStageFlagBits::eTransfer,
                                              vk::AccessFlagBits::eTransferWrite);
@@ -300,6 +298,7 @@ void RasterizerVulkan::Clear() {
         View zeta_surface{};
         std::tie(zeta_surface, exctx) = texture_cache->GetDepthBufferSurface(exctx, false);
 
+        const auto cmdbuf = exctx.GetCommandBuffer();
         zeta_surface->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
                                                vk::PipelineStageFlagBits::eTransfer,
                                                vk::AccessFlagBits::eTransferWrite);

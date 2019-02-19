@@ -36,6 +36,7 @@ namespace Vulkan {
 class RasterizerVulkan;
 class VKDevice;
 class VKResourceManager;
+class VKScheduler;
 
 using VideoCore::Surface::ComponentType;
 using VideoCore::Surface::PixelFormat;
@@ -153,7 +154,7 @@ class CachedSurface : public VKImage {
 public:
     explicit CachedSurface(Core::System& system, const VKDevice& device,
                            VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                           const SurfaceParams& params);
+                           VKScheduler& sched, const SurfaceParams& params);
     ~CachedSurface();
 
     // Read/Write data in Switch memory to/from vk_buffer
@@ -171,21 +172,8 @@ public:
         return cached_size_in_bytes;
     }
 
-    bool IsOverlap(VAddr address, std::size_t size) const {
-        const VAddr this_left = GetAddress();
-        const VAddr this_right = this_left + static_cast<VAddr>(GetSizeInBytes());
-        const VAddr other_left = address;
-        const VAddr other_right = other_left + static_cast<VAddr>(size);
-        return this_left < other_right && other_left < this_right;
-    }
-
     void MarkAsModified(bool is_modified_) {
         is_modified = is_modified_;
-    }
-
-    VKExecutionContext Flush(VKExecutionContext exctx) {
-        // UNIMPLEMENTED();
-        return exctx;
     }
 
     const SurfaceParams& GetSurfaceParams() const {
@@ -231,6 +219,7 @@ private:
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
+    VKScheduler& sched;
     const SurfaceParams params;
     const std::size_t buffer_size;
 
@@ -275,7 +264,7 @@ class VKTextureCache {
 public:
     explicit VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                             const VKDevice& device, VKResourceManager& resource_manager,
-                            VKMemoryManager& memory_manager);
+                            VKMemoryManager& memory_manager, VKScheduler& sched);
     ~VKTextureCache();
 
     void InvalidateRegion(VAddr address, std::size_t size);
@@ -326,6 +315,7 @@ private:
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
+    VKScheduler& sched;
 
     boost::icl::interval_map<VAddr, std::set<Surface>> registered_surfaces;
 

@@ -247,10 +247,10 @@ static void SwizzleFunc(const MortonSwizzleMode& mode, VAddr address, const Surf
 
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                             const SurfaceParams& params)
+                             VKScheduler& sched, const SurfaceParams& params)
     : VKImage(device, params.CreateInfo(device), PixelFormatToImageAspect(params.pixel_format)),
-      device{device}, resource_manager{resource_manager},
-      memory_manager{memory_manager}, params{params}, cached_size_in_bytes{params.size_in_bytes},
+      device{device}, resource_manager{resource_manager}, memory_manager{memory_manager},
+      sched{sched}, params{params}, cached_size_in_bytes{params.size_in_bytes},
       buffer_size{std::max(params.size_in_bytes, params.size_in_bytes_vk)} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
@@ -281,7 +281,22 @@ void CachedSurface::LoadVKBuffer() {
 }
 
 VKExecutionContext CachedSurface::FlushVKBuffer(VKExecutionContext exctx) {
-    UNIMPLEMENTED();
+    const auto& dld = device.GetDispatchLoader();
+    const auto cmdbuf = exctx.GetCommandBuffer();
+
+    Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eTransfer,
+               vk::AccessFlagBits::eTransferRead);
+
+    const vk::BufferImageCopy copy(0, 0, 0, {GetAspectMask(), 0, 0, 1}, {0, 0, 0},
+                                   {params.width, params.height, params.depth});
+    cmdbuf.copyImageToBuffer(GetHandle(), vk::ImageLayout::eTransferSrcOptimal, *buffer, {copy},
+                             dld);
+    exctx = sched.Finish();
+
+    UNIMPLEMENTED_IF(!params.is_tiled);
+    ASSERT_MSG(params.block_width == 1, "Block width is defined as {}", params.block_width);
+    SwizzleFunc(MortonSwizzleMode::LinearToMorton, address, params, vk_buffer, 0);
+
     return exctx;
 }
 
@@ -338,9 +353,9 @@ CachedView::~CachedView() = default;
 
 VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                                const VKDevice& device, VKResourceManager& resource_manager,
-                               VKMemoryManager& memory_manager)
+                               VKMemoryManager& memory_manager, VKScheduler& sched)
     : system{system}, rasterizer{rasterizer}, device{device}, resource_manager{resource_manager},
-      memory_manager{memory_manager} {}
+      memory_manager{memory_manager}, sched{sched} {}
 
 VKTextureCache::~VKTextureCache() = default;
 
@@ -426,7 +441,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext 
     }
 
     for (const Surface overlap : overlaps) {
-        exctx = overlap->Flush(exctx);
+        exctx = overlap->FlushVKBuffer(exctx);
         Unregister(overlap);
     }
 
@@ -483,8 +498,8 @@ Surface VKTextureCache::GetUncachedSurface(const SurfaceParams& params) {
     if (const Surface surface = TryGetReservedSurface(params); surface)
         return surface;
     // No reserved surface available, create a new one and reserve it
-    auto new_surface =
-        std::make_unique<CachedSurface>(system, device, resource_manager, memory_manager, params);
+    auto new_surface = std::make_unique<CachedSurface>(system, device, resource_manager,
+                                                       memory_manager, sched, params);
     const Surface surface = new_surface.get();
     ReserveSurface(std::move(new_surface));
     return surface;
