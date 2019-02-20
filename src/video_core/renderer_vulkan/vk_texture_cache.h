@@ -170,7 +170,7 @@ public:
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout layout,
                     vk::PipelineStageFlags stage_flags, vk::AccessFlags access_flags);
 
-    View TryGetView(const SurfaceParams& rhs);
+    View TryGetView(VAddr view_address, const SurfaceParams& view_params);
 
     VAddr GetAddress() const {
         return address;
@@ -188,8 +188,8 @@ public:
         return params;
     }
 
-    View GetView(const SurfaceParams& rhs) {
-        const View view = TryGetView(rhs);
+    View GetView(VAddr view_address, const SurfaceParams& view_params) {
+        const View view = TryGetView(view_address, view_params);
         ASSERT(view != nullptr);
         return view;
     }
@@ -197,11 +197,10 @@ public:
     bool IsFamiliar(const SurfaceParams& rhs) const {
         return std::tie(params.is_tiled, params.block_width, params.block_height,
                         params.block_depth, params.tile_width_spacing, params.pixel_format,
-                        params.component_type, params.type, params.width, params.height,
-                        params.depth, params.unaligned_height) ==
+                        params.component_type, params.type, params.unaligned_height) ==
                std::tie(rhs.is_tiled, rhs.block_width, rhs.block_height, rhs.block_depth,
                         rhs.tile_width_spacing, rhs.pixel_format, rhs.component_type, rhs.type,
-                        rhs.width, rhs.height, rhs.depth, rhs.unaligned_height);
+                        rhs.unaligned_height);
     }
 
     void Register(VAddr address_) {
@@ -226,12 +225,15 @@ private:
 
     vk::ImageSubresourceRange GetImageSubresourceRange() const;
 
+    static std::map<u64, std::pair<u32, u32>> BuildViewOffsetMap(const SurfaceParams& params);
+
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
     VKScheduler& sched;
     const SurfaceParams params;
     const std::size_t buffer_size;
+    const std::map<u64, std::pair<u32, u32>> view_offset_map;
 
     VKMemoryCommit image_commit;
 

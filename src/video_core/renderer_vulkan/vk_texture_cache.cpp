@@ -258,7 +258,8 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
     : VKImage(device, params.CreateInfo(device), PixelFormatToImageAspect(params.pixel_format)),
       device{device}, resource_manager{resource_manager}, memory_manager{memory_manager},
       sched{sched}, params{params}, cached_size_in_bytes{params.size_in_bytes},
-      buffer_size{std::max(params.size_in_bytes, params.size_in_bytes_vk)} {
+      buffer_size{std::max(params.size_in_bytes, params.size_in_bytes_vk)},
+      view_offset_map{BuildViewOffsetMap(params)} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
 
@@ -335,13 +336,25 @@ void CachedSurface::Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_lay
     VKImage::Transition(cmdbuf, GetImageSubresourceRange(), new_layout, new_stage_mask, new_access);
 }
 
-View CachedSurface::TryGetView(const SurfaceParams& rhs) {
-    if (params.width == rhs.width && params.height == rhs.height && params.depth == rhs.depth) {
-        // Hacked
-        return GetView(0, params.depth, 0, 1);
+View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_params) {
+    if (view_address < address) {
+        // It can't be a view if it's in a prior address.
+        return {};
     }
-    // Unimplemented
-    return {};
+    const auto view_offset = static_cast<u64>(view_address - address);
+    const auto it = view_offset_map.find(view_offset);
+    if (it == view_offset_map.end()) {
+        // Couldn't find an aligned view.
+        return {};
+    }
+
+    // TODO(Rodrigo): Do bounds checkings
+
+    const auto [layer, level] = it->second;
+    const u32 layers_count = view_params.depth;
+    constexpr u32 levels_count = 1;
+
+    return GetView(layer, layers_count, level, levels_count);
 }
 
 View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
@@ -378,6 +391,28 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
     default:
         UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
     }
+}
+
+std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const SurfaceParams& params) {
+    std::map<u64, std::pair<u32, u32>> view_offset_map;
+    switch (params.target) {
+    case SurfaceTarget::Texture2D:
+        view_offset_map.insert({0, {0, 0}});
+        break;
+    case SurfaceTarget::Texture2DArray: {
+        const std::size_t layer_size{Tegra::Texture::CalculateSize(
+            params.is_tiled, GetBytesPerPixel(params.pixel_format), params.width, params.height, 1,
+            params.block_height, params.block_depth)};
+        for (u32 layer = 0; layer < params.depth; ++layer) {
+            const auto offset = static_cast<u64>(layer_size * layer);
+            view_offset_map.insert({offset, {layer, 0}});
+        }
+        break;
+    }
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
+    }
+    return view_offset_map;
 }
 
 CachedView::CachedView(const VKDevice& device, Surface surface, u32 base_layer, u32 layers,
@@ -500,7 +535,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
 
     const Surface overlap = overlaps[0];
     if (overlaps.size() == 1 && overlap->IsFamiliar(params)) {
-        if (const View view = overlap->TryGetView(params); view)
+        if (const View view = overlap->TryGetView(address, params); view)
             return {view, exctx};
     }
 
@@ -533,7 +568,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::LoadSurfaceView(VKExecution
     if (preserve_contents) {
         exctx = LoadSurface(exctx, new_surface);
     }
-    return {new_surface->GetView(params), exctx};
+    return {new_surface->GetView(address, params), exctx};
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
@@ -581,7 +616,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
 
     dst_surface->MarkAsModified(true);
 
-    return {dst_surface->GetView(dst_params), exctx};
+    return {dst_surface->GetView(address, dst_params), exctx};
 }
 
 std::vector<Surface> VKTextureCache::GetSurfacesInRegion(VAddr address, std::size_t size) const {
