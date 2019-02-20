@@ -32,26 +32,6 @@ SurfaceTarget SurfaceTargetFromTextureType(Tegra::Texture::TextureType texture_t
     }
 }
 
-SurfaceFamily SurfaceFamilyFromTextureType(Tegra::Texture::TextureType texture_type) {
-    switch (texture_type) {
-    case Tegra::Texture::TextureType::Texture1D:
-    case Tegra::Texture::TextureType::Texture1DArray:
-        return SurfaceFamily::Texture1D;
-    case Tegra::Texture::TextureType::Texture2D:
-    case Tegra::Texture::TextureType::Texture2DArray:
-    case Tegra::Texture::TextureType::Texture2DNoMipmap:
-    case Tegra::Texture::TextureType::TextureCubemap:
-    case Tegra::Texture::TextureType::TextureCubeArray:
-        return SurfaceFamily::Texture2D;
-    case Tegra::Texture::TextureType::Texture3D:
-        return SurfaceFamily::Texture3D;
-    default:
-        LOG_CRITICAL(HW_GPU, "Unimplemented texture_type={}", static_cast<u32>(texture_type));
-        UNREACHABLE();
-        return SurfaceFamily::Texture2D;
-    }
-}
-
 bool SurfaceTargetIsLayered(SurfaceTarget target) {
     switch (target) {
     case SurfaceTarget::Texture1D:

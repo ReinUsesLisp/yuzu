@@ -23,8 +23,6 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;

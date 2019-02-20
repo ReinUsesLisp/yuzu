@@ -222,9 +222,9 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
                                        Memory::GetPointer(framebuffer_addr), data + image_offset,
                                        true);
 
-        blit_image->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                               vk::PipelineStageFlagBits::eTransfer,
-                               vk::AccessFlagBits::eTransferWrite);
+        blit_image->Transition(
+            cmdbuf, {blit_image->GetAspectMask(), 0, 1, 0, 1}, vk::ImageLayout::eTransferDstOptimal,
+            vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
 
         const vk::BufferImageCopy copy(image_offset, 0, 0,
                                        {vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0},
@@ -232,9 +232,9 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
         cmdbuf.copyBufferToImage(*buffer, blit_image->GetHandle(),
                                  vk::ImageLayout::eTransferDstOptimal, {copy}, dld);
     }
-    blit_image->Transition(cmdbuf, vk::ImageLayout::eShaderReadOnlyOptimal,
-                           vk::PipelineStageFlagBits::eFragmentShader,
-                           vk::AccessFlagBits::eShaderRead);
+    blit_image->Transition(
+        cmdbuf, {blit_image->GetAspectMask(), 0, 1, 0, 1}, vk::ImageLayout::eShaderReadOnlyOptimal,
+        vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eShaderRead);
 
     const vk::Extent2D size = swapchain.GetSize();
     const vk::ClearValue clear_color{std::array<f32, 4>{0.0f, 0.0f, 0.0f, 1.0f}};

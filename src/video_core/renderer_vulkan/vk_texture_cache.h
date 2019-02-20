@@ -40,7 +40,6 @@ class VKScheduler;
 
 using VideoCore::Surface::ComponentType;
 using VideoCore::Surface::PixelFormat;
-using VideoCore::Surface::SurfaceFamily;
 using VideoCore::Surface::SurfaceTarget;
 using VideoCore::Surface::SurfaceType;
 
@@ -94,7 +93,7 @@ struct SurfaceParams {
     PixelFormat pixel_format;
     ComponentType component_type;
     SurfaceType type;
-    SurfaceFamily family;
+    SurfaceTarget target;
     u32 width;
     u32 height;
     u32 depth;
@@ -116,11 +115,14 @@ struct SurfaceReserveKey : Common::HashableStruct<SurfaceParams> {
 };
 
 struct ViewKey {
-    u32 layer;
-    u32 level;
+    u32 base_layer;
+    u32 layers;
+    u32 base_level;
+    u32 levels;
 
     bool operator==(const ViewKey& rhs) const {
-        return std::tie(layer, level) == std::tie(rhs.layer, rhs.level);
+        return std::tie(base_layer, layers, base_level, levels) ==
+               std::tie(rhs.base_layer, rhs.layers, rhs.base_level, rhs.levels);
     }
 };
 
@@ -139,9 +141,10 @@ template <>
 struct hash<Vulkan::ViewKey> {
     std::size_t operator()(const Vulkan::ViewKey& key) const {
         if constexpr (sizeof(std::size_t) >= sizeof(u64)) {
-            return key.layer | static_cast<u64>(key.level) << 32;
+            return key.base_layer ^ static_cast<u64>(key.layers) << 16 ^
+                   static_cast<u64>(key.base_level) << 32 ^ static_cast<u64>(key.levels) << 48;
         } else {
-            return key.layer ^ key.level;
+            return key.base_layer ^ key.layers << 8 ^ key.base_level << 16 ^ key.levels << 24;
         }
     }
 };
@@ -164,6 +167,9 @@ public:
     // Upload data in vk_buffer to this surface's texture
     VKExecutionContext UploadVKTexture(VKExecutionContext exctx);
 
+    void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout layout,
+                    vk::PipelineStageFlags stage_flags, vk::AccessFlags access_flags);
+
     VAddr GetAddress() const {
         return address;
     }
@@ -181,8 +187,9 @@ public:
     }
 
     View TryGetView(const SurfaceParams& rhs) {
-        if (params.width == rhs.width && params.height == rhs.height) {
-            return GetView(0, 0);
+        if (params.width == rhs.width && params.height == rhs.height && params.depth == rhs.depth) {
+            // Hacked
+            return GetView(0, params.depth, 0, 1);
         }
         // Unimplemented
         return nullptr;
@@ -220,7 +227,11 @@ public:
     }
 
 private:
-    View GetView(u32 layer, u32 level);
+    View GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels);
+
+    vk::BufferImageCopy GetBufferImageCopy() const;
+
+    vk::ImageSubresourceRange GetImageSubresourceRange() const;
 
     const VKDevice& device;
     VKResourceManager& resource_manager;
@@ -245,7 +256,8 @@ private:
 
 class CachedView {
 public:
-    CachedView(const VKDevice& device, Surface surface, u32 layer, u32 level);
+    CachedView(const VKDevice& device, Surface surface, u32 base_layer, u32 layers, u32 base_level,
+               u32 levels);
     ~CachedView();
 
     vk::ImageView GetHandle(Tegra::Shader::TextureType texture_type, bool is_array);
@@ -265,8 +277,10 @@ public:
 private:
     const VKDevice& device;
     Surface surface{};
-    u32 level{};
-    u32 layer{};
+    u32 base_layer{};
+    u32 layers{};
+    u32 base_level{};
+    u32 levels{};
     UniqueImageView image_view_2d;
     UniqueImageView image_view_2d_array;
 };

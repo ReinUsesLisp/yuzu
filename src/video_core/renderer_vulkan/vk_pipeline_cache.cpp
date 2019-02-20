@@ -317,7 +317,7 @@ UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
     const vk::Viewport viewport(vs.x, vs.y, vs.width, vs.height, 0.0f, 1.0f);
     // TODO(Rodrigo): Read scissor values instead of using viewport
     const vk::Rect2D scissor(
-        {0, 0}, {static_cast<u32>(std::abs(vs.width)), static_cast<u32>(std::abs(vs.height))});
+        {0, 0}, {static_cast<u32>(std::abs(0x1000)), static_cast<u32>(std::abs(0x1000))});
     const vk::PipelineViewportStateCreateInfo viewport_state_ci({}, 1, &viewport, 1, &scissor);
 
     // TODO(Rodrigo): Find out what's the default register value for front face

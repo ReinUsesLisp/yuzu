@@ -19,8 +19,6 @@
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 using VideoCore::MortonSwizzle;
@@ -31,24 +29,18 @@ using VideoCore::Surface::ComponentTypeFromTexture;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
 using VideoCore::Surface::PixelFormatFromTextureFormat;
-using VideoCore::Surface::SurfaceFamilyFromTextureType;
+using VideoCore::Surface::SurfaceTargetFromTextureType;
 
-static vk::ImageType SurfaceFamilyToImageVK(SurfaceFamily family) {
-    switch (family) {
-    case SurfaceFamily::Texture2D:
-        return vk::ImageType::e2D;
-    }
-    UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(family));
-    return vk::ImageType::e2D;
-}
-
-static vk::ImageViewType SurfaceTargetToImageViewVK(SurfaceTarget target) {
+static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     switch (target) {
     case SurfaceTarget::Texture2D:
-        return vk::ImageViewType::e2D;
+        return vk::ImageType::e2D;
+    case SurfaceTarget::Texture2DArray:
+        return vk::ImageType::e2D;
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(target));
+        return vk::ImageType::e2D;
     }
-    UNIMPLEMENTED_MSG("Unimplemented texture target={}", static_cast<u32>(target));
-    return vk::ImageViewType::e2D;
 }
 
 static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
@@ -75,7 +67,8 @@ static VAddr GetAddressForTexture(Core::System& system,
 static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     auto& memory_manager{system.GPU().MemoryManager()};
     const auto& config{system.GPU().Maxwell3D().regs.rt[index]};
-    const auto cpu_addr{memory_manager.GpuToCpuAddress(config.Address())};
+    const auto cpu_addr{memory_manager.GpuToCpuAddress(
+        config.Address() + config.base_layer * config.layer_stride * sizeof(u32))};
     ASSERT(cpu_addr);
     return *cpu_addr;
 }
@@ -97,11 +90,9 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     params.type = GetFormatType(params.pixel_format);
     params.width = Common::AlignUp(config.tic.Width(), GetCompressionFactor(params.pixel_format));
     params.height = Common::AlignUp(config.tic.Height(), GetCompressionFactor(params.pixel_format));
+    params.depth = config.tic.Depth();
     params.unaligned_height = config.tic.Height();
-    params.family = SurfaceFamilyFromTextureType(config.tic.texture_type);
-
-    // Unimplemented
-    params.depth = 1;
+    params.target = SurfaceTargetFromTextureType(config.tic.texture_type);
 
     // params.is_layered = SurfaceTargetIsLayered(params.target);
     // params.max_mip_level = config.tic.max_mip_level + 1;
@@ -129,7 +120,7 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     params.width = zeta_width;
     params.height = zeta_height;
     params.unaligned_height = zeta_height;
-    params.family = SurfaceFamily::Texture2D;
+    params.target = SurfaceTarget::Texture2D;
     params.depth = 1;
     // params.max_mip_level = 1;
     // params.is_layered = false;
@@ -158,7 +149,7 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     params.width = config.width;
     params.height = config.height;
     params.unaligned_height = config.height;
-    params.family = SurfaceFamily::Texture2D;
+    params.target = SurfaceTarget::Texture2D;
     params.depth = 1;
     // params.max_mip_level = 0;
     // params.is_layered = false;
@@ -216,7 +207,6 @@ void SurfaceParams::CalculateSizes() {
 
 vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
     constexpr u32 mipmaps = 1;
-    constexpr u32 array_layers = 1;
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
 
@@ -231,16 +221,31 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
         image_usage |= is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
                                : vk::ImageUsageFlagBits::eColorAttachment;
     }
-    return vk::ImageCreateInfo({}, SurfaceFamilyToImageVK(family), format, {width, height, depth},
-                               mipmaps, array_layers, sample_count, tiling, image_usage,
-                               vk::SharingMode::eExclusive, 0, nullptr,
-                               vk::ImageLayout::eUndefined);
+
+    vk::Extent3D extent;
+    u32 array_layers{};
+
+    switch (target) {
+    case SurfaceTarget::Texture2D:
+        extent = {width, height, 1};
+        array_layers = 1;
+        break;
+    case SurfaceTarget::Texture2DArray:
+        extent = {width, height, 1};
+        array_layers = depth;
+        break;
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(target));
+        break;
+    }
+
+    return vk::ImageCreateInfo(
+        {}, SurfaceTargetToImageVK(target), format, extent, mipmaps, array_layers, sample_count,
+        tiling, image_usage, vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
 }
 
 static void SwizzleFunc(const MortonSwizzleMode& mode, VAddr address, const SurfaceParams& params,
                         u8* vk_buffer, u32 mip_level) {
-    UNIMPLEMENTED_IF(params.depth != 1);
-
     const u64 offset = 0;
     MortonSwizzle(mode, params.pixel_format, params.width, params.block_height, params.height,
                   params.block_depth, params.depth, params.tile_width_spacing, vk_buffer, 0,
@@ -272,8 +277,8 @@ CachedSurface::~CachedSurface() = default;
 
 void CachedSurface::LoadVKBuffer() {
     if (params.is_tiled) {
-        ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture family {}",
-                   params.block_width, static_cast<u32>(params.family));
+        ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture target {}",
+                   params.block_width, static_cast<u32>(params.target));
         SwizzleFunc(MortonSwizzleMode::MortonToLinear, address, params, vk_buffer, 0);
     } else {
         std::memcpy(vk_buffer, Memory::GetPointer(address), params.size_in_bytes_vk);
@@ -283,20 +288,17 @@ void CachedSurface::LoadVKBuffer() {
 }
 
 VKExecutionContext CachedSurface::FlushVKBuffer(VKExecutionContext exctx) {
-    if (is_modified) {
+    if (!is_modified) {
         return exctx;
     }
 
-    const auto& dld = device.GetDispatchLoader();
     const auto cmdbuf = exctx.GetCommandBuffer();
-
     Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eTransfer,
                vk::AccessFlagBits::eTransferRead);
 
-    const vk::BufferImageCopy copy(0, 0, 0, {GetAspectMask(), 0, 0, 1}, {0, 0, 0},
-                                   {params.width, params.height, params.depth});
-    cmdbuf.copyImageToBuffer(GetHandle(), vk::ImageLayout::eTransferSrcOptimal, *buffer, {copy},
-                             dld);
+    const auto& dld = device.GetDispatchLoader();
+    cmdbuf.copyImageToBuffer(GetHandle(), vk::ImageLayout::eTransferSrcOptimal, *buffer,
+                             {GetBufferImageCopy()}, dld);
     exctx = sched.Finish();
 
     UNIMPLEMENTED_IF(!params.is_tiled);
@@ -311,9 +313,8 @@ VKExecutionContext CachedSurface::UploadVKTexture(VKExecutionContext exctx) {
     Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eTransfer,
                vk::AccessFlagBits::eTransferWrite);
 
+    vk::BufferImageCopy copy = GetBufferImageCopy();
     const auto& dld = device.GetDispatchLoader();
-    const vk::BufferImageCopy copy(0, 0, 0, {GetAspectMask(), 0, 0, 1}, {0, 0, 0},
-                                   {params.width, params.height, params.depth});
     if (GetAspectMask() == (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) {
         vk::BufferImageCopy depth = copy;
         vk::BufferImageCopy stencil = copy;
@@ -329,23 +330,51 @@ VKExecutionContext CachedSurface::UploadVKTexture(VKExecutionContext exctx) {
     return exctx;
 }
 
-View CachedSurface::GetView(u32 layer, u32 level) {
+void CachedSurface::Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
+                               vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access) {
+    VKImage::Transition(cmdbuf, GetImageSubresourceRange(), new_layout, new_stage_mask, new_access);
+}
+
+View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
     ViewKey key;
-    key.layer = layer;
-    key.level = level;
+    key.base_layer = base_layer;
+    key.layers = layers;
+    key.base_level = base_level;
+    key.levels = levels;
     const auto [entry, is_cache_miss] = views.try_emplace(key);
     auto& view = entry->second;
     if (is_cache_miss) {
-        view = std::make_unique<CachedView>(device, this, layer, level);
+        view = std::make_unique<CachedView>(device, this, base_layer, layers, base_level, levels);
     }
     return view.get();
 }
 
-CachedView::CachedView(const VKDevice& device, Surface surface, u32 layer, u32 level)
-    : device{device}, surface{surface}, level{level}, layer{layer} {
-    UNIMPLEMENTED_IF(layer > 0);
-    UNIMPLEMENTED_IF(level > 0);
+vk::BufferImageCopy CachedSurface::GetBufferImageCopy() const {
+    switch (params.target) {
+    case SurfaceTarget::Texture2D:
+    case SurfaceTarget::Texture2DArray:
+        return vk::BufferImageCopy(0, 0, 0, {GetAspectMask(), 0, 0, params.depth}, {0, 0, 0},
+                                   {params.width, params.height, 1});
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
+        return {};
+    }
 }
+
+vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
+    switch (params.target) {
+    case SurfaceTarget::Texture2D:
+    case SurfaceTarget::Texture2DArray:
+        return vk::ImageSubresourceRange(GetAspectMask(), 0, 1, 0, params.depth);
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
+    }
+}
+
+CachedView::CachedView(const VKDevice& device, Surface surface, u32 base_layer, u32 layers,
+                       u32 base_level, u32 levels)
+    : device{device}, surface{surface}, base_layer{base_layer}, layers{layers},
+      base_level{base_level}, levels{levels} {};
 
 CachedView::~CachedView() = default;
 
@@ -355,7 +384,8 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, boo
             return *image_view;
         }
         const vk::ComponentMapping swizzle;
-        const vk::ImageSubresourceRange range(surface->GetAspectMask(), level, 1, layer, 1);
+        const vk::ImageSubresourceRange range(surface->GetAspectMask(), base_level, levels,
+                                              base_layer, layers);
         const vk::ImageViewCreateInfo image_view_ci({}, surface->GetHandle(), view_type,
                                                     surface->GetFormat(), swizzle, range);
         const auto dev = device.GetLogical();
@@ -506,7 +536,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
     const Surface old_surface = overlaps[0];
     const auto& old_params = old_surface->GetSurfaceParams();
 
-    if (old_params.family == params.family && old_params.type == params.type &&
+    if (old_params.target == params.target && old_params.type == params.type &&
         old_params.depth == params.depth && params.depth == 1 &&
         GetFormatBpp(old_params.pixel_format) == GetFormatBpp(params.pixel_format)) {
         return FastCopySurface(exctx, old_surface, address, params);

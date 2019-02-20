@@ -122,12 +122,6 @@ enum class SurfaceTarget {
     TextureCubeArray,
 };
 
-enum class SurfaceFamily {
-    Texture1D,
-    Texture2D,
-    Texture3D,
-};
-
 /**
  * Gets the compression factor for the specified PixelFormat. This applies to just the
  * "compressed width" and "compressed height", not the overall compression factor of a
@@ -439,8 +433,6 @@ constexpr u32 GetBytesPerPixel(PixelFormat pixel_format) {
 }
 
 SurfaceTarget SurfaceTargetFromTextureType(Tegra::Texture::TextureType texture_type);
-
-SurfaceFamily SurfaceFamilyFromTextureType(Tegra::Texture::TextureType texture_type);
 
 bool SurfaceTargetIsLayered(SurfaceTarget target);
 

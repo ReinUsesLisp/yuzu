@@ -22,14 +22,6 @@ public:
                     vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
                     vk::AccessFlags new_access, u32 new_family = VK_QUEUE_FAMILY_IGNORED);
 
-    void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
-                    vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access,
-                    u32 new_family = VK_QUEUE_FAMILY_IGNORED) {
-
-        return Transition(cmdbuf, {aspect_mask, 0, 1, 0, 1}, new_layout, new_stage_mask, new_access,
-                          new_family);
-    }
-
     vk::ImageView GetPresentView() {
         if (!present_view)
             CreatePresentView();
