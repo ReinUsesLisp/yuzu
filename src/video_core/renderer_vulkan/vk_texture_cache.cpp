@@ -281,6 +281,10 @@ void CachedSurface::LoadVKBuffer() {
 }
 
 VKExecutionContext CachedSurface::FlushVKBuffer(VKExecutionContext exctx) {
+    if (is_modified) {
+        return exctx;
+    }
+
     const auto& dld = device.GetDispatchLoader();
     const auto cmdbuf = exctx.GetCommandBuffer();
 
@@ -372,8 +376,8 @@ void VKTextureCache::InvalidateRegion(VAddr address, std::size_t size) {
 std::tuple<View, VKExecutionContext> VKTextureCache::GetTextureSurface(
     VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config,
     const VKShader::SamplerEntry& entry) {
-    return GetView(exctx, GetAddressForTexture(system, config),
-                   SurfaceParams::CreateForTexture(system, config, entry), true);
+    return GetSurfaceView(exctx, GetAddressForTexture(system, config),
+                          SurfaceParams::CreateForTexture(system, config, entry), true);
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetDepthBufferSurface(VKExecutionContext exctx,
@@ -392,7 +396,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetDepthBufferSurface(VKExe
         regs.zeta.memory_layout.block_width, regs.zeta.memory_layout.block_height,
         regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type)};
 
-    return GetView(exctx, *cpu_addr, depth_params, preserve_contents);
+    return GetSurfaceView(exctx, *cpu_addr, depth_params, preserve_contents);
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetColorBufferSurface(VKExecutionContext exctx,
@@ -408,8 +412,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetColorBufferSurface(VKExe
         return {{}, exctx};
     }
 
-    return GetView(exctx, GetAddressForFramebuffer(system, index),
-                   SurfaceParams::CreateForFramebuffer(system, index), preserve_contents);
+    return GetSurfaceView(exctx, GetAddressForFramebuffer(system, index),
+                          SurfaceParams::CreateForFramebuffer(system, index), preserve_contents);
 }
 
 Surface VKTextureCache::TryFindFramebufferSurface(VAddr address) const {
@@ -424,43 +428,42 @@ VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const S
     return exctx;
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext exctx,
-                                                             VAddr address,
-                                                             const SurfaceParams& new_params,
-                                                             bool preserve_contents) {
-    const std::vector<Surface> overlaps = GetSurfacesInRegion(address, new_params.GetSizeInBytes());
+std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionContext exctx,
+                                                                    VAddr address,
+                                                                    const SurfaceParams& params,
+                                                                    bool preserve_contents) {
+    const std::vector<Surface> overlaps = GetSurfacesInRegion(address, params.GetSizeInBytes());
     if (overlaps.empty()) {
-        return GetViewSuperset(exctx, address, new_params, preserve_contents);
+        return LoadSurfaceView(exctx, address, params, preserve_contents);
     }
 
     const Surface overlap = overlaps[0];
-    if (overlaps.size() == 1 && overlap->IsFamiliar(new_params)) {
-        if (const View view = overlap->TryGetView(new_params); view)
+    if (overlaps.size() == 1 && overlap->IsFamiliar(params)) {
+        if (const View view = overlap->TryGetView(params); view)
             return {view, exctx};
     }
 
-    const auto& old_params = overlap->GetSurfaceParams();
-    if (overlaps.size() == 1 && old_params.family == new_params.family &&
-        old_params.type == new_params.type && old_params.depth == new_params.depth &&
-        new_params.depth == 1 &&
-        GetFormatBpp(old_params.pixel_format) == GetFormatBpp(new_params.pixel_format)) {
-        for (const Surface overlap_step : overlaps) {
-            Unregister(overlap_step);
+    View fast_view;
+    std::tie(fast_view, exctx) =
+        TryFastGetSurfaceView(exctx, address, params, preserve_contents, overlaps);
+
+    for (const Surface surface : overlaps) {
+        if (!fast_view) {
+            // Flush even when we don't care about the contents, to preserve memory not written by
+            // the new surface.
+            exctx = surface->FlushVKBuffer(exctx);
         }
-        return FastCopySurface(exctx, overlap, address, new_params);
+        Unregister(surface);
     }
 
-    // Do an accurate copy
-    for (const Surface overlap : overlaps) {
-        // Flush even when we don't care about the contents, to preserve memory not written by the
-        // new surface.
-        exctx = overlap->FlushVKBuffer(exctx);
-        Unregister(overlap);
+    if (fast_view) {
+        return {fast_view, exctx};
     }
-    return GetViewSuperset(exctx, address, new_params, preserve_contents);
+
+    return LoadSurfaceView(exctx, address, params, preserve_contents);
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::GetViewSuperset(VKExecutionContext exctx,
+std::tuple<View, VKExecutionContext> VKTextureCache::LoadSurfaceView(VKExecutionContext exctx,
                                                                      VAddr address,
                                                                      const SurfaceParams& params,
                                                                      bool preserve_contents) {
@@ -469,9 +472,25 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetViewSuperset(VKExecution
     if (preserve_contents) {
         exctx = LoadSurface(exctx, new_surface);
     }
-    const View superset_view = new_surface->TryGetView(params);
-    ASSERT(superset_view);
-    return {superset_view, exctx};
+    return {new_surface->GetView(params), exctx};
+}
+
+std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
+    VKExecutionContext exctx, VAddr address, const SurfaceParams& params, bool preserve_contents,
+    const std::vector<Surface>& overlaps) {
+    if (overlaps.size() > 1) {
+        return {{}, exctx};
+    }
+    const Surface old_surface = overlaps[0];
+    const auto& old_params = old_surface->GetSurfaceParams();
+
+    if (old_params.family == params.family && old_params.type == params.type &&
+        old_params.depth == params.depth && params.depth == 1 &&
+        GetFormatBpp(old_params.pixel_format) == GetFormatBpp(params.pixel_format)) {
+        return FastCopySurface(exctx, old_surface, address, params);
+    }
+
+    return {{}, exctx};
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
@@ -501,9 +520,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
 
     dst_surface->MarkAsModified(true);
 
-    const View superset_view = dst_surface->TryGetView(dst_params);
-    ASSERT(superset_view);
-    return {superset_view, exctx};
+    return {dst_surface->GetView(dst_params), exctx};
 }
 
 std::vector<Surface> VKTextureCache::GetSurfacesInRegion(VAddr address, std::size_t size) const {

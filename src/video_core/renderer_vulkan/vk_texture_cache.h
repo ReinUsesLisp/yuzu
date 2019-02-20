@@ -188,6 +188,12 @@ public:
         return nullptr;
     }
 
+    View GetView(const SurfaceParams& rhs) {
+        const View view = TryGetView(rhs);
+        ASSERT(view != nullptr);
+        return view;
+    }
+
     bool IsFamiliar(const SurfaceParams& rhs) const {
         return std::tie(params.is_tiled, params.block_width, params.block_height,
                         params.block_depth, params.tile_width_spacing, params.pixel_format,
@@ -288,15 +294,19 @@ public:
 private:
     [[nodiscard]] VKExecutionContext LoadSurface(VKExecutionContext exctx, const Surface& surface);
 
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetView(VKExecutionContext exctx,
-                                                               VAddr address,
-                                                               const SurfaceParams& params,
-                                                               bool preserve_contents);
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetSurfaceView(VKExecutionContext exctx,
+                                                                      VAddr address,
+                                                                      const SurfaceParams& params,
+                                                                      bool preserve_contents);
 
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetViewSuperset(VKExecutionContext exctx,
+    [[nodiscard]] std::tuple<View, VKExecutionContext> LoadSurfaceView(VKExecutionContext exctx,
                                                                        VAddr address,
                                                                        const SurfaceParams& params,
                                                                        bool preserve_contents);
+
+    [[nodiscard]] std::tuple<View, VKExecutionContext> TryFastGetSurfaceView(
+        VKExecutionContext exctx, VAddr address, const SurfaceParams& params,
+        bool preserve_contents, const std::vector<Surface>& overlaps);
 
     [[nodiscard]] std::tuple<View, VKExecutionContext> FastCopySurface(
         VKExecutionContext exctx, Surface src_surface, VAddr address,
