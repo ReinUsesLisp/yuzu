@@ -426,39 +426,82 @@ VKExecutionContext VKTextureCache::LoadSurface(VKExecutionContext exctx, const S
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetView(VKExecutionContext exctx,
                                                              VAddr address,
-                                                             const SurfaceParams& params,
+                                                             const SurfaceParams& new_params,
                                                              bool preserve_contents) {
-    const std::vector<Surface> overlaps = GetSurfacesInRegion(address, params.GetSizeInBytes());
+    const std::vector<Surface> overlaps = GetSurfacesInRegion(address, new_params.GetSizeInBytes());
     if (overlaps.empty()) {
-        return LoadView(exctx, address, params, preserve_contents);
+        return GetViewSuperset(exctx, address, new_params, preserve_contents);
     }
 
-    if (overlaps.size() == 1) {
-        if (const Surface overlap = overlaps[0]; overlap->IsFamiliar(params)) {
-            if (const View view = overlap->TryGetView(params); view)
-                return {view, exctx};
+    const Surface overlap = overlaps[0];
+    if (overlaps.size() == 1 && overlap->IsFamiliar(new_params)) {
+        if (const View view = overlap->TryGetView(new_params); view)
+            return {view, exctx};
+    }
+
+    const auto& old_params = overlap->GetSurfaceParams();
+    if (overlaps.size() == 1 && old_params.family == new_params.family &&
+        old_params.type == new_params.type && old_params.depth == new_params.depth &&
+        new_params.depth == 1 &&
+        GetFormatBpp(old_params.pixel_format) == GetFormatBpp(new_params.pixel_format)) {
+        for (const Surface overlap_step : overlaps) {
+            Unregister(overlap_step);
         }
+        return FastCopySurface(exctx, overlap, address, new_params);
     }
 
+    // Do an accurate copy
     for (const Surface overlap : overlaps) {
+        // Flush even when we don't care about the contents, to preserve memory not written by the
+        // new surface.
         exctx = overlap->FlushVKBuffer(exctx);
         Unregister(overlap);
     }
-
-    return LoadView(exctx, address, params, preserve_contents);
+    return GetViewSuperset(exctx, address, new_params, preserve_contents);
 }
 
-std::tuple<View, VKExecutionContext> VKTextureCache::LoadView(VKExecutionContext exctx,
-                                                              VAddr address,
-                                                              const SurfaceParams& params,
-                                                              bool preserve_contents) {
-    const Surface surface = GetUncachedSurface(params);
-    Register(surface, address);
-
+std::tuple<View, VKExecutionContext> VKTextureCache::GetViewSuperset(VKExecutionContext exctx,
+                                                                     VAddr address,
+                                                                     const SurfaceParams& params,
+                                                                     bool preserve_contents) {
+    const Surface new_surface = GetUncachedSurface(params);
+    Register(new_surface, address);
     if (preserve_contents) {
-        exctx = LoadSurface(exctx, surface);
+        exctx = LoadSurface(exctx, new_surface);
     }
-    const View superset_view = surface->TryGetView(params);
+    const View superset_view = new_surface->TryGetView(params);
+    ASSERT(superset_view);
+    return {superset_view, exctx};
+}
+
+std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
+    VKExecutionContext exctx, Surface src_surface, VAddr address, const SurfaceParams& dst_params) {
+    const auto& src_params = src_surface->GetSurfaceParams();
+    const u32 width{std::min(src_params.width, dst_params.width)};
+    const u32 height{std::min(src_params.height, dst_params.height)};
+
+    const Surface dst_surface = GetUncachedSurface(dst_params);
+    Register(dst_surface, address);
+
+    const auto cmdbuf = exctx.GetCommandBuffer();
+    src_surface->Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal,
+                            vk::PipelineStageFlagBits::eTransfer,
+                            vk::AccessFlagBits::eTransferRead);
+    dst_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                            vk::PipelineStageFlagBits::eTransfer,
+                            vk::AccessFlagBits::eTransferWrite);
+
+    // TODO(Rodrigo): Copy mipmaps
+    const auto& dld = device.GetDispatchLoader();
+    const vk::ImageCopy copy({src_surface->GetAspectMask(), 0, 0, 1}, {0, 0, 0},
+                             {dst_surface->GetAspectMask(), 0, 0, 1}, {0, 0, 0},
+                             {width, height, 1});
+    cmdbuf.copyImage(src_surface->GetHandle(), vk::ImageLayout::eTransferSrcOptimal,
+                     dst_surface->GetHandle(), vk::ImageLayout::eTransferDstOptimal, {copy}, dld);
+
+    dst_surface->MarkAsModified(true);
+
+    const View superset_view = dst_surface->TryGetView(dst_params);
     ASSERT(superset_view);
     return {superset_view, exctx};
 }

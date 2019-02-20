@@ -293,10 +293,14 @@ private:
                                                                const SurfaceParams& params,
                                                                bool preserve_contents);
 
-    [[nodiscard]] std::tuple<View, VKExecutionContext> LoadView(VKExecutionContext exctx,
-                                                                VAddr address,
-                                                                const SurfaceParams& params,
-                                                                bool preserve_contents);
+    [[nodiscard]] std::tuple<View, VKExecutionContext> GetViewSuperset(VKExecutionContext exctx,
+                                                                       VAddr address,
+                                                                       const SurfaceParams& params,
+                                                                       bool preserve_contents);
+
+    [[nodiscard]] std::tuple<View, VKExecutionContext> FastCopySurface(
+        VKExecutionContext exctx, Surface src_surface, VAddr address,
+        const SurfaceParams& dst_params);
 
     [[nodiscard]] std::vector<Surface> GetSurfacesInRegion(VAddr address, std::size_t size) const;
 
