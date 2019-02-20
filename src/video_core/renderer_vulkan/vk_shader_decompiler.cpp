@@ -169,11 +169,11 @@ public:
         ShaderEntries entries;
         for (const auto& cbuf : ir.GetConstantBuffers()) {
             entries.const_buffers.emplace_back(
-                cbuf.second, stage, constant_buffers_binding_map.at(cbuf.first), cbuf.first);
+                cbuf.second, constant_buffers_binding_map.at(cbuf.first), cbuf.first);
         }
         for (const auto& sampler : ir.GetSamplers()) {
             entries.samplers.emplace_back(
-                sampler, stage, samplers_binding_map.at(static_cast<u32>(sampler.GetIndex())));
+                sampler, samplers_binding_map.at(static_cast<u32>(sampler.GetIndex())));
         }
         for (const auto& attr : ir.GetInputAttributes()) {
             entries.attributes.insert(GetAttributeLocation(attr.first));
@@ -826,17 +826,30 @@ private:
     }
 
     Id Texture(Operation operation) {
-        const auto meta = std::get<MetaTexture>(operation.GetMeta());
+        const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
+        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
+        const bool has_array = meta->array != nullptr;
         UNIMPLEMENTED_IF(operation.GetOperandsCount() != 2);
 
-        const auto [type, sampler] = samplers.at(static_cast<u32>(meta.sampler.GetIndex()));
+        const auto [type, sampler] = samplers.at(static_cast<u32>(meta->sampler.GetIndex()));
         const Id sampler_id = Emit(OpLoad(type, sampler));
 
-        const Id coords =
-            Emit(OpCompositeConstruct(t_float2, {Visit(operation[0]), Visit(operation[1])}));
+        std::vector<Id> coords;
+        for (std::size_t i = 0; i < operation.GetOperandsCount(); ++i) {
+            coords.push_back(Visit(operation[i]));
+        }
+        if (has_array) {
+            const Id array_integer = Emit(OpBitcast(t_int, Visit(meta->array)));
+            coords.push_back(Emit(OpConvertSToF(t_float, array_integer)));
+        }
 
-        const Id texture = Emit(OpImageSampleImplicitLod(t_float4, sampler_id, coords));
-        return Emit(OpCompositeExtract(t_float, texture, {meta.element}));
+        const std::size_t coords_count = operation.GetOperandsCount() + (has_array ? 1 : 0);
+        UNIMPLEMENTED_IF(coords_count == 1);
+
+        const Id coords_vector =
+            Emit(OpCompositeConstruct(t_float_lut.at(coords_count - 1), coords));
+        const Id texture = Emit(OpImageSampleImplicitLod(t_float4, sampler_id, coords_vector));
+        return Emit(OpCompositeExtract(t_float, texture, {meta->element}));
     }
 
     Id TextureLod(Operation) {

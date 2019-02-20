@@ -26,13 +26,9 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 class ConstBufferEntry : public VideoCommon::Shader::ConstBuffer {
 public:
-    explicit constexpr ConstBufferEntry(const VideoCommon::Shader::ConstBuffer& entry,
-                                        Maxwell::ShaderStage stage, u32 binding, u32 index)
-        : VideoCommon::Shader::ConstBuffer{entry}, stage{stage}, binding{binding}, index{index} {}
-
-    constexpr Maxwell::ShaderStage GetStage() const {
-        return stage;
-    }
+    explicit constexpr ConstBufferEntry(const VideoCommon::Shader::ConstBuffer& entry, u32 binding,
+                                        u32 index)
+        : VideoCommon::Shader::ConstBuffer{entry}, binding{binding}, index{index} {}
 
     constexpr u32 GetBinding() const {
         return binding;
@@ -43,27 +39,20 @@ public:
     }
 
 private:
-    Maxwell::ShaderStage stage{};
     u32 binding{};
     u32 index{};
 };
 
 class SamplerEntry : public VideoCommon::Shader::Sampler {
 public:
-    explicit constexpr SamplerEntry(const VideoCommon::Shader::Sampler& entry,
-                                    Maxwell::ShaderStage stage, u32 binding)
-        : VideoCommon::Shader::Sampler{entry}, stage{stage}, binding{binding} {}
+    explicit constexpr SamplerEntry(const VideoCommon::Shader::Sampler& entry, u32 binding)
+        : VideoCommon::Shader::Sampler{entry}, binding{binding} {}
 
     constexpr u32 GetBinding() const {
         return binding;
     }
 
-    constexpr Maxwell::ShaderStage GetStage() const {
-        return stage;
-    }
-
 private:
-    Maxwell::ShaderStage stage{};
     u32 binding{};
 };
 
