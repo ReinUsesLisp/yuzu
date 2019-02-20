@@ -23,6 +23,8 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
@@ -550,10 +552,9 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, Pip
 
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {
         const auto& entry = entries[bindpoint];
-
         const auto texture = gpu.GetStageTexture(stage, entry.GetOffset());
 
-        View view{};
+        View view;
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture, entry);
         UNIMPLEMENTED_IF(view == nullptr);
 
@@ -563,7 +564,8 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, Pip
                                        vk::AccessFlagBits::eShaderRead);
 
         const auto [write, image_info] = state.CaptureDescriptorWriteImage();
-        image_info = vk::DescriptorImageInfo(*dummy_sampler, view->GetHandle(),
+        image_info = vk::DescriptorImageInfo(*dummy_sampler,
+                                             view->GetHandle(entry.GetType(), entry.IsArray()),
                                              vk::ImageLayout::eShaderReadOnlyOptimal);
         write = vk::WriteDescriptorSet(descriptor_set, entry.GetBinding(), 0, 1,
                                        vk::DescriptorType::eCombinedImageSampler, &image_info,

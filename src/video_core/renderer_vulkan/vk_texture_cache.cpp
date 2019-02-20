@@ -19,6 +19,8 @@
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 using VideoCore::MortonSwizzle;
@@ -340,20 +342,40 @@ View CachedSurface::GetView(u32 layer, u32 level) {
 }
 
 CachedView::CachedView(const VKDevice& device, Surface surface, u32 layer, u32 level)
-    : device{device}, surface{surface} {
+    : device{device}, surface{surface}, level{level}, layer{layer} {
     UNIMPLEMENTED_IF(layer > 0);
     UNIMPLEMENTED_IF(level > 0);
-    const vk::ComponentMapping swizzle;
-    const vk::ImageSubresourceRange range(surface->GetAspectMask(), level, 1, layer, 1);
-    const vk::ImageViewCreateInfo image_view_ci({}, surface->GetHandle(), vk::ImageViewType::e2D,
-                                                surface->GetFormat(), swizzle, range);
-
-    const auto dev = device.GetLogical();
-    const auto& dld = device.GetDispatchLoader();
-    image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
 }
 
 CachedView::~CachedView() = default;
+
+vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, bool is_array) {
+    const auto GetOrCreateView = [&](UniqueImageView& image_view, vk::ImageViewType view_type) {
+        if (image_view) {
+            return *image_view;
+        }
+        const vk::ComponentMapping swizzle;
+        const vk::ImageSubresourceRange range(surface->GetAspectMask(), level, 1, layer, 1);
+        const vk::ImageViewCreateInfo image_view_ci({}, surface->GetHandle(), view_type,
+                                                    surface->GetFormat(), swizzle, range);
+        const auto dev = device.GetLogical();
+        const auto& dld = device.GetDispatchLoader();
+        image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
+        return *image_view;
+    };
+
+    switch (texture_type) {
+    case Tegra::Shader::TextureType::Texture2D:
+        if (is_array) {
+            return GetOrCreateView(image_view_2d_array, vk::ImageViewType::e2DArray);
+        } else {
+            return GetOrCreateView(image_view_2d, vk::ImageViewType::e2D);
+        }
+    default:
+        UNIMPLEMENTED_MSG("Texture type {} not implemented", static_cast<u32>(texture_type));
+        return {};
+    }
+}
 
 VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                                const VKDevice& device, VKResourceManager& resource_manager,

@@ -47,7 +47,7 @@ using VideoCore::Surface::SurfaceType;
 class CachedSurface;
 class CachedView;
 using Surface = CachedSurface*;
-using View = const CachedView*;
+using View = CachedView*;
 
 struct SurfaceParams {
     /// Creates SurfaceParams from a texture configuration
@@ -248,8 +248,10 @@ public:
     CachedView(const VKDevice& device, Surface surface, u32 layer, u32 level);
     ~CachedView();
 
-    vk::ImageView GetHandle() const {
-        return *image_view;
+    vk::ImageView GetHandle(Tegra::Shader::TextureType texture_type, bool is_array);
+
+    vk::ImageView GetHandle() {
+        return GetHandle(Tegra::Shader::TextureType::Texture2D, false);
     }
 
     Surface GetSurface() const {
@@ -262,8 +264,11 @@ public:
 
 private:
     const VKDevice& device;
-    Surface surface;
-    UniqueImageView image_view;
+    Surface surface{};
+    u32 level{};
+    u32 layer{};
+    UniqueImageView image_view_2d;
+    UniqueImageView image_view_2d_array;
 };
 
 class VKTextureCache {
