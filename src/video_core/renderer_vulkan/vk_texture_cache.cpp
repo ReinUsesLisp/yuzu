@@ -335,6 +335,15 @@ void CachedSurface::Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_lay
     VKImage::Transition(cmdbuf, GetImageSubresourceRange(), new_layout, new_stage_mask, new_access);
 }
 
+View CachedSurface::TryGetView(const SurfaceParams& rhs) {
+    if (params.width == rhs.width && params.height == rhs.height && params.depth == rhs.depth) {
+        // Hacked
+        return GetView(0, params.depth, 0, 1);
+    }
+    // Unimplemented
+    return {};
+}
+
 View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
     ViewKey key;
     key.base_layer = base_layer;
@@ -373,8 +382,9 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
 
 CachedView::CachedView(const VKDevice& device, Surface surface, u32 base_layer, u32 layers,
                        u32 base_level, u32 levels)
-    : device{device}, surface{surface}, base_layer{base_layer}, layers{layers},
-      base_level{base_level}, levels{levels} {};
+    : params{surface->GetSurfaceParams()}, image{surface->GetHandle()},
+      aspect_mask{surface->GetAspectMask()}, device{device}, surface{surface},
+      base_layer{base_layer}, layers{layers}, base_level{base_level}, levels{levels} {};
 
 CachedView::~CachedView() = default;
 
@@ -384,10 +394,9 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, boo
             return *image_view;
         }
         const vk::ComponentMapping swizzle;
-        const vk::ImageSubresourceRange range(surface->GetAspectMask(), base_level, levels,
-                                              base_layer, layers);
         const vk::ImageViewCreateInfo image_view_ci({}, surface->GetHandle(), view_type,
-                                                    surface->GetFormat(), swizzle, range);
+                                                    surface->GetFormat(), swizzle,
+                                                    GetImageSubresourceRange());
         const auto dev = device.GetLogical();
         const auto& dld = device.GetDispatchLoader();
         image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);

@@ -234,16 +234,16 @@ void RasterizerVulkan::DrawArrays() {
     exctx = buffer_cache->Send(exctx);
 
     const auto cmdbuf = exctx.GetCommandBuffer();
-    color_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
-                                         vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                                         vk::AccessFlagBits::eColorAttachmentRead |
-                                             vk::AccessFlagBits::eColorAttachmentWrite);
+    color_view->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
+                           vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                           vk::AccessFlagBits::eColorAttachmentRead |
+                               vk::AccessFlagBits::eColorAttachmentWrite);
 
     if (zeta_view != nullptr) {
-        zeta_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
-                                            vk::PipelineStageFlagBits::eLateFragmentTests,
-                                            vk::AccessFlagBits::eDepthStencilAttachmentRead |
-                                                vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+        zeta_view->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                              vk::PipelineStageFlagBits::eLateFragmentTests,
+                              vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                                  vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
     const vk::RenderPassBeginInfo renderpass_bi(
@@ -284,31 +284,29 @@ void RasterizerVulkan::Clear() {
             texture_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
 
         const auto cmdbuf = exctx.GetCommandBuffer();
-        color_view->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                                             vk::PipelineStageFlagBits::eTransfer,
-                                             vk::AccessFlagBits::eTransferWrite);
+        color_view->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                               vk::PipelineStageFlagBits::eTransfer,
+                               vk::AccessFlagBits::eTransferWrite);
 
         const vk::ClearColorValue clear(std::array<float, 4>{
             regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});
-        cmdbuf.clearColorImage(
-            color_view->GetSurface()->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
-            {vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)}, dld);
+        cmdbuf.clearColorImage(color_view->GetImage(), vk::ImageLayout::eTransferDstOptimal, clear,
+                               color_view->GetImageSubresourceRange(), dld);
     }
     if (use_depth || use_stencil) {
         View zeta_surface{};
         std::tie(zeta_surface, exctx) = texture_cache->GetDepthBufferSurface(exctx, false);
 
         const auto cmdbuf = exctx.GetCommandBuffer();
-        zeta_surface->GetSurface()->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                                               vk::PipelineStageFlagBits::eTransfer,
-                                               vk::AccessFlagBits::eTransferWrite);
+        zeta_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                                 vk::PipelineStageFlagBits::eTransfer,
+                                 vk::AccessFlagBits::eTransferWrite);
 
         const vk::ClearDepthStencilValue clear(regs.clear_depth,
                                                static_cast<u32>(regs.clear_stencil));
-        cmdbuf.clearDepthStencilImage(
-            zeta_surface->GetSurface()->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
-            {vk::ImageSubresourceRange(zeta_surface->GetSurface()->GetAspectMask(), 0, 1, 0, 1)},
-            dld);
+        cmdbuf.clearDepthStencilImage(zeta_surface->GetImage(),
+                                      vk::ImageLayout::eTransferDstOptimal, clear,
+                                      zeta_surface->GetImageSubresourceRange(), dld);
     }
 }
 
@@ -413,14 +411,14 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
     if (color_view != nullptr) {
         color_view->MarkAsModified(true);
         fbkey.views.Push(color_view->GetHandle());
-        fbkey.width = std::min(fbkey.width, color_view->GetSurface()->GetSurfaceParams().width);
-        fbkey.height = std::min(fbkey.height, color_view->GetSurface()->GetSurfaceParams().height);
+        fbkey.width = std::min(fbkey.width, color_view->GetWidth());
+        fbkey.height = std::min(fbkey.height, color_view->GetHeight());
     }
     if (zeta_view != nullptr) {
         zeta_view->MarkAsModified(true);
         fbkey.views.Push(zeta_view->GetHandle());
-        fbkey.width = std::min(fbkey.width, zeta_view->GetSurface()->GetSurfaceParams().width);
-        fbkey.height = std::min(fbkey.height, zeta_view->GetSurface()->GetSurfaceParams().height);
+        fbkey.width = std::min(fbkey.width, zeta_view->GetWidth());
+        fbkey.height = std::min(fbkey.height, zeta_view->GetHeight());
     }
 
     const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
@@ -557,9 +555,8 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, Pip
         UNIMPLEMENTED_IF(view == nullptr);
 
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        view->GetSurface()->Transition(exctx.GetCommandBuffer(),
-                                       vk::ImageLayout::eShaderReadOnlyOptimal, pipeline_stage,
-                                       vk::AccessFlagBits::eShaderRead);
+        view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
+                         pipeline_stage, vk::AccessFlagBits::eShaderRead);
 
         const auto [write, image_info] = state.CaptureDescriptorWriteImage();
         image_info = vk::DescriptorImageInfo(*dummy_sampler,

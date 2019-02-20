@@ -170,6 +170,8 @@ public:
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout layout,
                     vk::PipelineStageFlags stage_flags, vk::AccessFlags access_flags);
 
+    View TryGetView(const SurfaceParams& rhs);
+
     VAddr GetAddress() const {
         return address;
     }
@@ -184,15 +186,6 @@ public:
 
     const SurfaceParams& GetSurfaceParams() const {
         return params;
-    }
-
-    View TryGetView(const SurfaceParams& rhs) {
-        if (params.width == rhs.width && params.height == rhs.height && params.depth == rhs.depth) {
-            // Hacked
-            return GetView(0, params.depth, 0, 1);
-        }
-        // Unimplemented
-        return nullptr;
     }
 
     View GetView(const SurfaceParams& rhs) {
@@ -266,8 +259,27 @@ public:
         return GetHandle(Tegra::Shader::TextureType::Texture2D, false);
     }
 
-    Surface GetSurface() const {
-        return surface;
+    u32 GetWidth() const {
+        // return params.GetMipWidth(level);
+        return params.width;
+    }
+
+    u32 GetHeight() const {
+        // return params.GetMipHeight(level);
+        return params.height;
+    }
+
+    vk::Image GetImage() const {
+        return image;
+    }
+
+    vk::ImageSubresourceRange GetImageSubresourceRange() const {
+        return {aspect_mask, base_level, levels, base_layer, layers};
+    }
+
+    void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
+                    vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access) const {
+        surface->Transition(cmdbuf, new_layout, new_stage_mask, new_access);
     }
 
     void MarkAsModified(bool is_modified) const {
@@ -275,12 +287,17 @@ public:
     }
 
 private:
+    // Store a copy of these values to avoid double dereference when reading them
+    const SurfaceParams params;
+    const vk::Image image;
+    const vk::ImageAspectFlags aspect_mask;
+
     const VKDevice& device;
-    Surface surface{};
-    u32 base_layer{};
-    u32 layers{};
-    u32 base_level{};
-    u32 levels{};
+    const Surface surface;
+    const u32 base_layer;
+    const u32 layers;
+    const u32 base_level;
+    const u32 levels;
     UniqueImageView image_view_2d;
     UniqueImageView image_view_2d_array;
 };
