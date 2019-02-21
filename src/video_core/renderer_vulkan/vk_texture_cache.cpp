@@ -19,6 +19,8 @@
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 using VideoCore::MortonSwizzle;
@@ -34,8 +36,8 @@ using VideoCore::Surface::SurfaceTargetFromTextureType;
 static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     switch (target) {
     case SurfaceTarget::Texture2D:
-        return vk::ImageType::e2D;
     case SurfaceTarget::Texture2DArray:
+    case SurfaceTarget::TextureCubemap:
         return vk::ImageType::e2D;
     default:
         UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(target));
@@ -88,11 +90,14 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
                                                        false /*params.srgb_conversion*/);
     params.component_type = ComponentTypeFromTexture(config.tic.r_type.Value());
     params.type = GetFormatType(params.pixel_format);
+    params.target = SurfaceTargetFromTextureType(config.tic.texture_type);
     params.width = Common::AlignUp(config.tic.Width(), GetCompressionFactor(params.pixel_format));
     params.height = Common::AlignUp(config.tic.Height(), GetCompressionFactor(params.pixel_format));
     params.depth = config.tic.Depth();
+    if (params.target == SurfaceTarget::TextureCubemap) {
+        params.depth *= 6;
+    }
     params.unaligned_height = config.tic.Height();
-    params.target = SurfaceTargetFromTextureType(config.tic.texture_type);
 
     // params.is_layered = SurfaceTargetIsLayered(params.target);
     // params.max_mip_level = config.tic.max_mip_level + 1;
@@ -222,6 +227,7 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
                                : vk::ImageUsageFlagBits::eColorAttachment;
     }
 
+    vk::ImageCreateFlags flags;
     vk::Extent3D extent;
     u32 array_layers{};
 
@@ -234,13 +240,18 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
         extent = {width, height, 1};
         array_layers = depth;
         break;
+    case SurfaceTarget::TextureCubemap:
+        flags |= vk::ImageCreateFlagBits::eCubeCompatible;
+        extent = {width, height, 1};
+        array_layers = depth;
+        break;
     default:
         UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(target));
         break;
     }
 
     return vk::ImageCreateInfo(
-        {}, SurfaceTargetToImageVK(target), format, extent, mipmaps, array_layers, sample_count,
+        flags, SurfaceTargetToImageVK(target), format, extent, mipmaps, array_layers, sample_count,
         tiling, image_usage, vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
 }
 
@@ -348,6 +359,11 @@ View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_par
         return {};
     }
 
+    // TODO(Rodrigo): Do proper matching
+    if (view_params.width != params.width || view_params.height != params.height) {
+        return {};
+    }
+
     // TODO(Rodrigo): Do bounds checkings
 
     const auto [layer, level] = it->second;
@@ -355,6 +371,34 @@ View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_par
     constexpr u32 levels_count = 1;
 
     return GetView(layer, layers_count, level, levels_count);
+}
+
+bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
+    if (!(std::tie(params.is_tiled, params.block_width, params.block_height, params.block_depth,
+                   params.tile_width_spacing, params.pixel_format, params.component_type,
+                   params.type, params.unaligned_height) ==
+          std::tie(view_params.is_tiled, view_params.block_width, view_params.block_height,
+                   view_params.block_depth, view_params.tile_width_spacing,
+                   view_params.pixel_format, view_params.component_type, view_params.type,
+                   view_params.unaligned_height))) {
+        return false;
+    }
+    const SurfaceTarget view_target = view_params.target;
+    if (view_target == params.target) {
+        return true;
+    }
+    switch (params.target) {
+    case SurfaceTarget::Texture2D:
+        return false;
+    case SurfaceTarget::Texture2DArray:
+        return view_target == SurfaceTarget::Texture2D;
+    case SurfaceTarget::TextureCubemap:
+        return view_target == SurfaceTarget::Texture2D ||
+               view_target == SurfaceTarget::Texture2DArray;
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(params.target));
+        return false;
+    }
 }
 
 View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
@@ -375,6 +419,7 @@ vk::BufferImageCopy CachedSurface::GetBufferImageCopy() const {
     switch (params.target) {
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
+    case SurfaceTarget::TextureCubemap:
         return vk::BufferImageCopy(0, 0, 0, {GetAspectMask(), 0, 0, params.depth}, {0, 0, 0},
                                    {params.width, params.height, 1});
     default:
@@ -387,6 +432,7 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
     switch (params.target) {
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
+    case SurfaceTarget::TextureCubemap:
         return vk::ImageSubresourceRange(GetAspectMask(), 0, 1, 0, params.depth);
     default:
         UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
@@ -399,7 +445,8 @@ std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const Surfa
     case SurfaceTarget::Texture2D:
         view_offset_map.insert({0, {0, 0}});
         break;
-    case SurfaceTarget::Texture2DArray: {
+    case SurfaceTarget::Texture2DArray:
+    case SurfaceTarget::TextureCubemap: {
         const std::size_t layer_size{Tegra::Texture::CalculateSize(
             params.is_tiled, GetBytesPerPixel(params.pixel_format), params.width, params.height, 1,
             params.block_height, params.block_depth)};
@@ -445,6 +492,9 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, boo
         } else {
             return GetOrCreateView(image_view_2d, vk::ImageViewType::e2D);
         }
+    case Tegra::Shader::TextureType::TextureCube:
+        UNIMPLEMENTED_IF(is_array);
+        return GetOrCreateView(image_view_cube, vk::ImageViewType::eCube);
     default:
         UNIMPLEMENTED_MSG("Texture type {} not implemented", static_cast<u32>(texture_type));
         return {};
@@ -530,6 +580,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
                                                                     bool preserve_contents) {
     const std::vector<Surface> overlaps = GetSurfacesInRegion(address, params.GetSizeInBytes());
     if (overlaps.empty()) {
+        LOG_CRITICAL(Render_Vulkan, "Load!");
         return LoadSurfaceView(exctx, address, params, preserve_contents);
     }
 
@@ -554,6 +605,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
     if (fast_view) {
         return {fast_view, exctx};
     }
+
+    LOG_CRITICAL(Render_Vulkan, "Flush!");
 
     return LoadSurfaceView(exctx, address, params, preserve_contents);
 }

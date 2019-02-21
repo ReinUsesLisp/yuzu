@@ -194,14 +194,7 @@ public:
         return view;
     }
 
-    bool IsFamiliar(const SurfaceParams& rhs) const {
-        return std::tie(params.is_tiled, params.block_width, params.block_height,
-                        params.block_depth, params.tile_width_spacing, params.pixel_format,
-                        params.component_type, params.type, params.unaligned_height) ==
-               std::tie(rhs.is_tiled, rhs.block_width, rhs.block_height, rhs.block_depth,
-                        rhs.tile_width_spacing, rhs.pixel_format, rhs.component_type, rhs.type,
-                        rhs.unaligned_height);
-    }
+    bool IsFamiliar(const SurfaceParams& rhs) const;
 
     void Register(VAddr address_) {
         ASSERT(!is_registered);
@@ -302,6 +295,7 @@ private:
     const u32 levels;
     UniqueImageView image_view_2d;
     UniqueImageView image_view_2d_array;
+    UniqueImageView image_view_cube;
 };
 
 class VKTextureCache {

@@ -829,7 +829,6 @@ private:
         const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
         const bool has_array = meta->array != nullptr;
-        UNIMPLEMENTED_IF(operation.GetOperandsCount() != 2);
 
         const auto [type, sampler] = samplers.at(static_cast<u32>(meta->sampler.GetIndex()));
         const Id sampler_id = Emit(OpLoad(type, sampler));
