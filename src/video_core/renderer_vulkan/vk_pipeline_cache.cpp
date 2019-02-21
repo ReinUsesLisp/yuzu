@@ -198,7 +198,7 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
                                       vk::RenderPass renderpass) {
     const auto& gpu = system.GPU().Maxwell3D();
     Pipeline pipeline;
-    ShaderPipeline shaders{};
+    PipelineCacheShaders shaders{};
 
     for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
         const auto& shader_config = gpu.regs.shader_config[index];
@@ -231,7 +231,11 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
         }
     }
 
-    const auto [pair, is_cache_miss] = cache.try_emplace({shaders, renderpass_params, params});
+    PipelineCacheKey key;
+    key.shaders = shaders;
+    key.renderpass = renderpass_params;
+    key.pipeline = params;
+    const auto [pair, is_cache_miss] = cache.try_emplace(key);
     auto& entry = pair->second;
 
     if (is_cache_miss) {

@@ -100,7 +100,7 @@ public:
         if (count != rhs.count)
             return false;
         for (std::size_t i = 0; i < count; ++i) {
-            if (array[i] != rhs.array[i])
+            if (!(array[i] == rhs.array[i]))
                 return false;
         }
         return true;

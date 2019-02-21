@@ -4,9 +4,10 @@
 
 #pragma once
 
-#include <map>
 #include <memory>
 #include <tuple>
+#include <unordered_map>
+#include <boost/functional/hash.hpp>
 #include "common/static_vector.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/declarations.h"
@@ -23,12 +24,17 @@ struct RenderPassParams {
         VideoCore::Surface::ComponentType component_type =
             VideoCore::Surface::ComponentType::Invalid;
 
-        auto Tie() const {
-            return std::tie(index, pixel_format, component_type);
+        std::size_t Hash() const {
+            std::size_t hash = 0;
+            boost::hash_combine(hash, index);
+            boost::hash_combine(hash, pixel_format);
+            boost::hash_combine(hash, component_type);
+            return hash;
         }
 
-        bool operator<(const ColorAttachment& rhs) const {
-            return Tie() < rhs.Tie();
+        bool operator==(const ColorAttachment& rhs) const {
+            return std::tie(index, pixel_format, component_type) ==
+                   std::tie(rhs.index, rhs.pixel_format, rhs.component_type);
         }
     };
 
@@ -39,14 +45,37 @@ struct RenderPassParams {
         VideoCore::Surface::ComponentType::Invalid;
     bool has_zeta = false;
 
-    auto Tie() const {
-        return std::tie(color_map, zeta_pixel_format, zeta_component_type, has_zeta);
+    std::size_t Hash() const {
+        std::size_t hash = 0;
+        for (const auto& rt : color_map)
+            boost::hash_combine(hash, rt.Hash());
+        boost::hash_combine(hash, zeta_pixel_format);
+        boost::hash_combine(hash, zeta_component_type);
+        boost::hash_combine(hash, has_zeta);
+        return hash;
     }
 
-    bool operator<(const RenderPassParams& rhs) const {
-        return Tie() < rhs.Tie();
+    bool operator==(const RenderPassParams& rhs) const {
+        return std::tie(color_map, zeta_pixel_format, zeta_component_type, has_zeta) ==
+               std::tie(rhs.color_map, rhs.zeta_pixel_format, rhs.zeta_component_type,
+                        rhs.has_zeta);
     }
 };
+
+} // namespace Vulkan
+
+namespace std {
+
+template <>
+struct hash<Vulkan::RenderPassParams> {
+    std::size_t operator()(const Vulkan::RenderPassParams& k) const {
+        return k.Hash();
+    }
+};
+
+} // namespace std
+
+namespace Vulkan {
 
 class VKRenderPassCache final {
 public:
@@ -66,7 +95,7 @@ private:
     UniqueRenderPass CreateRenderPass(const RenderPassParams& params, bool is_draw);
 
     const VKDevice& device;
-    std::map<RenderPassParams, std::unique_ptr<CacheEntry>> cache;
+    std::unordered_map<RenderPassParams, std::unique_ptr<CacheEntry>> cache;
 };
 
 } // namespace Vulkan
