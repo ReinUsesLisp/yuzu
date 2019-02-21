@@ -38,6 +38,7 @@ static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
+    case SurfaceTarget::TextureCubeArray:
         return vk::ImageType::e2D;
     default:
         UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(target));
@@ -94,7 +95,8 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     params.width = Common::AlignUp(config.tic.Width(), GetCompressionFactor(params.pixel_format));
     params.height = Common::AlignUp(config.tic.Height(), GetCompressionFactor(params.pixel_format));
     params.depth = config.tic.Depth();
-    if (params.target == SurfaceTarget::TextureCubemap) {
+    if (params.target == SurfaceTarget::TextureCubemap ||
+        params.target == SurfaceTarget::TextureCubeArray) {
         params.depth *= 6;
     }
     params.unaligned_height = config.tic.Height();
@@ -241,6 +243,7 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
         array_layers = depth;
         break;
     case SurfaceTarget::TextureCubemap:
+    case SurfaceTarget::TextureCubeArray:
         flags |= vk::ImageCreateFlagBits::eCubeCompatible;
         extent = {width, height, 1};
         array_layers = depth;
@@ -395,6 +398,10 @@ bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
     case SurfaceTarget::TextureCubemap:
         return view_target == SurfaceTarget::Texture2D ||
                view_target == SurfaceTarget::Texture2DArray;
+    case SurfaceTarget::TextureCubeArray:
+        return view_target == SurfaceTarget::Texture2D ||
+               view_target == SurfaceTarget::Texture2DArray ||
+               view_target == SurfaceTarget::TextureCubemap;
     default:
         UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(params.target));
         return false;
@@ -420,6 +427,7 @@ vk::BufferImageCopy CachedSurface::GetBufferImageCopy() const {
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
+    case SurfaceTarget::TextureCubeArray:
         return vk::BufferImageCopy(0, 0, 0, {GetAspectMask(), 0, 0, params.depth}, {0, 0, 0},
                                    {params.width, params.height, 1});
     default:
@@ -433,6 +441,7 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
+    case SurfaceTarget::TextureCubeArray:
         return vk::ImageSubresourceRange(GetAspectMask(), 0, 1, 0, params.depth);
     default:
         UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
@@ -446,7 +455,8 @@ std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const Surfa
         view_offset_map.insert({0, {0, 0}});
         break;
     case SurfaceTarget::Texture2DArray:
-    case SurfaceTarget::TextureCubemap: {
+    case SurfaceTarget::TextureCubemap:
+    case SurfaceTarget::TextureCubeArray: {
         const std::size_t layer_size{Tegra::Texture::CalculateSize(
             params.is_tiled, GetBytesPerPixel(params.pixel_format), params.width, params.height, 1,
             params.block_height, params.block_depth)};
@@ -493,8 +503,11 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, boo
             return GetOrCreateView(image_view_2d, vk::ImageViewType::e2D);
         }
     case Tegra::Shader::TextureType::TextureCube:
-        UNIMPLEMENTED_IF(is_array);
-        return GetOrCreateView(image_view_cube, vk::ImageViewType::eCube);
+        if (is_array) {
+            return GetOrCreateView(image_view_cube_array, vk::ImageViewType::eCubeArray);
+        } else {
+            return GetOrCreateView(image_view_cube, vk::ImageViewType::eCube);
+        }
     default:
         UNIMPLEMENTED_MSG("Texture type {} not implemented", static_cast<u32>(texture_type));
         return {};
@@ -580,7 +593,6 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
                                                                     bool preserve_contents) {
     const std::vector<Surface> overlaps = GetSurfacesInRegion(address, params.GetSizeInBytes());
     if (overlaps.empty()) {
-        LOG_CRITICAL(Render_Vulkan, "Load!");
         return LoadSurfaceView(exctx, address, params, preserve_contents);
     }
 
@@ -605,8 +617,6 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
     if (fast_view) {
         return {fast_view, exctx};
     }
-
-    LOG_CRITICAL(Render_Vulkan, "Flush!");
 
     return LoadSurfaceView(exctx, address, params, preserve_contents);
 }

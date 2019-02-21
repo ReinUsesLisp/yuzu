@@ -296,6 +296,7 @@ private:
     UniqueImageView image_view_2d;
     UniqueImageView image_view_2d_array;
     UniqueImageView image_view_cube;
+    UniqueImageView image_view_cube_array;
 };
 
 class VKTextureCache {
