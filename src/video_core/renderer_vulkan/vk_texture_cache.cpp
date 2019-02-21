@@ -19,8 +19,6 @@
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 using VideoCore::MortonSwizzle;

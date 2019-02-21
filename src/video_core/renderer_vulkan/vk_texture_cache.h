@@ -7,6 +7,7 @@
 #include <memory>
 #include <tuple>
 #include <unordered_map>
+#include <boost/functional/hash.hpp>
 #include <boost/icl/interval_map.hpp>
 #include "common/assert.h"
 #include "common/common_types.h"
@@ -140,12 +141,12 @@ struct hash<Vulkan::SurfaceReserveKey> {
 template <>
 struct hash<Vulkan::ViewKey> {
     std::size_t operator()(const Vulkan::ViewKey& key) const {
-        if constexpr (sizeof(std::size_t) >= sizeof(u64)) {
-            return key.base_layer ^ static_cast<u64>(key.layers) << 16 ^
-                   static_cast<u64>(key.base_level) << 32 ^ static_cast<u64>(key.levels) << 48;
-        } else {
-            return key.base_layer ^ key.layers << 8 ^ key.base_level << 16 ^ key.levels << 24;
-        }
+        std::size_t hash = 0;
+        boost::hash_combine(hash, key.base_layer);
+        boost::hash_combine(hash, key.layers);
+        boost::hash_combine(hash, key.base_level);
+        boost::hash_combine(hash, key.levels);
+        return hash;
     }
 };
 
