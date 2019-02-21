@@ -533,8 +533,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
         return LoadSurfaceView(exctx, address, params, preserve_contents);
     }
 
-    const Surface overlap = overlaps[0];
-    if (overlaps.size() == 1 && overlap->IsFamiliar(params)) {
+    if (const Surface overlap = overlaps[0]; overlaps.size() == 1 && overlap->IsFamiliar(params)) {
         if (const View view = overlap->TryGetView(address, params); view)
             return {view, exctx};
     }
