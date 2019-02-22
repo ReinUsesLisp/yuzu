@@ -1,12 +1,9 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
 #pragma once
 
-#include <memory>
-#include <utility>
-#include <vector>
 #include "common/common_types.h"
 #include "video_core/renderer_vulkan/declarations.h"
 
@@ -17,15 +14,21 @@ class VKExecutionContext;
 class VKFence;
 class VKResourceManager;
 
+/// The scheduler abstracts command buffer and fence management with an interface that's able to do
+/// OpenGL-like operations on Vulkan command buffers.
 class VKScheduler {
 public:
-    explicit VKScheduler(VKResourceManager& resource_manager, const VKDevice& device);
+    explicit VKScheduler(const VKDevice& device, VKResourceManager& resource_manager);
     ~VKScheduler();
 
+    /// Gets the current execution context.
     [[nodiscard]] VKExecutionContext GetExecutionContext() const;
 
+    /// Sends the current execution context to the GPU. It returns a new execution context.
     VKExecutionContext Flush(vk::Semaphore semaphore = nullptr);
 
+    /// Sends the current execution context to the GPU and waits for it to complete. It returns a
+    /// new execution context.
     VKExecutionContext Finish(vk::Semaphore semaphore = nullptr);
 
 private:
@@ -33,12 +36,10 @@ private:
 
     void AllocateNewContext();
 
-    VKResourceManager& resource_manager;
     const VKDevice& device;
-
+    VKResourceManager& resource_manager;
     vk::CommandBuffer current_cmdbuf;
     VKFence* current_fence = nullptr;
-
     VKFence* next_fence = nullptr;
 };
 
@@ -60,7 +61,7 @@ private:
     explicit VKExecutionContext(VKFence* fence, vk::CommandBuffer cmdbuf)
         : fence{fence}, cmdbuf{cmdbuf} {}
 
-    VKFence* fence;
+    VKFence* fence{};
     vk::CommandBuffer cmdbuf;
 };
 

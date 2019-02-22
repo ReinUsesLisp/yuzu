@@ -81,7 +81,7 @@ bool RendererVulkan::Init() {
     swapchain = std::make_unique<VKSwapchain>(surface, *device);
     swapchain->Create(framebuffer.width, framebuffer.height);
 
-    sched = std::make_unique<VKScheduler>(*resource_manager, *device);
+    sched = std::make_unique<VKScheduler>(*device, *resource_manager);
 
     rasterizer = std::make_unique<RasterizerVulkan>(system, render_window, screen_info, *device,
                                                     *resource_manager, *memory_manager, *sched);

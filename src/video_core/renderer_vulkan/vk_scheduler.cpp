@@ -1,9 +1,7 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <memory>
-#include <vector>
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "video_core/renderer_vulkan/declarations.h"
@@ -13,8 +11,8 @@
 
 namespace Vulkan {
 
-VKScheduler::VKScheduler(VKResourceManager& resource_manager, const VKDevice& device)
-    : resource_manager{resource_manager}, device{device} {
+VKScheduler::VKScheduler(const VKDevice& device, VKResourceManager& resource_manager)
+    : device{device}, resource_manager{resource_manager} {
     next_fence = &resource_manager.CommitFence();
     AllocateNewContext();
 }
