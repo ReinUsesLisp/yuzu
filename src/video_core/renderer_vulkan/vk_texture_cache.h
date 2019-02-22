@@ -64,21 +64,85 @@ struct SurfaceParams {
     /// Creates SurfaceParams from a framebuffer configuration
     static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
 
-    /// Returns the total size of this surface in bytes, adjusted for compression
-    std::size_t GetSizeInBytes(bool ignore_tiled = false) const {
-        const u32 compression_factor{GetCompressionFactor(pixel_format)};
-        const u32 bytes_per_pixel{GetBytesPerPixel(pixel_format)};
-        const bool tiled{ignore_tiled ? false : is_tiled};
-        const std::size_t uncompressed_size{Tegra::Texture::CalculateSize(
-            tiled, bytes_per_pixel, width, height, depth, block_height, block_depth)};
-
-        // Divide by compression_factor^2, as height and width are factored by this
-        return uncompressed_size / (compression_factor * compression_factor);
+    u32 GetMipWidth(u32 level) const {
+        return std::max(1U, width >> level);
     }
 
-    /// Returns the size of this surface as an Vulkan texture in bytes
-    std::size_t GetSizeInBytesVK() const {
-        return GetSizeInBytes(true);
+    u32 GetMipHeight(u32 level) const {
+        // FIXME(Rodrigo): Special case 1D_ARRAY
+        return std::max(1U, height >> level);
+    }
+
+    u32 GetMipDepth(u32 level) const {
+        return IsLayered() ? depth : std::max(1U, depth >> level);
+    }
+
+    bool IsLayered() const {
+        switch (target) {
+        case SurfaceTarget::Texture1DArray:
+        case SurfaceTarget::Texture2DArray:
+        case SurfaceTarget::TextureCubeArray:
+        case SurfaceTarget::TextureCubemap:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // Auto block resizing algorithm from:
+    // https://cgit.freedesktop.org/mesa/mesa/tree/src/gallium/drivers/nouveau/nv50/nv50_miptree.c
+    u32 GetMipBlockHeight(u32 level) const {
+        if (level == 0)
+            return block_height;
+        const u32 alt_height = GetMipHeight(level);
+        const u32 h = GetDefaultBlockHeight(pixel_format);
+        const u32 blocks_in_y = (alt_height + h - 1) / h;
+        u32 block_height = 16;
+        while (block_height > 1 && blocks_in_y <= block_height * 4) {
+            block_height >>= 1;
+        }
+        return block_height;
+    }
+
+    u32 GetMipBlockDepth(u32 level) const {
+        if (level == 0)
+            return block_depth;
+        if (target != SurfaceTarget::Texture3D)
+            return 1;
+
+        const u32 depth = GetMipDepth(level);
+        u32 block_depth = 32;
+        while (block_depth > 1 && depth * 2 <= block_depth) {
+            block_depth >>= 1;
+        }
+        if (block_depth == 32 && GetMipBlockHeight(level) >= 4) {
+            return 16;
+        }
+        return block_depth;
+    }
+
+    std::size_t GetGuestMipmapLevelOffset(u32 level) const {
+        std::size_t offset = 0;
+        for (u32 i = 0; i < level; i++) {
+            offset += GetInnerMipmapMemorySize(i, false, IsLayered(), false);
+        }
+        return offset;
+    }
+
+    std::size_t GetHostMipmapLevelOffset(u32 level) const {
+        std::size_t offset = 0;
+        for (u32 i = 0; i < level; i++) {
+            offset += GetInnerMipmapMemorySize(i, true, false, false);
+        }
+        return offset;
+    }
+
+    std::size_t GetGuestLayerMemorySize() const {
+        return GetInnerMemorySize(false, true, false);
+    }
+
+    std::size_t GetHostLayerSize(u32 level) const {
+        return GetInnerMipmapMemorySize(level, true, IsLayered(), false);
     }
 
     /// Initializes parameters for caching, should be called after everything has been initialized
@@ -99,18 +163,22 @@ struct SurfaceParams {
     u32 height;
     u32 depth;
     u32 unaligned_height;
+    u32 levels_count;
 
     // Cached data
-    std::size_t size_in_bytes;
-    std::size_t size_in_bytes_vk;
+    std::size_t guest_size_in_bytes;
+    std::size_t host_size_in_bytes;
+
+private:
+    std::size_t GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
+                                         bool uncompressed) const;
+    std::size_t GetInnerMemorySize(bool as_host_size, bool layer_only, bool uncompressed) const;
 };
 
 struct SurfaceReserveKey : Common::HashableStruct<SurfaceParams> {
     static SurfaceReserveKey Create(const SurfaceParams& params) {
         SurfaceReserveKey res;
         res.state = params;
-        // res.state.identity = {}; // Ignore the origin of the texture
-        // res.state.rt = {};       // Ignore rt config in caching
         return res;
     }
 };
@@ -215,7 +283,7 @@ public:
 private:
     View GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels);
 
-    vk::BufferImageCopy GetBufferImageCopy() const;
+    vk::BufferImageCopy GetBufferImageCopy(u32 level) const;
 
     vk::ImageSubresourceRange GetImageSubresourceRange() const;
 
@@ -256,13 +324,11 @@ public:
     }
 
     u32 GetWidth() const {
-        // return params.GetMipWidth(level);
-        return params.width;
+        return params.GetMipWidth(base_level);
     }
 
     u32 GetHeight() const {
-        // return params.GetMipHeight(level);
-        return params.height;
+        return params.GetMipHeight(base_level);
     }
 
     vk::Image GetImage() const {

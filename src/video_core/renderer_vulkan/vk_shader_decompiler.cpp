@@ -900,8 +900,9 @@ private:
 
         const Id coords_vector =
             Emit(OpCompositeConstruct(t_float_lut.at(coords_count - 1), coords));
-        const Id texture = Emit(OpImageSampleExplicitLod(t_float4, sampler_id, coords_vector, {},
-                                                         Visit(meta->extras[0])));
+        const Id texture =
+            Emit(OpImageSampleExplicitLod(t_float4, sampler_id, coords_vector,
+                                          spv::ImageOperandsMask::Lod, Visit(meta->extras[0])));
         return Emit(OpCompositeExtract(t_float, texture, {meta->element}));
     }
 

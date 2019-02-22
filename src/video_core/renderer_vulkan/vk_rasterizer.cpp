@@ -162,7 +162,7 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
     const vk::SamplerCreateInfo sampler_ci(
         {}, vk::Filter::eNearest, vk::Filter::eNearest, vk::SamplerMipmapMode::eNearest,
         vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat,
-        vk::SamplerAddressMode::eRepeat, 0.f, false, 0.f, false, vk::CompareOp::eNever, 0.f, 0.f,
+        vk::SamplerAddressMode::eRepeat, 0.0f, false, 0.0f, false, vk::CompareOp::eNever, -1000.0f, 1000.0f,
         vk::BorderColor::eFloatOpaqueWhite, false);
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
