@@ -69,7 +69,6 @@ struct SurfaceParams {
     }
 
     u32 GetMipHeight(u32 level) const {
-        // FIXME(Rodrigo): Special case 1D_ARRAY
         return std::max(1U, height >> level);
     }
 
@@ -84,7 +83,6 @@ struct SurfaceParams {
         case SurfaceTarget::Texture3D:
             return 1;
         case SurfaceTarget::Texture1DArray:
-            return height;
         case SurfaceTarget::Texture2DArray:
         case SurfaceTarget::TextureCubemap:
         case SurfaceTarget::TextureCubeArray:
@@ -376,6 +374,8 @@ private:
     const u32 layers;
     const u32 base_level;
     const u32 levels;
+    UniqueImageView image_view_1d;
+    UniqueImageView image_view_1d_array;
     UniqueImageView image_view_2d;
     UniqueImageView image_view_2d_array;
     UniqueImageView image_view_3d;

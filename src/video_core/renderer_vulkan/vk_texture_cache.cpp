@@ -19,6 +19,8 @@
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 using VideoCore::MortonSwizzle;
@@ -33,6 +35,9 @@ using VideoCore::Surface::SurfaceTargetFromTextureType;
 
 static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     switch (target) {
+    case SurfaceTarget::Texture1D:
+    case SurfaceTarget::Texture1DArray:
+        return vk::ImageType::e1D;
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
@@ -248,7 +253,12 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
     vk::Extent3D extent;
     u32 array_layers{};
 
+    // FIXME(Rodrigo): This is awful
     switch (target) {
+    case SurfaceTarget::Texture1D:
+        extent = {width, 1, 1};
+        array_layers = 1;
+        break;
     case SurfaceTarget::Texture2D:
         extent = {width, height, 1};
         array_layers = 1;
@@ -256,6 +266,10 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
     case SurfaceTarget::Texture3D:
         extent = {width, height, depth};
         array_layers = 1;
+        break;
+    case SurfaceTarget::Texture1DArray:
+        extent = {width, 1, 1};
+        array_layers = depth;
         break;
     case SurfaceTarget::Texture2DArray:
         extent = {width, height, 1};
@@ -431,9 +445,12 @@ bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
         return true;
     }
     switch (params.target) {
+    case SurfaceTarget::Texture1D:
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture3D:
         return false;
+    case SurfaceTarget::Texture1DArray:
+        return view_target == SurfaceTarget::Texture1D;
     case SurfaceTarget::Texture2DArray:
         return view_target == SurfaceTarget::Texture2D;
     case SurfaceTarget::TextureCubemap:
@@ -477,6 +494,7 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
 std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const SurfaceParams& params) {
     std::map<u64, std::pair<u32, u32>> view_offset_map;
     switch (params.target) {
+    case SurfaceTarget::Texture1D:
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture3D: {
         constexpr u32 layer = 0;
@@ -486,6 +504,7 @@ std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const Surfa
         }
         break;
     }
+    case SurfaceTarget::Texture1DArray:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray: {
@@ -530,6 +549,12 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, boo
     };
 
     switch (texture_type) {
+    case Tegra::Shader::TextureType::Texture1D:
+        if (is_array) {
+            return GetOrCreateView(image_view_1d_array, vk::ImageViewType::e1DArray);
+        } else {
+            return GetOrCreateView(image_view_1d, vk::ImageViewType::e1D);
+        }
     case Tegra::Shader::TextureType::Texture2D:
         if (is_array) {
             return GetOrCreateView(image_view_2d_array, vk::ImageViewType::e2DArray);
