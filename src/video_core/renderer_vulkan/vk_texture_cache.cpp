@@ -19,8 +19,6 @@
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 using VideoCore::MortonSwizzle;
@@ -44,7 +42,7 @@ static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
         return vk::ImageType::e3D;
     default:
         UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(target));
-        return vk::ImageType::e2D;
+        return {};
     }
 }
 
@@ -480,10 +478,14 @@ std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const Surfa
     std::map<u64, std::pair<u32, u32>> view_offset_map;
     switch (params.target) {
     case SurfaceTarget::Texture2D:
-    case SurfaceTarget::Texture3D:
-        // TODO(Rodrigo): Handle mipmaps
-        view_offset_map.insert({0, {0, 0}});
+    case SurfaceTarget::Texture3D: {
+        constexpr u32 layer = 0;
+        for (u32 level = 0; level < params.levels_count; ++level) {
+            const std::size_t offset = params.GetGuestMipmapLevelOffset(level);
+            view_offset_map.insert({offset, {layer, level}});
+        }
         break;
+    }
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray: {
@@ -492,7 +494,8 @@ std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const Surfa
             const std::size_t level_offset = params.GetGuestMipmapLevelOffset(level);
             for (u32 layer = 0; layer < params.GetLayersCount(); ++layer) {
                 const auto layer_offset = static_cast<std::size_t>(layer_size * layer);
-                view_offset_map.insert({level_offset + layer_offset, {layer, level}});
+                const std::size_t offset = level_offset + layer_offset;
+                view_offset_map.insert({offset, {layer, level}});
             }
         }
         break;
