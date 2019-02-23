@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include "common/assert.h"
+#include "core/core.h"
 #include "core/core_timing.h"
 #include "core/memory.h"
 #include "video_core/engines/fermi_2d.h"
@@ -27,14 +28,14 @@ u32 FramebufferConfig::BytesPerPixel(PixelFormat format) {
     UNREACHABLE();
 }
 
-GPU::GPU(VideoCore::RasterizerInterface& rasterizer) {
+GPU::GPU(Core::System& system, VideoCore::RasterizerInterface& rasterizer) {
     memory_manager = std::make_unique<Tegra::MemoryManager>();
     dma_pusher = std::make_unique<Tegra::DmaPusher>(*this);
-    maxwell_3d = std::make_unique<Engines::Maxwell3D>(rasterizer, *memory_manager);
+    maxwell_3d = std::make_unique<Engines::Maxwell3D>(system, rasterizer, *memory_manager);
     fermi_2d = std::make_unique<Engines::Fermi2D>(rasterizer, *memory_manager);
     kepler_compute = std::make_unique<Engines::KeplerCompute>(*memory_manager);
-    maxwell_dma = std::make_unique<Engines::MaxwellDMA>(rasterizer, *memory_manager);
-    kepler_memory = std::make_unique<Engines::KeplerMemory>(rasterizer, *memory_manager);
+    maxwell_dma = std::make_unique<Engines::MaxwellDMA>(system, rasterizer, *memory_manager);
+    kepler_memory = std::make_unique<Engines::KeplerMemory>(system, rasterizer, *memory_manager);
 }
 
 GPU::~GPU() = default;
@@ -283,7 +284,7 @@ void GPU::ProcessSemaphoreTriggerMethod() {
         block.sequence = regs.semaphore_sequence;
         // TODO(Kmather73): Generate a real GPU timestamp and write it here instead of
         // CoreTiming
-        block.timestamp = Core::Timing::GetTicks();
+        block.timestamp = Core::System::GetInstance().CoreTiming().GetTicks();
         Memory::WriteBlock(*address, &block, sizeof(block));
     } else {
         const auto address =

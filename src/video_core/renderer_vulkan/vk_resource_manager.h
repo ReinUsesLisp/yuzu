@@ -4,9 +4,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <vector>
-#include "common/common_types.h"
 #include "video_core/renderer_vulkan/declarations.h"
 
 namespace Vulkan {
@@ -17,11 +17,11 @@ class VKResourceManager;
 
 class CommandBufferPool;
 
-/// Interface for a vulkan resource
+/// Interface for a Vulkan resource
 class VKResource {
 public:
     explicit VKResource();
-    virtual ~VKResource() = 0;
+    virtual ~VKResource();
 
     /**
      * Signals the object that an owning fence has been signaled.
@@ -31,12 +31,12 @@ public:
 };
 
 /**
- * Fences take ownership of objects, protecting them from GPU-side or driver-side race conditions.
- * They must be commited from the resouce manager. Their use flow is: commit the fence from the
- * manager, protect resources with it and use them, send the fence to a execution queue and Wait for
- * it if needed and then call Release. Used resources will automatically be signaled by the manager
+ * Fences take ownership of objects, protecting them from GPU-side or driver-side concurrent access.
+ * They must be commited from the resource manager. Their usage flow is: commit the fence from the
+ * resource manager, protect resources with it and use them, send the fence to an execution queue
+ * and Wait for it if needed and then call Release. Used resources will automatically be signaled
  * when they are free to be reused.
- * @brief Protects are resource for concurrent usage and signals its release
+ * @brief Protects resources for concurrent usage and signals its release.
  */
 class VKFence {
     friend class VKResourceManager;
@@ -59,17 +59,11 @@ public:
      */
     void Release();
 
-    /**
-     * Protects a resource with this fence.
-     * @param resource Resource to protect.
-     */
+    /// Protects a resource with this fence.
     void Protect(VKResource* resource);
 
-    /**
-     * Removes protection for a resource.
-     * @param resource Resource to unprotect.
-     */
-    void Unprotect(VKResource* resource);
+    /// Removes protection for a resource.
+    void Unprotect(const VKResource* resource);
 
     /// Retreives the fence.
     operator vk::Fence() const {
@@ -97,8 +91,8 @@ private:
 };
 
 /**
- * A fence watch is used to keep track of the usage a fence and protect a resource or set of
- * resources.
+ * A fence watch is used to keep track of the usage of a fence and protect a resource or set of
+ * resources without having to inherit VKResource from their handlers.
  */
 class VKFenceWatch final : public VKResource {
 public:
@@ -127,7 +121,7 @@ private:
 };
 
 /**
- * Handles a pool of resources protected by fences. Handles resources overflow allocating more
+ * Handles a pool of resources protected by fences. Manages resource overflow allocating more
  * resources.
  */
 class VKFencedPool {
@@ -153,14 +147,14 @@ private:
     /// Allocates a new page of resources.
     void Grow();
 
-    std::size_t grow_step{};       ///< Number of new resources created after an overflow
+    std::size_t grow_step = 0;     ///< Number of new resources created after an overflow
     std::size_t free_iterator = 0; ///< Hint to where the next free resources is likely to be found
     std::vector<std::unique_ptr<VKFenceWatch>> watches; ///< Set of watched resources
 };
 
 /**
  * The resource manager handles all resources that can be protected with a fence avoiding
- * driver-side or GPU-side race conditions. Use flow is documented in VKFence.
+ * driver-side or GPU-side concurrent usage. Usage is documented in VKFence.
  */
 class VKResourceManager final {
 public:

@@ -16,6 +16,7 @@
 
 namespace Vulkan {
 
+// TODO(Rodrigo): Fine tune this number
 constexpr u64 ALLOC_CHUNK_SIZE = 64 * 1024 * 1024;
 
 class VKMemoryAllocation final {
@@ -35,7 +36,6 @@ public:
     ~VKMemoryAllocation() {
         const auto dev = device.GetLogical();
         const auto& dld = device.GetDispatchLoader();
-
         if (is_mappable)
             dev.unmapMemory(memory, dld);
         dev.free(memory, nullptr, dld);
@@ -84,13 +84,12 @@ public:
 
 private:
     static constexpr u32 ShiftType(u32 type) {
-        return 1 << type;
+        return 1U << type;
     }
 
     /// A memory allocator, it may return a free region between "start" and "end" with the solicited
     /// requeriments.
-    inline std::optional<u64> TryFindFreeSection(u64 start, u64 end, u64 size,
-                                                 u64 alignment) const {
+    std::optional<u64> TryFindFreeSection(u64 start, u64 end, u64 size, u64 alignment) const {
         u64 iterator = start;
         while (iterator + size < end) {
             const u64 try_left = Common::AlignUp(iterator, alignment);
@@ -132,15 +131,6 @@ private:
     std::vector<const VKMemoryCommitImpl*> commits;
 };
 
-VKMemoryCommitImpl::VKMemoryCommitImpl(VKMemoryAllocation* allocation, vk::DeviceMemory memory,
-                                       u8* data, u64 begin, u64 end)
-    : allocation{allocation}, memory{memory}, data{data},
-      interval(std::make_pair(begin, begin + end)) {}
-
-VKMemoryCommitImpl::~VKMemoryCommitImpl() {
-    allocation->Free(this);
-}
-
 VKMemoryManager::VKMemoryManager(const VKDevice& device)
     : device{device}, props{device.GetPhysical().getMemoryProperties(device.GetDispatchLoader())},
       is_memory_unified{GetMemoryUnified(props)} {}
@@ -169,7 +159,7 @@ VKMemoryCommit VKMemoryManager::Commit(const vk::MemoryRequirements& reqs, bool 
         return {};
     };
 
-    if (auto commit = TryCommit(); commit != nullptr) {
+    if (auto commit = TryCommit(); commit) {
         return commit;
     }
 
@@ -183,7 +173,7 @@ VKMemoryCommit VKMemoryManager::Commit(const vk::MemoryRequirements& reqs, bool 
     // Commit again, this time it won't fail since there's a fresh allocation above. If it does,
     // there's a bug.
     auto commit = TryCommit();
-    ASSERT(commit != nullptr);
+    ASSERT(commit);
     return commit;
 }
 
@@ -210,8 +200,7 @@ bool VKMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32
     const u32 type = [&]() {
         for (u32 type_index = 0; type_index < props.memoryTypeCount; ++type_index) {
             const auto flags = props.memoryTypes[type_index].propertyFlags;
-
-            if (type_mask & (1 << type_index) && flags & wanted_properties) {
+            if ((type_mask & (1U << type_index)) && (flags & wanted_properties)) {
                 // The type matches in type and in the wanted properties.
                 return type_index;
             }
@@ -229,12 +218,9 @@ bool VKMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32
     vk::DeviceMemory memory;
     if (const vk::Result res = dev.allocateMemory(&memory_ai, nullptr, &memory, dld);
         res != vk::Result::eSuccess) {
-
-        LOG_CRITICAL(Render_Vulkan, "Device allocation failed with code {}!",
-                     static_cast<u32>(res));
+        LOG_CRITICAL(Render_Vulkan, "Device allocation failed with code {}!", vk::to_string(res));
         return false;
     }
-
     allocs.push_back(
         std::make_unique<VKMemoryAllocation>(device, memory, wanted_properties, size, type));
     return true;
@@ -248,6 +234,20 @@ bool VKMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32
         }
     }
     return true;
+}
+
+VKMemoryCommitImpl::VKMemoryCommitImpl(VKMemoryAllocation* allocation, vk::DeviceMemory memory,
+                                       u8* data, u64 begin, u64 end)
+    : allocation{allocation}, memory{memory}, data{data},
+      interval(std::make_pair(begin, begin + end)) {}
+
+VKMemoryCommitImpl::~VKMemoryCommitImpl() {
+    allocation->Free(this);
+}
+
+u8* VKMemoryCommitImpl::GetData() const {
+    ASSERT_MSG(data != nullptr, "Trying to access an unmapped commit.");
+    return data;
 }
 
 } // namespace Vulkan

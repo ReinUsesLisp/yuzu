@@ -7,7 +7,6 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "video_core/renderer_vulkan/declarations.h"
-#include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
@@ -22,8 +21,6 @@ public:
     CommandBufferPool(const VKDevice& device)
         : VKFencedPool(COMMAND_BUFFER_POOL_SIZE), device{device} {}
 
-    ~CommandBufferPool() = default;
-
     void Allocate(std::size_t begin, std::size_t end) {
         const auto dev = device.GetLogical();
         const auto& dld = device.GetDispatchLoader();
@@ -31,10 +28,11 @@ public:
 
         auto pool = std::make_unique<Pool>();
 
-        const vk::CommandPoolCreateInfo cmdbuf_pool_ci(
-            vk::CommandPoolCreateFlagBits::eTransient |
-                vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            graphics_family);
+        // Command buffers are going to be commited, recorded, executed every single usage cycle.
+        // They are also going to be reseted when commited.
+        const auto pool_flags = vk::CommandPoolCreateFlagBits::eTransient |
+                                vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+        const vk::CommandPoolCreateInfo cmdbuf_pool_ci(pool_flags, graphics_family);
         pool->handle = dev.createCommandPoolUnique(cmdbuf_pool_ci, nullptr, dld);
 
         const vk::CommandBufferAllocateInfo cmdbuf_ai(*pool->handle,
@@ -127,7 +125,7 @@ void VKFence::Protect(VKResource* resource) {
     protected_resources.push_back(resource);
 }
 
-void VKFence::Unprotect(VKResource* resource) {
+void VKFence::Unprotect(const VKResource* resource) {
     const auto it = std::find(protected_resources.begin(), protected_resources.end(), resource);
     if (it != protected_resources.end()) {
         protected_resources.erase(it);

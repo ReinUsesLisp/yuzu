@@ -137,7 +137,7 @@ void RendererOpenGL::SwapBuffers(
 
     render_window.PollEvents();
 
-    system.FrameLimiter().DoFrameLimiting(Core::Timing::GetGlobalTimeUs());
+    system.FrameLimiter().DoFrameLimiting(system.CoreTiming().GetGlobalTimeUs());
     system.GetPerfStats().BeginSystemFrame();
 
     // Restore the rasterizer state
@@ -380,7 +380,8 @@ void RendererOpenGL::CaptureScreenshot() {
     GLuint renderbuffer;
     glGenRenderbuffers(1, &renderbuffer);
     glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, layout.width, layout.height);
+    glRenderbufferStorage(GL_RENDERBUFFER, state.GetsRGBUsed() ? GL_SRGB8 : GL_RGB8, layout.width,
+                          layout.height);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
 
     DrawScreen(layout);

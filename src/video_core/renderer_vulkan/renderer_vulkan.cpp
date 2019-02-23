@@ -58,7 +58,7 @@ void RendererVulkan::SwapBuffers(
 
     render_window.PollEvents();
 
-    system.FrameLimiter().DoFrameLimiting(Core::Timing::GetGlobalTimeUs());
+    system.FrameLimiter().DoFrameLimiting(system.CoreTiming().GetGlobalTimeUs());
     system.GetPerfStats().BeginSystemFrame();
 }
 
