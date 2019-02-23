@@ -150,13 +150,18 @@ void CachedShader::CreateDescriptorSetLayout() {
     const vk::ShaderStageFlags stage = MaxwellToVK::ShaderStage(GetStageFromProgram(program_type));
 
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
-    for (const auto& cbuf_entry : entries.const_buffers) {
-        bindings.push_back(
-            {cbuf_entry.GetBinding(), vk::DescriptorType::eUniformBuffer, 1, stage, nullptr});
+    for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.const_buffers.size());
+         ++bindpoint) {
+        const auto& entry = entries.const_buffers[bindpoint];
+        const u32 current_binding = entries.constant_buffers_base_binding + bindpoint;
+        bindings.emplace_back(current_binding, vk::DescriptorType::eUniformBuffer, 1, stage,
+                              nullptr);
     }
-    for (const auto& sampler_entry : entries.samplers) {
-        bindings.push_back({sampler_entry.GetBinding(), vk::DescriptorType::eCombinedImageSampler,
-                            1, stage, nullptr});
+    for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.samplers.size()); ++bindpoint) {
+        const auto& entry = entries.samplers[bindpoint];
+        const u32 current_binding = entries.samplers_base_binding + bindpoint;
+        bindings.emplace_back(current_binding, vk::DescriptorType::eCombinedImageSampler, 1, stage,
+                              nullptr);
     }
 
     const auto dev = device.GetLogical();

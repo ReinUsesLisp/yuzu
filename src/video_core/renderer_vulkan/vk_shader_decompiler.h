@@ -26,37 +26,22 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 class ConstBufferEntry : public VideoCommon::Shader::ConstBuffer {
 public:
-    explicit constexpr ConstBufferEntry(const VideoCommon::Shader::ConstBuffer& entry, u32 binding,
-                                        u32 index)
-        : VideoCommon::Shader::ConstBuffer{entry}, binding{binding}, index{index} {}
-
-    constexpr u32 GetBinding() const {
-        return binding;
-    }
+    explicit constexpr ConstBufferEntry(const VideoCommon::Shader::ConstBuffer& entry, u32 index)
+        : VideoCommon::Shader::ConstBuffer{entry}, index{index} {}
 
     constexpr u32 GetIndex() const {
         return index;
     }
 
 private:
-    u32 binding{};
     u32 index{};
 };
 
-class SamplerEntry : public VideoCommon::Shader::Sampler {
-public:
-    explicit constexpr SamplerEntry(const VideoCommon::Shader::Sampler& entry, u32 binding)
-        : VideoCommon::Shader::Sampler{entry}, binding{binding} {}
-
-    constexpr u32 GetBinding() const {
-        return binding;
-    }
-
-private:
-    u32 binding{};
-};
+using SamplerEntry = VideoCommon::Shader::Sampler;
 
 struct ShaderEntries {
+    u32 constant_buffers_base_binding;
+    u32 samplers_base_binding;
     std::vector<ConstBufferEntry> const_buffers;
     std::vector<SamplerEntry> samplers;
     std::set<u32> attributes;

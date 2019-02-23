@@ -167,13 +167,13 @@ public:
 
     ShaderEntries GetShaderEntries() const {
         ShaderEntries entries;
+        entries.constant_buffers_base_binding = constant_buffers_base_binding;
+        entries.samplers_base_binding = samplers_base_binding;
         for (const auto& cbuf : ir.GetConstantBuffers()) {
-            entries.const_buffers.emplace_back(
-                cbuf.second, constant_buffers_binding_map.at(cbuf.first), cbuf.first);
+            entries.const_buffers.emplace_back(cbuf.second, cbuf.first);
         }
         for (const auto& sampler : ir.GetSamplers()) {
-            entries.samplers.emplace_back(
-                sampler, samplers_binding_map.at(static_cast<u32>(sampler.GetIndex())));
+            entries.samplers.emplace_back(sampler);
         }
         for (const auto& attr : ir.GetInputAttributes()) {
             entries.attributes.insert(GetAttributeLocation(attr.first));
@@ -194,17 +194,14 @@ private:
     static constexpr u32 CBUF_STRIDE = 16;
 
     void AllocateBindings() {
-        u32 current_binding = 0;
-
-        for (const auto& entry : ir.GetConstantBuffers()) {
-            const auto [index, size] = entry;
-            constant_buffers_binding_map.insert({index, current_binding++});
-        }
-
-        for (const auto& sampler : ir.GetSamplers()) {
-            const auto index = static_cast<u32>(sampler.GetIndex());
-            samplers_binding_map.insert({index, current_binding++});
-        }
+        u32 binding_iterator = 0;
+        const auto Allocate = [&binding_iterator](std::size_t count) {
+            const u32 current_binding = binding_iterator;
+            binding_iterator += static_cast<u32>(count);
+            return current_binding;
+        };
+        constant_buffers_base_binding = Allocate(ir.GetConstantBuffers().size());
+        samplers_base_binding = Allocate(ir.GetSamplers().size());
     }
 
     void AllocateLabels() {
@@ -436,18 +433,20 @@ private:
     }
 
     void DeclareConstantBuffers() {
+        u32 binding = constant_buffers_base_binding;
         for (const auto& entry : ir.GetConstantBuffers()) {
             const auto [index, size] = entry;
             const Id id = OpVariable(t_cbuf_ubo, spv::StorageClass::Uniform);
             AddGlobalVariable(Name(id, fmt::format("cbuf_{}", index)));
 
-            Decorate(id, spv::Decoration::Binding, {constant_buffers_binding_map.at(index)});
+            Decorate(id, spv::Decoration::Binding, {binding++});
             Decorate(id, spv::Decoration::DescriptorSet, {descriptor_set});
             constant_buffers.insert({index, id});
         }
     }
 
     void DeclareSamplers() {
+        u32 binding = samplers_base_binding;
         for (const auto& sampler : ir.GetSamplers()) {
             const auto dim = GetSamplerDim(sampler);
             const int depth = sampler.IsShadow() ? 1 : 0;
@@ -464,8 +463,7 @@ private:
             AddGlobalVariable(Name(id, fmt::format("sampler_{}", sampler.GetIndex())));
             samplers.insert({static_cast<u32>(sampler.GetIndex()), {sampled_image_type, id}});
 
-            const u32 binding = samplers_binding_map.at(static_cast<u32>(sampler.GetIndex()));
-            Decorate(id, spv::Decoration::Binding, {binding});
+            Decorate(id, spv::Decoration::Binding, {binding++});
             Decorate(id, spv::Decoration::DescriptorSet, {descriptor_set});
         }
     }
@@ -1226,8 +1224,8 @@ private:
 
     std::vector<Id> interfaces;
 
-    std::map<u32, u32> constant_buffers_binding_map;
-    std::map<u32, u32> samplers_binding_map;
+    u32 constant_buffers_base_binding{};
+    u32 samplers_base_binding{};
 
     Id execute_function{};
     Id jmp_to{};
