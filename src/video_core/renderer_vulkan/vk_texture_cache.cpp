@@ -40,6 +40,8 @@ static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray:
         return vk::ImageType::e2D;
+    case SurfaceTarget::Texture3D:
+        return vk::ImageType::e3D;
     default:
         UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(target));
         return vk::ImageType::e2D;
@@ -253,6 +255,10 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
         extent = {width, height, 1};
         array_layers = 1;
         break;
+    case SurfaceTarget::Texture3D:
+        extent = {width, height, depth};
+        array_layers = 1;
+        break;
     case SurfaceTarget::Texture2DArray:
         extent = {width, height, 1};
         array_layers = depth;
@@ -286,7 +292,7 @@ static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfacePara
         std::size_t host_offset = 0;
         const std::size_t guest_stride = params.GetGuestLayerMemorySize();
         const std::size_t host_stride = params.GetHostLayerSize(level);
-        for (u32 layer = 0; layer < params.depth; layer++) {
+        for (u32 layer = 0; layer < params.GetLayersCount(); layer++) {
             MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth, 1,
                           params.tile_width_spacing, buffer + host_offset, host_stride,
                           address + guest_offset);
@@ -412,7 +418,7 @@ View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_par
 
     // TODO(Rodrigo): Do bounds checkings
 
-    return GetView(layer, view_params.depth, level, view_params.levels_count);
+    return GetView(layer, view_params.GetLayersCount(), level, view_params.levels_count);
 }
 
 bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
@@ -428,6 +434,7 @@ bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
     }
     switch (params.target) {
     case SurfaceTarget::Texture2D:
+    case SurfaceTarget::Texture3D:
         return false;
     case SurfaceTarget::Texture2DArray:
         return view_target == SurfaceTarget::Texture2D;
@@ -459,37 +466,22 @@ View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 leve
 }
 
 vk::BufferImageCopy CachedSurface::GetBufferImageCopy(u32 level) const {
-    switch (params.target) {
-    case SurfaceTarget::Texture2D:
-    case SurfaceTarget::Texture2DArray:
-    case SurfaceTarget::TextureCubemap:
-    case SurfaceTarget::TextureCubeArray:
-        return vk::BufferImageCopy(params.GetHostMipmapLevelOffset(level), 0, 0,
-                                   {GetAspectMask(), level, 0, params.depth}, {0, 0, 0},
-                                   {params.GetMipWidth(level), params.GetMipHeight(level), 1});
-    default:
-        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
-        return {};
-    }
+    const u32 vk_depth = params.target == SurfaceTarget::Texture3D ? params.GetMipDepth(level) : 1;
+    return vk::BufferImageCopy(params.GetHostMipmapLevelOffset(level), 0, 0,
+                               {GetAspectMask(), level, 0, params.GetLayersCount()}, {0, 0, 0},
+                               {params.GetMipWidth(level), params.GetMipHeight(level), vk_depth});
 }
 
 vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
-    switch (params.target) {
-    case SurfaceTarget::Texture2D:
-    case SurfaceTarget::Texture2DArray:
-    case SurfaceTarget::TextureCubemap:
-    case SurfaceTarget::TextureCubeArray:
-        return {GetAspectMask(), 0, params.levels_count, 0, params.depth};
-    default:
-        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
-        return {};
-    }
+    return {GetAspectMask(), 0, params.levels_count, 0, params.GetLayersCount()};
 }
 
 std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const SurfaceParams& params) {
     std::map<u64, std::pair<u32, u32>> view_offset_map;
     switch (params.target) {
     case SurfaceTarget::Texture2D:
+    case SurfaceTarget::Texture3D:
+        // TODO(Rodrigo): Handle mipmaps
         view_offset_map.insert({0, {0, 0}});
         break;
     case SurfaceTarget::Texture2DArray:
@@ -498,7 +490,7 @@ std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const Surfa
         const std::size_t layer_size = params.GetGuestLayerMemorySize();
         for (u32 level = 0; level < params.levels_count; ++level) {
             const std::size_t level_offset = params.GetGuestMipmapLevelOffset(level);
-            for (u32 layer = 0; layer < params.depth; ++layer) {
+            for (u32 layer = 0; layer < params.GetLayersCount(); ++layer) {
                 const auto layer_offset = static_cast<std::size_t>(layer_size * layer);
                 view_offset_map.insert({level_offset + layer_offset, {layer, level}});
             }
@@ -541,6 +533,9 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, boo
         } else {
             return GetOrCreateView(image_view_2d, vk::ImageViewType::e2D);
         }
+    case Tegra::Shader::TextureType::Texture3D:
+        ASSERT_MSG(!is_array, "Arrays of 3D textures do not exist on Maxwell");
+        return GetOrCreateView(image_view_3d, vk::ImageViewType::e3D);
     case Tegra::Shader::TextureType::TextureCube:
         if (is_array) {
             return GetOrCreateView(image_view_cube_array, vk::ImageViewType::eCubeArray);

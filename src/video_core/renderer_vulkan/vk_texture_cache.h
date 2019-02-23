@@ -77,6 +77,22 @@ struct SurfaceParams {
         return IsLayered() ? depth : std::max(1U, depth >> level);
     }
 
+    u32 GetLayersCount() const {
+        switch (target) {
+        case SurfaceTarget::Texture1D:
+        case SurfaceTarget::Texture2D:
+        case SurfaceTarget::Texture3D:
+            return 1;
+        case SurfaceTarget::Texture1DArray:
+            return height;
+        case SurfaceTarget::Texture2DArray:
+        case SurfaceTarget::TextureCubemap:
+        case SurfaceTarget::TextureCubeArray:
+            return depth;
+        }
+        UNREACHABLE();
+    }
+
     bool IsLayered() const {
         switch (target) {
         case SurfaceTarget::Texture1DArray:
@@ -362,6 +378,7 @@ private:
     const u32 levels;
     UniqueImageView image_view_2d;
     UniqueImageView image_view_2d_array;
+    UniqueImageView image_view_3d;
     UniqueImageView image_view_cube;
     UniqueImageView image_view_cube_array;
 };
