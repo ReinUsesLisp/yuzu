@@ -73,6 +73,7 @@ bool IsPrecise(Operation operand) {
     }
     return false;
 }
+
 } // namespace
 
 class SPIRVDecompiler : public Sirit::Module {

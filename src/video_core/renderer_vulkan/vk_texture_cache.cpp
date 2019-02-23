@@ -103,6 +103,7 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
         params.target == SurfaceTarget::TextureCubeArray) {
         params.depth *= 6;
     }
+    params.pitch = params.is_tiled ? 0 : config.tic.Pitch();
     params.unaligned_height = config.tic.Height();
     params.levels_count = config.tic.max_mip_level + 1;
 
@@ -152,11 +153,17 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     //                         config.format == Tegra::RenderTargetFormat::RGBA8_SRGB;
     params.component_type = ComponentTypeFromRenderTarget(config.format);
     params.type = GetFormatType(params.pixel_format);
-    params.width = config.width;
+    if (params.is_tiled) {
+        params.width = config.width;
+    } else {
+        const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
+        params.pitch = config.width;
+        params.width = params.pitch / bpp;
+    }
     params.height = config.height;
+    params.depth = 1;
     params.unaligned_height = config.height;
     params.target = SurfaceTarget::Texture2D;
-    params.depth = 1;
     params.levels_count = 1;
 
     params.CalculateSizes();
@@ -254,7 +261,7 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray:
         flags |= vk::ImageCreateFlagBits::eCubeCompatible;
-        [[falthrough]];
+        [[fallthrough]];
     case SurfaceTarget::Texture1D:
     case SurfaceTarget::Texture1DArray:
     case SurfaceTarget::Texture2D:
@@ -326,13 +333,29 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
 CachedSurface::~CachedSurface() = default;
 
 void CachedSurface::LoadVKBuffer() {
-    UNIMPLEMENTED_IF(!params.is_tiled);
-    ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture target {}",
-               params.block_width, static_cast<u32>(params.target));
+    if (params.is_tiled) {
+        ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture target {}",
+                   params.block_width, static_cast<u32>(params.target));
 
-    for (u32 level = 0; level < params.levels_count; ++level) {
-        u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
-        SwizzleFunc(MortonSwizzleMode::MortonToLinear, address, params, buffer, level);
+        for (u32 level = 0; level < params.levels_count; ++level) {
+            u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
+            SwizzleFunc(MortonSwizzleMode::MortonToLinear, address, params, buffer, level);
+        }
+    } else {
+        ASSERT_MSG(params.levels_count == 1, "Linear mipmap loading is not implemented");
+        const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
+        const u32 copy_size = params.width * bpp;
+        if (params.pitch == copy_size) {
+            std::memcpy(vk_buffer, Memory::GetPointer(address), params.host_size_in_bytes);
+        } else {
+            const u8* start = Memory::GetPointer(address);
+            u8* write_to = vk_buffer;
+            for (u32 h = params.height; h > 0; h--) {
+                std::memcpy(write_to, start, copy_size);
+                start += params.pitch;
+                write_to += copy_size;
+            }
+        }
     }
 }
 

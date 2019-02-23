@@ -176,6 +176,7 @@ struct SurfaceParams {
     u32 width;
     u32 height;
     u32 depth;
+    u32 pitch;
     u32 unaligned_height;
     u32 levels_count;
 
