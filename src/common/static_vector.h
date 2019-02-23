@@ -61,6 +61,10 @@ public:
         return array.data();
     }
 
+    void Clear() {
+        count = 0;
+    }
+
     T& operator[](std::size_t i) {
         DEBUG_ASSERT(i < N);
         return array[i];

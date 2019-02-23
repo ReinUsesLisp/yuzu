@@ -4,6 +4,7 @@
 
 #include <array>
 #include <memory>
+#include <boost/functional/hash.hpp>
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -26,7 +27,6 @@
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
-using ImageViewsPack = StaticVector<vk::ImageView, Maxwell::NumRenderTargets + 1>;
 
 struct FramebufferInfo {
     vk::Framebuffer framebuffer;
@@ -36,113 +36,81 @@ struct FramebufferInfo {
     u32 height;
 };
 
-struct FramebufferCacheKey {
-    vk::RenderPass renderpass;
-    ImageViewsPack views;
-    u32 width;
-    u32 height;
+void PipelineState::Reset() {
+    vertex_bindings.Clear();
+    descriptor_bindings_count = 0;
+    buffer_info_count = 0;
+    image_info_count = 0;
+}
 
-    auto Tie() const {
-        return std::tie(renderpass, views, width, height);
+void PipelineState::AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set) {
+    // A null descriptor set means that the stage is not using descriptors, it must be skipped.
+    if (descriptor_set) {
+        descriptor_sets[stage] = descriptor_set;
     }
+}
 
-    bool operator<(const FramebufferCacheKey& rhs) const {
-        return Tie() < rhs.Tie();
-    }
-};
+void PipelineState::AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
+    vertex_bindings.Push({buffer, offset});
+}
 
-class PipelineState {
-public:
-    void AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set) {
-        // A null descriptor set means that the stage is not using descriptors, it must be skipped.
-        if (descriptor_set) {
-            descriptor_sets[stage] = descriptor_set;
+void PipelineState::SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type) {
+    index_buffer = buffer;
+    index_offset = offset;
+    index_type = type;
+}
+
+std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&>
+PipelineState::CaptureDescriptorWriteBuffer() {
+    const u32 desc_index = descriptor_bindings_count++;
+    const u32 info_index = buffer_info_count++;
+    ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
+    ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_BUFFERS));
+
+    return {descriptor_bindings[desc_index], buffer_infos[info_index]};
+}
+
+std::tuple<vk::WriteDescriptorSet&, vk::DescriptorImageInfo&>
+PipelineState::CaptureDescriptorWriteImage() {
+    const u32 desc_index = descriptor_bindings_count++;
+    const u32 info_index = image_info_count++;
+    ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
+    ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_IMAGES));
+
+    return {descriptor_bindings[desc_index], image_infos[info_index]};
+}
+
+void PipelineState::UpdateDescriptorSets(const VKDevice& device) const {
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
+    dev.updateDescriptorSets(descriptor_bindings_count, descriptor_bindings.data(), 0, nullptr,
+                             dld);
+}
+
+void PipelineState::BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout,
+                                    const vk::DispatchLoaderDynamic& dld) const {
+    for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+        if (const auto descriptor_set = descriptor_sets[stage]; descriptor_set) {
+            cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout,
+                                      static_cast<u32>(stage), 1, &descriptor_set, 0, nullptr, dld);
         }
     }
+}
 
-    void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
-        vertex_bindings.Push({buffer, offset});
+void PipelineState::BindVertexBuffers(vk::CommandBuffer cmdbuf,
+                                      const vk::DispatchLoaderDynamic& dld) const {
+    // TODO(Rodrigo): Sort data and bindings to do this in a single call.
+    for (u32 index = 0; index < vertex_bindings.Size(); ++index) {
+        const auto [buffer, size] = vertex_bindings.Data()[index];
+        cmdbuf.bindVertexBuffers(index, {buffer}, {size}, dld);
     }
+}
 
-    void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type) {
-        index_buffer = buffer;
-        index_offset = offset;
-        index_type = type;
-    }
-
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> CaptureDescriptorWriteBuffer() {
-        const u32 desc_index = descriptor_bindings_count++;
-        const u32 info_index = buffer_info_count++;
-        ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
-        ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_BUFFERS));
-
-        return {descriptor_bindings[desc_index], buffer_infos[info_index]};
-    }
-
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorImageInfo&> CaptureDescriptorWriteImage() {
-        const u32 desc_index = descriptor_bindings_count++;
-        const u32 info_index = image_info_count++;
-        ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
-        ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_IMAGES));
-
-        return {descriptor_bindings[desc_index], image_infos[info_index]};
-    }
-
-    void UpdateDescriptorSets(const VKDevice& device) const {
-        const auto dev = device.GetLogical();
-        const auto& dld = device.GetDispatchLoader();
-        dev.updateDescriptorSets(descriptor_bindings_count, descriptor_bindings.data(), 0, nullptr,
-                                 dld);
-    }
-
-    void BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout,
-                         const vk::DispatchLoaderDynamic& dld) const {
-        for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
-            if (const auto descriptor_set = descriptor_sets[stage]; descriptor_set) {
-                cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout,
-                                          static_cast<u32>(stage), 1, &descriptor_set, 0, nullptr,
-                                          dld);
-            }
-        }
-    }
-
-    void BindVertexBuffers(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const {
-        // TODO(Rodrigo): Sort data and bindings to do this in a single call.
-        for (u32 index = 0; index < vertex_bindings.Size(); ++index) {
-            const auto [buffer, size] = vertex_bindings.Data()[index];
-            cmdbuf.bindVertexBuffers(index, {buffer}, {size}, dld);
-        }
-    }
-
-    void BindIndexBuffer(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const {
-        DEBUG_ASSERT(index_buffer && index_offset != 0);
-        cmdbuf.bindIndexBuffer(index_buffer, index_offset, index_type, dld);
-    }
-
-private:
-    static constexpr std::size_t MAX_DESCRIPTOR_BUFFERS =
-        Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
-    static constexpr std::size_t MAX_DESCRIPTOR_IMAGES = Maxwell::NumTextureSamplers;
-    static constexpr std::size_t MAX_DESCRIPTOR_WRITES =
-        MAX_DESCRIPTOR_BUFFERS + MAX_DESCRIPTOR_IMAGES;
-
-    StaticVector<std::tuple<vk::Buffer, vk::DeviceSize>, Maxwell::NumVertexArrays> vertex_bindings;
-
-    vk::Buffer index_buffer{};
-    vk::DeviceSize index_offset{};
-    vk::IndexType index_type{};
-
-    std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets{};
-
-    u32 descriptor_bindings_count{};
-    std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_WRITES> descriptor_bindings;
-
-    u32 buffer_info_count{};
-    std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BUFFERS> buffer_infos;
-
-    u32 image_info_count{};
-    std::array<vk::DescriptorImageInfo, MAX_DESCRIPTOR_IMAGES> image_infos;
-};
+void PipelineState::BindIndexBuffer(vk::CommandBuffer cmdbuf,
+                                    const vk::DispatchLoaderDynamic& dld) const {
+    DEBUG_ASSERT(index_buffer && index_offset != 0);
+    cmdbuf.bindIndexBuffer(index_buffer, index_offset, index_type, dld);
+}
 
 RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWindow& renderer,
                                    VKScreenInfo& screen_info, const VKDevice& device,
@@ -180,7 +148,7 @@ void RasterizerVulkan::DrawArrays() {
     const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
 
     PipelineParams params;
-    PipelineState state;
+    state.Reset();
 
     // Get renderpass parameters and get a draw renderpass from the cache
     const RenderPassParams renderpass_params = GetRenderPassParams();
@@ -201,9 +169,9 @@ void RasterizerVulkan::DrawArrays() {
 
     buffer_cache->Reserve(buffer_size);
 
-    SetupVertexArrays(params, state);
+    SetupVertexArrays(params);
     if (is_indexed) {
-        SetupIndexBuffer(state);
+        SetupIndexBuffer();
     }
 
     Pipeline pipeline = shader_cache->GetPipeline(params, renderpass_params, renderpass);
@@ -219,8 +187,8 @@ void RasterizerVulkan::DrawArrays() {
         auto& fence = exctx.GetFence();
         const auto descriptor_set = shader->CommitDescriptorSet(fence);
         SetupConstBuffers(state, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
-        exctx = SetupTextures(exctx, state, shader, static_cast<Maxwell::ShaderStage>(stage),
-                              descriptor_set);
+        exctx =
+            SetupTextures(exctx, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
         state.AssignDescriptorSet(static_cast<u32>(stage), descriptor_set);
     }
 
@@ -441,7 +409,7 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
     return {info, exctx};
 }
 
-void RasterizerVulkan::SetupVertexArrays(PipelineParams& params, PipelineState& state) {
+void RasterizerVulkan::SetupVertexArrays(PipelineParams& params) {
     const auto& regs = system.GPU().Maxwell3D().regs;
 
     for (u32 index = 0; index < static_cast<u32>(Maxwell::NumVertexAttributes); ++index) {
@@ -489,7 +457,7 @@ void RasterizerVulkan::SetupVertexArrays(PipelineParams& params, PipelineState& 
     }
 }
 
-void RasterizerVulkan::SetupIndexBuffer(PipelineState& state) {
+void RasterizerVulkan::SetupIndexBuffer() {
     const auto& regs = system.GPU().Maxwell3D().regs;
 
     const auto [offset, buffer] =
@@ -543,8 +511,8 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& sha
     }
 }
 
-VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, PipelineState& state,
-                                                   const Shader& shader, Maxwell::ShaderStage stage,
+VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, const Shader& shader,
+                                                   Maxwell::ShaderStage stage,
                                                    vk::DescriptorSet descriptor_set) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& entries = shader->GetEntries().samplers;

@@ -32,9 +32,94 @@ class VKPipelineCache;
 class VKBufferCache;
 class VKRenderPassCache;
 
-class PipelineState;
 struct FramebufferInfo;
-struct FramebufferCacheKey;
+
+using ImageViewsPack = StaticVector<vk::ImageView, Maxwell::NumRenderTargets + 1>;
+
+struct FramebufferCacheKey {
+    vk::RenderPass renderpass;
+    ImageViewsPack views;
+    u32 width;
+    u32 height;
+
+    std::size_t Hash() const {
+        std::size_t hash = 0;
+        boost::hash_combine(hash, static_cast<VkRenderPass>(renderpass));
+        for (const auto& view : views)
+            boost::hash_combine(hash, static_cast<VkImageView>(view));
+        boost::hash_combine(hash, width);
+        boost::hash_combine(hash, height);
+        return hash;
+    }
+
+    bool operator==(const FramebufferCacheKey& rhs) const {
+        return std::tie(renderpass, views, width, height) ==
+               std::tie(rhs.renderpass, rhs.views, rhs.width, rhs.height);
+    }
+};
+
+} // namespace Vulkan
+
+namespace std {
+
+template <>
+struct hash<Vulkan::FramebufferCacheKey> {
+    std::size_t operator()(const Vulkan::FramebufferCacheKey& k) const {
+        return k.Hash();
+    }
+};
+
+} // namespace std
+
+namespace Vulkan {
+
+class PipelineState {
+public:
+    void Reset();
+
+    void AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set);
+
+    void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset);
+
+    void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type);
+
+    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> CaptureDescriptorWriteBuffer();
+
+    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorImageInfo&> CaptureDescriptorWriteImage();
+
+    void UpdateDescriptorSets(const VKDevice& device) const;
+
+    void BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout,
+                         const vk::DispatchLoaderDynamic& dld) const;
+
+    void BindVertexBuffers(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const;
+
+    void BindIndexBuffer(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const;
+
+private:
+    static constexpr std::size_t MAX_DESCRIPTOR_BUFFERS =
+        Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
+    static constexpr std::size_t MAX_DESCRIPTOR_IMAGES = Maxwell::NumTextureSamplers;
+    static constexpr std::size_t MAX_DESCRIPTOR_WRITES =
+        MAX_DESCRIPTOR_BUFFERS + MAX_DESCRIPTOR_IMAGES;
+
+    StaticVector<std::tuple<vk::Buffer, vk::DeviceSize>, Maxwell::NumVertexArrays> vertex_bindings;
+
+    vk::Buffer index_buffer{};
+    vk::DeviceSize index_offset{};
+    vk::IndexType index_type{};
+
+    std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets{};
+
+    u32 descriptor_bindings_count{};
+    std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_WRITES> descriptor_bindings;
+
+    u32 buffer_info_count{};
+    std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BUFFERS> buffer_infos;
+
+    u32 image_info_count{};
+    std::array<vk::DescriptorImageInfo, MAX_DESCRIPTOR_IMAGES> image_infos;
+};
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {
 public:
@@ -67,16 +152,15 @@ private:
         VKExecutionContext exctx, vk::RenderPass renderpass, bool using_color_fb = true,
         bool use_zeta_fb = true, bool preserve_contents = true);
 
-    void SetupVertexArrays(PipelineParams& params, PipelineState& state);
+    void SetupVertexArrays(PipelineParams& params);
 
-    void SetupIndexBuffer(PipelineState& state);
+    void SetupIndexBuffer();
 
     void SetupConstBuffers(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);
 
-    VKExecutionContext SetupTextures(VKExecutionContext exctx, PipelineState& state,
-                                     const Shader& shader, Maxwell::ShaderStage stage,
-                                     vk::DescriptorSet descriptor_set);
+    VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
+                                     Maxwell::ShaderStage stage, vk::DescriptorSet descriptor_set);
 
     std::size_t CalculateVertexArraysSize() const;
 
@@ -104,13 +188,12 @@ private:
     std::unique_ptr<VKBufferCache> buffer_cache;
     std::unique_ptr<VKRenderPassCache> renderpass_cache;
 
-    VKFence* pass_fence{};
-    vk::CommandBuffer pass_cmdbuf{};
+    PipelineState state;
 
     UniqueSampler dummy_sampler;
 
     // TODO(Rodrigo): Invalidate on image destruction
-    std::map<FramebufferCacheKey, UniqueFramebuffer> framebuffer_cache;
+    std::unordered_map<FramebufferCacheKey, UniqueFramebuffer> framebuffer_cache;
 
     enum class AccelDraw { Disabled, Arrays, Indexed };
     AccelDraw accelerate_draw = AccelDraw::Disabled;
