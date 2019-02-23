@@ -45,10 +45,9 @@ static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
         return vk::ImageType::e2D;
     case SurfaceTarget::Texture3D:
         return vk::ImageType::e3D;
-    default:
-        UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(target));
-        return {};
     }
+    UNREACHABLE_MSG("Unknown texture target={}", static_cast<u32>(target));
+    return {};
 }
 
 static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
@@ -251,43 +250,27 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
 
     vk::ImageCreateFlags flags;
     vk::Extent3D extent;
-    u32 array_layers{};
-
-    // FIXME(Rodrigo): This is awful
     switch (target) {
-    case SurfaceTarget::Texture1D:
-        extent = {width, 1, 1};
-        array_layers = 1;
-        break;
-    case SurfaceTarget::Texture2D:
-        extent = {width, height, 1};
-        array_layers = 1;
-        break;
-    case SurfaceTarget::Texture3D:
-        extent = {width, height, depth};
-        array_layers = 1;
-        break;
-    case SurfaceTarget::Texture1DArray:
-        extent = {width, 1, 1};
-        array_layers = depth;
-        break;
-    case SurfaceTarget::Texture2DArray:
-        extent = {width, height, 1};
-        array_layers = depth;
-        break;
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray:
         flags |= vk::ImageCreateFlagBits::eCubeCompatible;
+        [[falthrough]];
+    case SurfaceTarget::Texture1D:
+    case SurfaceTarget::Texture1DArray:
+    case SurfaceTarget::Texture2D:
+    case SurfaceTarget::Texture2DArray:
         extent = {width, height, 1};
-        array_layers = depth;
+        break;
+    case SurfaceTarget::Texture3D:
+        extent = {width, height, depth};
         break;
     default:
-        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(target));
+        UNREACHABLE_MSG("Unknown surface target={}", static_cast<u32>(target));
         break;
     }
 
     return vk::ImageCreateInfo(flags, SurfaceTargetToImageVK(target), format, extent, levels_count,
-                               array_layers, sample_count, tiling, image_usage,
+                               GetLayersCount(), sample_count, tiling, image_usage,
                                vk::SharingMode::eExclusive, 0, nullptr,
                                vk::ImageLayout::eUndefined);
 }
