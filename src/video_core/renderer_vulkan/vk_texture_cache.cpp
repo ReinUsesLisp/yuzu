@@ -405,7 +405,8 @@ View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_par
     const auto [layer, level] = it->second;
 
     // TODO(Rodrigo): Do proper matching
-    if (view_params.width != params.GetMipWidth(level) || view_params.height != params.GetMipHeight(level)) {
+    if (view_params.width != params.GetMipWidth(level) ||
+        view_params.height != params.GetMipHeight(level)) {
         return {};
     }
 
