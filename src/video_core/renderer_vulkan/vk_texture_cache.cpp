@@ -416,10 +416,11 @@ void CachedSurface::Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_lay
 }
 
 View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_params) {
-    if (view_address < address) {
+    if (view_address < address || !IsFamiliar(view_params)) {
         // It can't be a view if it's in a prior address.
         return {};
     }
+
     const auto relative_offset = static_cast<u64>(view_address - address);
     const auto it = view_offset_map.find(relative_offset);
     if (it == view_offset_map.end()) {
@@ -428,28 +429,26 @@ View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_par
     }
     const auto [layer, level] = it->second;
 
-    // TODO(Rodrigo): Do proper matching
-    if (view_params.width != params.GetMipWidth(level) ||
-        view_params.height != params.GetMipHeight(level)) {
+    if (!IsViewValid(view_params, layer, level)) {
         return {};
     }
-
-    // TODO(Rodrigo): Do bounds checkings
 
     return GetView(layer, view_params.GetLayersCount(), level, view_params.levels_count);
 }
 
 bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
-    if (!(std::tie(params.is_tiled, params.tile_width_spacing, params.pixel_format,
-                   params.component_type, params.type) ==
-          std::tie(view_params.is_tiled, view_params.tile_width_spacing, view_params.pixel_format,
-                   view_params.component_type, view_params.type))) {
+    if (std::tie(params.is_tiled, params.tile_width_spacing, params.pixel_format,
+                 params.component_type, params.type) !=
+        std::tie(view_params.is_tiled, view_params.tile_width_spacing, view_params.pixel_format,
+                 view_params.component_type, view_params.type)) {
         return false;
     }
+
     const SurfaceTarget view_target = view_params.target;
     if (view_target == params.target) {
         return true;
     }
+
     switch (params.target) {
     case SurfaceTarget::Texture1D:
     case SurfaceTarget::Texture2D:
@@ -470,6 +469,28 @@ bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
         UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(params.target));
         return false;
     }
+}
+
+bool CachedSurface::IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const {
+    return IsDimensionValid(view_params, level) && IsDepthValid(view_params, level) &&
+           IsInBounds(view_params, layer, level);
+}
+
+bool CachedSurface::IsDimensionValid(const SurfaceParams& view_params, u32 level) const {
+    return view_params.width == params.GetMipWidth(level) &&
+           view_params.height == params.GetMipHeight(level);
+}
+
+bool CachedSurface::IsDepthValid(const SurfaceParams& view_params, u32 level) const {
+    if (view_params.target != SurfaceTarget::Texture3D) {
+        return true;
+    }
+    return view_params.depth == params.GetMipDepth(level);
+}
+
+bool CachedSurface::IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const {
+    return layer + view_params.GetLayersCount() <= params.GetLayersCount() &&
+           level + view_params.levels_count <= params.levels_count;
 }
 
 View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
@@ -664,8 +685,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::GetSurfaceView(VKExecutionC
         return LoadSurfaceView(exctx, address, params, preserve_contents);
     }
 
-    if (const Surface overlap = overlaps[0]; overlaps.size() == 1 && overlap->IsFamiliar(params)) {
-        if (const View view = overlap->TryGetView(address, params); view)
+    if (overlaps.size() == 1) {
+        if (const View view = overlaps[0]->TryGetView(address, params); view)
             return {view, exctx};
     }
 

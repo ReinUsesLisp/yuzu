@@ -278,8 +278,6 @@ public:
         return view;
     }
 
-    bool IsFamiliar(const SurfaceParams& rhs) const;
-
     void Register(VAddr address_) {
         ASSERT(!is_registered);
         is_registered = true;
@@ -297,6 +295,16 @@ public:
 
 private:
     View GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels);
+
+    bool IsFamiliar(const SurfaceParams& view_params) const;
+
+    bool IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const;
+
+    bool IsDimensionValid(const SurfaceParams& view_params, u32 level) const;
+
+    bool IsDepthValid(const SurfaceParams& view_params, u32 level) const;
+
+    bool IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const;
 
     vk::BufferImageCopy GetBufferImageCopy(u32 level) const;
 
