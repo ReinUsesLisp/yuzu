@@ -17,9 +17,7 @@
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 #include "video_core/surface.h"
-#include "video_core/textures/astc.h"
-
-#pragma optimize("", off)
+#include "video_core/textures/convert.h"
 
 namespace Vulkan {
 
@@ -68,7 +66,7 @@ static VAddr GetAddressForTexture(Core::System& system,
     auto& memory_manager{system.GPU().MemoryManager()};
     const auto cpu_addr{memory_manager.GpuToCpuAddress(config.tic.Address())};
     ASSERT(cpu_addr);
-    return *cpu_addr;
+    return cpu_addr.value_or(0);
 }
 
 static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
@@ -356,6 +354,13 @@ void CachedSurface::LoadVKBuffer() {
                 write_to += copy_size;
             }
         }
+    }
+
+    for (u32 level = 0; level < params.levels_count; ++level) {
+        Tegra::Texture::ConvertFromGuestToHost(vk_buffer + params.GetHostMipmapLevelOffset(level),
+                                               params.pixel_format, params.GetMipWidth(level),
+                                               params.GetMipHeight(level),
+                                               params.GetMipDepth(level), false, true);
     }
 }
 

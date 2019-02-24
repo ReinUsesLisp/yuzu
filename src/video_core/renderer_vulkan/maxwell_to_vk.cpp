@@ -32,7 +32,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16UI
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // R11FG11FB10F
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA32UI
-    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT1
+    {vk::Format::eBc1RgbaUnormBlock, ComponentType::UNorm, false},  // DXT1
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT23
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT45
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN1
@@ -87,7 +87,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
 
     // DepthStencil formats
     {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // Z24S8
-    {vk::Format::eUndefined, ComponentType::Invalid, false},   // S8Z24
+    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // S8Z24
     {vk::Format::eUndefined, ComponentType::Invalid, false},   // Z32FS8
 }};
 
