@@ -40,16 +40,15 @@ u32 ShaderIR::DecodeArithmetic(NodeBlock& bb, u32 pc) {
     case OpCode::Id::FMUL_R:
     case OpCode::Id::FMUL_IMM: {
         // FMUL does not have 'abs' bits and only the second operand has a 'neg' bit.
-        UNIMPLEMENTED_IF_MSG(instr.fmul.tab5cb8_2 != 0, "FMUL tab5cb8_2({}) is not implemented",
-                             instr.fmul.tab5cb8_2.Value());
-        UNIMPLEMENTED_IF_MSG(
-            instr.fmul.tab5c68_0 != 1, "FMUL tab5cb8_0({}) is not implemented",
-            instr.fmul.tab5c68_0.Value()); // SMO typical sends 1 here which seems to be the default
+        // SMO typical sends 1 here which seems to be the default
+        UNIMPLEMENTED_IF_MSG(instr.fmul.tab5c68_0 != 1, "FMUL tab5cb8_0({}) is not implemented",
+                             instr.fmul.tab5c68_0.Value());
 
         op_b = GetOperandAbsNegFloat(op_b, false, instr.fmul.negate_b);
 
         // TODO(Rodrigo): Should precise be used when there's a postfactor?
-        Node value = Operation(OperationCode::FMul, PRECISE, op_a, op_b);
+        const MetaArithmetic meta{true, instr.fmul.rounding_mode};
+        Node value = Operation(OperationCode::FMul, meta, op_a, op_b);
 
         if (instr.fmul.postfactor != 0) {
             auto postfactor = static_cast<s32>(instr.fmul.postfactor);

@@ -486,6 +486,13 @@ enum class SystemVariable : u64 {
     CircularQueueEntryAddressHigh = 0x63,
 };
 
+enum class FPRoundingMode : u64 {
+    TowardsEven = 0,
+    TowardsNegativeInfinite = 1,
+    TowardsPositiveInfinite = 2,
+    TowardsZero = 3,
+};
+
 union Instruction {
     Instruction& operator=(const Instruction& instr) {
         value = instr.value;
@@ -580,7 +587,7 @@ union Instruction {
     } ipa;
 
     union {
-        BitField<39, 2, u64> tab5cb8_2;
+        BitField<39, 2, FPRoundingMode> rounding_mode;
         BitField<41, 3, u64> postfactor;
         BitField<44, 2, u64> tab5c68_0;
         BitField<48, 1, u64> negate_b;

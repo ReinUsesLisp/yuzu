@@ -193,6 +193,13 @@ enum class ExitMethod {
     AlwaysEnd,    ///< All code paths reach a END instruction.
 };
 
+enum class FPRoundingMode {
+    TowardsEven,
+    TowardsNegativeInfinite,
+    TowardsPositiveInfinite,
+    TowardsZero,
+};
+
 class Sampler {
 public:
     explicit Sampler(std::size_t offset, std::size_t index, Tegra::Shader::TextureType type,
@@ -276,7 +283,8 @@ struct GlobalMemoryBase {
 };
 
 struct MetaArithmetic {
-    bool precise{};
+    bool precise = false;
+    Tegra::Shader::FPRoundingMode rounding_mode = Tegra::Shader::FPRoundingMode::TowardsEven;
 };
 
 struct MetaHalfArithmetic {
