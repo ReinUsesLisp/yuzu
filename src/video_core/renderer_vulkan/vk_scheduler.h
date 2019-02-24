@@ -24,11 +24,12 @@ public:
     /// Gets the current execution context.
     [[nodiscard]] VKExecutionContext GetExecutionContext() const;
 
-    /// Sends the current execution context to the GPU. It returns a new execution context.
+    /// Sends the current execution context to the GPU. It invalidates the current execution context
+    /// and returns a new one.
     VKExecutionContext Flush(vk::Semaphore semaphore = nullptr);
 
-    /// Sends the current execution context to the GPU and waits for it to complete. It returns a
-    /// new execution context.
+    /// Sends the current execution context to the GPU and waits for it to complete. It invalidates
+    /// the current execution context and returns a new one.
     VKExecutionContext Finish(vk::Semaphore semaphore = nullptr);
 
 private:

@@ -51,9 +51,6 @@ void VKScheduler::SubmitExecution(vk::Semaphore semaphore) {
 void VKScheduler::AllocateNewContext() {
     current_fence = next_fence;
     current_cmdbuf = resource_manager.CommitCommandBuffer(*current_fence);
-
-    // Allocate the semaphore the current call will use in a future fence, to avoid it being
-    // freed while it's still being waited on.
     next_fence = &resource_manager.CommitFence();
 
     const auto& dld = device.GetDispatchLoader();
