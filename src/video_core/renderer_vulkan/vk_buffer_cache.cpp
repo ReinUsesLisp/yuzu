@@ -16,8 +16,8 @@
 namespace Vulkan {
 
 VKBufferCache::VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
-                             VKResourceManager& resource_manager, const VKDevice& device,
-                             VKMemoryManager& memory_manager, VKScheduler& sched, u64 size)
+                             const VKDevice& device, VKMemoryManager& memory_manager,
+                             VKScheduler& sched, u64 size)
     : RasterizerCache{rasterizer}, system{system} {
     const auto usage = vk::BufferUsageFlagBits::eVertexBuffer |
                        vk::BufferUsageFlagBits::eIndexBuffer |
@@ -25,8 +25,8 @@ VKBufferCache::VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
     const auto access = vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndexRead |
                         vk::AccessFlagBits::eUniformRead;
     stream_buffer =
-        std::make_unique<VKStreamBuffer>(resource_manager, device, memory_manager, sched, size,
-                                         usage, access, vk::PipelineStageFlagBits::eAllCommands);
+        std::make_unique<VKStreamBuffer>(device, memory_manager, sched, size, usage, access,
+                                         vk::PipelineStageFlagBits::eAllCommands);
 }
 
 VKBufferCache::~VKBufferCache() = default;

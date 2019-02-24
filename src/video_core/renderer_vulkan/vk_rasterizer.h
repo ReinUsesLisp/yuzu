@@ -146,7 +146,7 @@ public:
                   "The maximum size of a constbuffer must be a multiple of the size of GLvec4");
 
 private:
-    static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
+    static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
 
     [[nodiscard]] std::tuple<FramebufferInfo, VKExecutionContext> ConfigureFramebuffers(
         VKExecutionContext exctx, vk::RenderPass renderpass, bool using_color_fb = true,

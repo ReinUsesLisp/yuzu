@@ -17,7 +17,7 @@
 namespace Vulkan {
 
 // TODO(Rodrigo): Fine tune this number
-constexpr u64 ALLOC_CHUNK_SIZE = 64 * 1024 * 1024;
+constexpr u64 ALLOC_CHUNK_SIZE = 256 * 1024 * 1024;
 
 class VKMemoryAllocation final {
 public:

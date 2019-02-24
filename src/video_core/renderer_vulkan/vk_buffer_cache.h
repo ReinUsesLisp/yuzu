@@ -16,12 +16,11 @@
 
 namespace Core {
 class System;
-} // namespace Core
+}
 
 namespace Vulkan {
 
 class RasterizerVulkan;
-class VKResourceManager;
 class VKDevice;
 class VKMemoryManager;
 class VKFence;
@@ -49,8 +48,8 @@ struct CachedBufferEntry final : public RasterizerCacheObject {
 class VKBufferCache final : public RasterizerCache<std::shared_ptr<CachedBufferEntry>> {
 public:
     explicit VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
-                           VKResourceManager& resource_manager, const VKDevice& device,
-                           VKMemoryManager& memory_manager, VKScheduler& sched, u64 size);
+                           const VKDevice& device, VKMemoryManager& memory_manager,
+                           VKScheduler& sched, u64 size);
     ~VKBufferCache();
 
     /// Uploads data from a guest GPU address. Returns host's buffer offset where it's been
