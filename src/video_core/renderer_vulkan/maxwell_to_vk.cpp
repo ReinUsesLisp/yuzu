@@ -153,7 +153,14 @@ vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttr
         }
         break;
     case Maxwell::VertexAttribute::Type::SignedInt:
+        break;
     case Maxwell::VertexAttribute::Type::UnsignedInt:
+        switch (size) {
+        case Maxwell::VertexAttribute::Size::Size_32:
+            return vk::Format::eR32Uint;
+        default:
+            break;
+        }
     case Maxwell::VertexAttribute::Type::UnsignedScaled:
     case Maxwell::VertexAttribute::Type::SignedScaled:
         break;
