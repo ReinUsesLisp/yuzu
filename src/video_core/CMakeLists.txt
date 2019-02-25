@@ -128,6 +128,8 @@ if (ENABLE_VULKAN)
         renderer_vulkan/vk_renderpass_cache.h
         renderer_vulkan/vk_resource_manager.cpp
         renderer_vulkan/vk_resource_manager.h
+        renderer_vulkan/vk_sampler_cache.cpp
+        renderer_vulkan/vk_sampler_cache.h
         renderer_vulkan/vk_scheduler.cpp
         renderer_vulkan/vk_scheduler.h
         renderer_vulkan/vk_shader_decompiler.cpp

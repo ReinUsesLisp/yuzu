@@ -21,6 +21,7 @@
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
+#include "video_core/renderer_vulkan/vk_sampler_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 
@@ -126,15 +127,7 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
     buffer_cache = std::make_unique<VKBufferCache>(system, *this, device, memory_manager, sched,
                                                    STREAM_BUFFER_SIZE);
     renderpass_cache = std::make_unique<VKRenderPassCache>(device);
-
-    const vk::SamplerCreateInfo sampler_ci(
-        {}, vk::Filter::eNearest, vk::Filter::eNearest, vk::SamplerMipmapMode::eNearest,
-        vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat,
-        vk::SamplerAddressMode::eRepeat, 0.0f, false, 0.0f, false, vk::CompareOp::eNever, -1000.0f,
-        1000.0f, vk::BorderColor::eFloatOpaqueWhite, false);
-    const auto dev = device.GetLogical();
-    const auto& dld = device.GetDispatchLoader();
-    dummy_sampler = dev.createSamplerUnique(sampler_ci, nullptr, dld);
+    sampler_cache = std::make_unique<VKSamplerCache>(device);
 }
 
 RasterizerVulkan::~RasterizerVulkan() = default;
@@ -532,7 +525,7 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
                          pipeline_stage, vk::AccessFlagBits::eShaderRead);
 
         const auto [write, image_info] = state.CaptureDescriptorWriteImage();
-        image_info = vk::DescriptorImageInfo(*dummy_sampler,
+        image_info = vk::DescriptorImageInfo(sampler_cache->GetSampler(texture.tsc),
                                              view->GetHandle(entry.GetType(), entry.IsArray()),
                                              vk::ImageLayout::eShaderReadOnlyOptimal);
         write = vk::WriteDescriptorSet(descriptor_set, current_binding, 0, 1,

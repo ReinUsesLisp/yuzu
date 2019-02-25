@@ -289,6 +289,7 @@ struct TSCEntry {
         BitField<10, 3, DepthCompareFunc> depth_compare_func;
         BitField<13, 1, u32> srgb_conversion;
         BitField<20, 3, u32> max_anisotropy;
+        u32 raw0;
     };
     union {
         BitField<0, 2, TextureFilter> mag_filter;
@@ -296,15 +297,18 @@ struct TSCEntry {
         BitField<6, 2, TextureMipmapFilter> mip_filter;
         BitField<9, 1, u32> cubemap_interface_filtering;
         BitField<12, 13, u32> mip_lod_bias;
+        u32 raw1;
     };
     union {
         BitField<0, 12, u32> min_lod_clamp;
         BitField<12, 12, u32> max_lod_clamp;
         BitField<24, 8, u32> srgb_border_color_r;
+        u32 raw2;
     };
     union {
         BitField<12, 8, u32> srgb_border_color_g;
         BitField<20, 8, u32> srgb_border_color_b;
+        u32 raw3;
     };
     float border_color_r;
     float border_color_g;

@@ -174,7 +174,7 @@ vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttr
     }
     UNIMPLEMENTED_MSG("Unimplemented vertex format of type={} and size={}", static_cast<u32>(type),
                       static_cast<u32>(size));
-    return vk::Format::eR8Unorm;
+    return {};
 }
 
 vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
@@ -205,7 +205,7 @@ vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
         return vk::CompareOp::eAlways;
     }
     UNIMPLEMENTED_MSG("Unimplemented comparison op={}", static_cast<u32>(comparison));
-    return vk::CompareOp::eAlways;
+    return {};
 }
 
 vk::IndexType IndexFormat(Maxwell::IndexFormat index_format) {
@@ -219,7 +219,7 @@ vk::IndexType IndexFormat(Maxwell::IndexFormat index_format) {
         return vk::IndexType::eUint32;
     }
     UNIMPLEMENTED_MSG("Unimplemented index_format={}", static_cast<u32>(index_format));
-    return vk::IndexType::eUint16;
+    return {};
 }
 
 vk::StencilOp StencilOp(Maxwell::StencilOp stencil_op) {
@@ -250,7 +250,7 @@ vk::StencilOp StencilOp(Maxwell::StencilOp stencil_op) {
         return vk::StencilOp::eDecrementAndWrap;
     }
     UNIMPLEMENTED_MSG("Unimplemented stencil op={}", static_cast<u32>(stencil_op));
-    return vk::StencilOp::eKeep;
+    return {};
 }
 
 vk::BlendOp BlendEquation(Maxwell::Blend::Equation equation) {
@@ -272,7 +272,7 @@ vk::BlendOp BlendEquation(Maxwell::Blend::Equation equation) {
         return vk::BlendOp::eMax;
     }
     UNIMPLEMENTED_MSG("Unimplemented blend equation={}", static_cast<u32>(equation));
-    return vk::BlendOp::eAdd;
+    return {};
 }
 
 vk::BlendFactor BlendFactor(Maxwell::Blend::Factor factor) {
@@ -336,7 +336,7 @@ vk::BlendFactor BlendFactor(Maxwell::Blend::Factor factor) {
         return vk::BlendFactor::eOneMinusConstantAlpha;
     }
     UNIMPLEMENTED_MSG("Unimplemented blend factor={}", static_cast<u32>(factor));
-    return vk::BlendFactor::eZero;
+    return {};
 }
 
 vk::FrontFace FrontFace(Maxwell::Cull::FrontFace front_face) {
@@ -347,7 +347,7 @@ vk::FrontFace FrontFace(Maxwell::Cull::FrontFace front_face) {
         return vk::FrontFace::eCounterClockwise;
     }
     UNIMPLEMENTED_MSG("Unimplemented front face={}", static_cast<u32>(front_face));
-    return vk::FrontFace::eCounterClockwise;
+    return {};
 }
 
 vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face) {
@@ -360,7 +360,85 @@ vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face) {
         return vk::CullModeFlagBits::eFrontAndBack;
     }
     UNIMPLEMENTED_MSG("Unimplemented cull face={}", static_cast<u32>(cull_face));
-    return vk::CullModeFlagBits::eNone;
+    return {};
 }
+
+namespace Sampler {
+
+vk::Filter Filter(Tegra::Texture::TextureFilter filter) {
+    switch (filter) {
+    case Tegra::Texture::TextureFilter::Linear:
+        return vk::Filter::eLinear;
+    case Tegra::Texture::TextureFilter::Nearest:
+        return vk::Filter::eNearest;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented sampler filter={}", static_cast<u32>(filter));
+    return {};
+}
+
+vk::SamplerMipmapMode MipmapMode(Tegra::Texture::TextureMipmapFilter mipmap_filter) {
+    switch (mipmap_filter) {
+    case Tegra::Texture::TextureMipmapFilter::None:
+        UNIMPLEMENTED();
+        return vk::SamplerMipmapMode::eNearest;
+    case Tegra::Texture::TextureMipmapFilter::Linear:
+        return vk::SamplerMipmapMode::eLinear;
+    case Tegra::Texture::TextureMipmapFilter::Nearest:
+        return vk::SamplerMipmapMode::eNearest;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented sampler mipmap mode={}", static_cast<u32>(mipmap_filter));
+    return {};
+}
+
+vk::SamplerAddressMode WrapMode(Tegra::Texture::WrapMode wrap_mode) {
+    switch (wrap_mode) {
+    case Tegra::Texture::WrapMode::Wrap:
+        return vk::SamplerAddressMode::eRepeat;
+    case Tegra::Texture::WrapMode::Mirror:
+        return vk::SamplerAddressMode::eMirroredRepeat;
+    case Tegra::Texture::WrapMode::ClampToEdge:
+        return vk::SamplerAddressMode::eClampToEdge;
+    case Tegra::Texture::WrapMode::Border:
+        return vk::SamplerAddressMode::eClampToBorder;
+    case Tegra::Texture::WrapMode::ClampOGL:
+        // TODO(Rodrigo): GL_CLAMP was removed as of OpenGL 3.1, to implement GL_CLAMP, we can use
+        // eClampToBorder to get the border color of the texture, and then sample the edge to
+        // manually mix them. However the shader part of this is not yet implemented.
+        return vk::SamplerAddressMode::eClampToBorder;
+    case Tegra::Texture::WrapMode::MirrorOnceClampToEdge:
+        return vk::SamplerAddressMode::eMirrorClampToEdge;
+    case Tegra::Texture::WrapMode::MirrorOnceBorder:
+        UNIMPLEMENTED();
+        return vk::SamplerAddressMode::eMirrorClampToEdge;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented wrap mode={}", static_cast<u32>(wrap_mode));
+    return {};
+}
+
+vk::CompareOp DepthCompareFunction(Tegra::Texture::DepthCompareFunc depth_compare_func) {
+    switch (depth_compare_func) {
+    case Tegra::Texture::DepthCompareFunc::Never:
+        return vk::CompareOp::eNever;
+    case Tegra::Texture::DepthCompareFunc::Less:
+        return vk::CompareOp::eLess;
+    case Tegra::Texture::DepthCompareFunc::LessEqual:
+        return vk::CompareOp::eLessOrEqual;
+    case Tegra::Texture::DepthCompareFunc::Equal:
+        return vk::CompareOp::eEqual;
+    case Tegra::Texture::DepthCompareFunc::NotEqual:
+        return vk::CompareOp::eNotEqual;
+    case Tegra::Texture::DepthCompareFunc::Greater:
+        return vk::CompareOp::eGreater;
+    case Tegra::Texture::DepthCompareFunc::GreaterEqual:
+        return vk::CompareOp::eGreaterOrEqual;
+    case Tegra::Texture::DepthCompareFunc::Always:
+        return vk::CompareOp::eAlways;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented sampler depth compare function={}",
+                      static_cast<u32>(depth_compare_func));
+    return {};
+}
+
+} // namespace Sampler
 
 } // namespace Vulkan::MaxwellToVK

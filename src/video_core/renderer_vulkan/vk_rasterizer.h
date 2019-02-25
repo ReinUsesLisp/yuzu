@@ -31,6 +31,7 @@ class VKDevice;
 class VKPipelineCache;
 class VKBufferCache;
 class VKRenderPassCache;
+class VKSamplerCache;
 
 struct FramebufferInfo;
 
@@ -186,11 +187,11 @@ private:
     std::unique_ptr<VKTextureCache> texture_cache;
     std::unique_ptr<VKPipelineCache> shader_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
+
     std::unique_ptr<VKRenderPassCache> renderpass_cache;
+    std::unique_ptr<VKSamplerCache> sampler_cache;
 
     PipelineState state;
-
-    UniqueSampler dummy_sampler;
 
     // TODO(Rodrigo): Invalidate on image destruction
     std::unordered_map<FramebufferCacheKey, UniqueFramebuffer> framebuffer_cache;

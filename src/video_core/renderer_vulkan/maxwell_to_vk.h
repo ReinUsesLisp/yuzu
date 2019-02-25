@@ -10,6 +10,7 @@
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/surface.h"
+#include "video_core/textures/texture.h"
 
 namespace Vulkan::MaxwellToVK {
 
@@ -39,5 +40,17 @@ vk::BlendFactor BlendFactor(Maxwell::Blend::Factor factor);
 vk::FrontFace FrontFace(Maxwell::Cull::FrontFace front_face);
 
 vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face);
+
+namespace Sampler {
+
+vk::Filter Filter(Tegra::Texture::TextureFilter filter);
+
+vk::SamplerMipmapMode MipmapMode(Tegra::Texture::TextureMipmapFilter mipmap_filter);
+
+vk::SamplerAddressMode WrapMode(Tegra::Texture::WrapMode wrap_mode);
+
+vk::CompareOp DepthCompareFunction(Tegra::Texture::DepthCompareFunc depth_compare_func);
+
+} // namespace Sampler
 
 } // namespace Vulkan::MaxwellToVK
