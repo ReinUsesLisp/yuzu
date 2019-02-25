@@ -79,13 +79,6 @@ struct ViewKey {
 namespace std {
 
 template <>
-struct hash<Vulkan::SurfaceReserveKey> {
-    std::size_t operator()(const Vulkan::SurfaceReserveKey& k) const {
-        return k.Hash();
-    }
-};
-
-template <>
 struct hash<Vulkan::ViewKey> {
     std::size_t operator()(const Vulkan::ViewKey& key) const {
         std::size_t hash = 0;
@@ -109,11 +102,11 @@ public:
     ~CachedSurface();
 
     // Read/Write data in Switch memory to/from vk_buffer
-    void LoadVKBuffer();
-    VKExecutionContext FlushVKBuffer(VKExecutionContext exctx);
+    void LoadBuffer();
+    VKExecutionContext FlushBuffer(VKExecutionContext exctx);
 
     // Upload data in vk_buffer to this surface's texture
-    VKExecutionContext UploadVKTexture(VKExecutionContext exctx);
+    VKExecutionContext UploadTexture(VKExecutionContext exctx);
 
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout layout,
                     vk::PipelineStageFlags stage_flags, vk::AccessFlags access_flags);
@@ -278,77 +271,29 @@ private:
     ViewCache image_view_cube_array;
 };
 
-class VKTextureCache {
+class VKTextureCache
+    : public VideoCommon::TextureCache<CachedSurface, CachedView, VKExecutionContext> {
 public:
     explicit VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                             const VKDevice& device, VKResourceManager& resource_manager,
                             VKMemoryManager& memory_manager, VKScheduler& sched);
     ~VKTextureCache();
 
-    void InvalidateRegion(VAddr address, std::size_t size);
-
-    /// Get a surface based on the texture configuration
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetTextureSurface(
-        VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config);
-
-    /// Get the depth surface based on the framebuffer configuration
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetDepthBufferSurface(
-        VKExecutionContext exctx, bool preserve_contents);
-
-    /// Get the color surface based on the framebuffer configuration and the specified render target
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetColorBufferSurface(
-        VKExecutionContext exctx, std::size_t index, bool preserve_contents);
-
-    /// Tries to find a framebuffer using on the provided CPU address
-    [[nodiscard]] Surface TryFindFramebufferSurface(VAddr address) const;
-
 private:
-    [[nodiscard]] VKExecutionContext LoadSurface(VKExecutionContext exctx, const Surface& surface);
-
-    [[nodiscard]] std::tuple<View, VKExecutionContext> GetSurfaceView(VKExecutionContext exctx,
-                                                                      VAddr address,
-                                                                      const SurfaceParams& params,
-                                                                      bool preserve_contents);
-
-    [[nodiscard]] std::tuple<View, VKExecutionContext> LoadSurfaceView(VKExecutionContext exctx,
-                                                                       VAddr address,
-                                                                       const SurfaceParams& params,
-                                                                       bool preserve_contents);
-
-    [[nodiscard]] std::tuple<View, VKExecutionContext> TryFastGetSurfaceView(
+    std::tuple<View, VKExecutionContext> TryFastGetSurfaceView(
         VKExecutionContext exctx, VAddr address, const SurfaceParams& params,
         bool preserve_contents, const std::vector<Surface>& overlaps);
 
-    [[nodiscard]] std::tuple<View, VKExecutionContext> FastCopySurface(
-        VKExecutionContext exctx, Surface src_surface, VAddr address,
-        const SurfaceParams& dst_params);
+    std::unique_ptr<CachedSurface> CreateSurface(const SurfaceParams& params);
 
-    [[nodiscard]] std::vector<Surface> GetSurfacesInRegion(VAddr address, std::size_t size) const;
+    std::tuple<View, VKExecutionContext> FastCopySurface(VKExecutionContext exctx,
+                                                         Surface src_surface, VAddr address,
+                                                         const SurfaceParams& dst_params);
 
-    void Register(Surface surface, VAddr address);
-
-    void Unregister(Surface surface);
-
-    Surface GetUncachedSurface(const SurfaceParams& params);
-
-    void ReserveSurface(std::unique_ptr<CachedSurface> surface);
-
-    Surface TryGetReservedSurface(const SurfaceParams& params);
-
-    Core::System& system;
-    VideoCore::RasterizerInterface& rasterizer;
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
     VKScheduler& sched;
-
-    boost::icl::interval_map<VAddr, std::set<Surface>> registered_surfaces;
-
-    /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
-    /// previously been used. This is to prevent surfaces from being constantly created and
-    /// destroyed when used with different surface parameters.
-    std::unordered_map<SurfaceReserveKey, std::list<std::unique_ptr<CachedSurface>>>
-        surface_reserve;
 };
 
 } // namespace Vulkan

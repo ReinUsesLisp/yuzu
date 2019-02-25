@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <boost/functional/hash.hpp>
+
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/common_types.h"
@@ -242,6 +244,36 @@ std::size_t SurfaceParams::GetInnerMemorySize(bool as_host_size, bool layer_only
         size = Common::AlignUp(size, Tegra::Texture::GetGOBSize() * block_height * block_depth);
     }
     return size;
+}
+
+std::size_t SurfaceParams::Hash() const {
+    std::size_t hash = 0;
+    boost::hash_combine(hash, is_tiled);
+    boost::hash_combine(hash, block_width);
+    boost::hash_combine(hash, block_height);
+    boost::hash_combine(hash, block_depth);
+    boost::hash_combine(hash, tile_width_spacing);
+    boost::hash_combine(hash, pixel_format);
+    boost::hash_combine(hash, component_type);
+    boost::hash_combine(hash, type);
+    boost::hash_combine(hash, target);
+    boost::hash_combine(hash, width);
+    boost::hash_combine(hash, height);
+    boost::hash_combine(hash, depth);
+    boost::hash_combine(hash, pitch);
+    boost::hash_combine(hash, unaligned_height);
+    boost::hash_combine(hash, levels_count);
+    return hash;
+}
+
+bool SurfaceParams::operator==(const SurfaceParams& rhs) const {
+    return std::tie(is_tiled, block_width, block_height, block_depth, tile_width_spacing,
+                    pixel_format, component_type, type, target, width, height, depth, pitch,
+                    unaligned_height, levels_count) ==
+           std::tie(rhs.is_tiled, rhs.block_width, rhs.block_height, rhs.block_depth,
+                    rhs.tile_width_spacing, rhs.pixel_format, rhs.component_type, rhs.type,
+                    rhs.target, rhs.width, rhs.height, rhs.depth, rhs.pitch, rhs.unaligned_height,
+                    rhs.levels_count);
 }
 
 } // namespace VideoCommon
