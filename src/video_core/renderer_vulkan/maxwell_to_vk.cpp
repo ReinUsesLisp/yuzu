@@ -379,8 +379,10 @@ vk::Filter Filter(Tegra::Texture::TextureFilter filter) {
 vk::SamplerMipmapMode MipmapMode(Tegra::Texture::TextureMipmapFilter mipmap_filter) {
     switch (mipmap_filter) {
     case Tegra::Texture::TextureMipmapFilter::None:
-        UNIMPLEMENTED();
-        return vk::SamplerMipmapMode::eNearest;
+        // TODO(Rodrigo): None seems to be mapped to OpenGL's mag and min filters without mipmapping
+        // (e.g. GL_NEAREST and GL_LINEAR). Vulkan doesn't have such a thing, find out if we have to
+        // use an image view with a single mipmap level to emulate this.
+        return vk::SamplerMipmapMode::eLinear;
     case Tegra::Texture::TextureMipmapFilter::Linear:
         return vk::SamplerMipmapMode::eLinear;
     case Tegra::Texture::TextureMipmapFilter::Nearest:
