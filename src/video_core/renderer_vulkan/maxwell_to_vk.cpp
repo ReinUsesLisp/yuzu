@@ -25,7 +25,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eR5G6B5UnormPack16, ComponentType::UNorm, false},  // B5G6R5U
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // A2B10G10R10U
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // A1B5G5R5U
-    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R8U
+    {vk::Format::eR8Unorm, ComponentType::UNorm, false},            // R8U
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // R8UI
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16F
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16U
