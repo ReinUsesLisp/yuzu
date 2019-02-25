@@ -25,7 +25,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eR5G6B5UnormPack16, ComponentType::UNorm, false},  // B5G6R5U
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // A2B10G10R10U
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // A1B5G5R5U
-    {vk::Format::eR8Unorm, ComponentType::UNorm, false},            // R8U
+    {vk::Format::eR8Unorm, ComponentType::UNorm, true},             // R8U
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // R8UI
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16F
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16U
@@ -82,8 +82,8 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_10X8_SRGB
 
     // Depth formats
-    {vk::Format::eD32Sfloat, ComponentType::Float, true},    // Z32F
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // Z16
+    {vk::Format::eD32Sfloat, ComponentType::Float, true}, // Z32F
+    {vk::Format::eD16Unorm, ComponentType::UNorm, true},  // Z16
 
     // DepthStencil formats
     {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // Z24S8
