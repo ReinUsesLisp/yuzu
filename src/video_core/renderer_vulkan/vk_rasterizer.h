@@ -185,7 +185,7 @@ private:
     const u64 uniform_buffer_alignment;
 
     std::unique_ptr<VKTextureCache> texture_cache;
-    std::unique_ptr<VKPipelineCache> shader_cache;
+    std::unique_ptr<VKPipelineCache> pipeline_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
 
     std::unique_ptr<VKRenderPassCache> renderpass_cache;

@@ -15,6 +15,7 @@
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
 namespace Vulkan {
@@ -191,8 +192,8 @@ void CachedShader::CreateDescriptorPool() {
 }
 
 VKPipelineCache::VKPipelineCache(Core::System& system, RasterizerVulkan& rasterizer,
-                                 const VKDevice& device)
-    : RasterizerCache{rasterizer}, system{system}, device{device} {
+                                 const VKDevice& device, VKScheduler& scheduler)
+    : RasterizerCache{rasterizer}, system{system}, device{device}, scheduler{scheduler} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     empty_set_layout = dev.createDescriptorSetLayoutUnique({{}, 0, nullptr}, nullptr, dld);
@@ -271,6 +272,9 @@ void VKPipelineCache::ObjectInvalidated(const Shader& shader) {
             return false;
         }();
         if (has_addr) {
+            // TODO(Rodrigo): Instead of finishing here, wait for the fences that use this pipeline
+            // and flush.
+            scheduler.Finish();
             it = cache.erase(it);
         } else {
             ++it;

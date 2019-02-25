@@ -27,6 +27,7 @@ namespace Vulkan {
 class RasterizerVulkan;
 class VKDevice;
 class VKFence;
+class VKScheduler;
 
 class CachedShader;
 using Shader = std::shared_ptr<CachedShader>;
@@ -412,7 +413,7 @@ namespace Vulkan {
 class VKPipelineCache final : public RasterizerCache<Shader> {
 public:
     explicit VKPipelineCache(Core::System& system, RasterizerVulkan& rasterizer,
-                             const VKDevice& device);
+                             const VKDevice& device, VKScheduler& scheduler);
 
     // Passing a renderpass object is not really needed (since it could be found from rp_params),
     // but this would require searching for the entry twice. Instead of doing that, pass the (draw)
@@ -432,6 +433,7 @@ private:
 
     Core::System& system;
     const VKDevice& device;
+    VKScheduler& scheduler;
 
     UniquePipelineLayout CreatePipelineLayout(const PipelineParams& params,
                                               const Pipeline& pipeline) const;

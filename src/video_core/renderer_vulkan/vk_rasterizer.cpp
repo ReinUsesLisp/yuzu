@@ -123,7 +123,7 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
                                                         device.GetUniformBufferAlignment()} {
     texture_cache = std::make_unique<VKTextureCache>(system, *this, device, resource_manager,
                                                      memory_manager, sched);
-    shader_cache = std::make_unique<VKPipelineCache>(system, *this, device);
+    pipeline_cache = std::make_unique<VKPipelineCache>(system, *this, device, sched);
     buffer_cache = std::make_unique<VKBufferCache>(system, *this, device, memory_manager, sched,
                                                    STREAM_BUFFER_SIZE);
     renderpass_cache = std::make_unique<VKRenderPassCache>(device);
@@ -167,7 +167,7 @@ void RasterizerVulkan::DrawArrays() {
         SetupIndexBuffer();
     }
 
-    Pipeline pipeline = shader_cache->GetPipeline(params, renderpass_params, renderpass);
+    const Pipeline pipeline = pipeline_cache->GetPipeline(params, renderpass_params, renderpass);
 
     const auto& dld = device.GetDispatchLoader();
     auto exctx = sched.GetExecutionContext();
@@ -277,7 +277,7 @@ void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
 
 void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
     texture_cache->InvalidateRegion(addr, size);
-    shader_cache->InvalidateRegion(addr, size);
+    pipeline_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
 }
 
