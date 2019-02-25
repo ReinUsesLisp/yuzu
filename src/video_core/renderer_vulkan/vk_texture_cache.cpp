@@ -78,184 +78,25 @@ static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
     return *cpu_addr;
 }
 
-/*static*/ SurfaceParams SurfaceParams::CreateForTexture(
-    Core::System& system, const Tegra::Texture::FullTextureInfo& config,
-    const VKShader::SamplerEntry& entry) {
-
-    SurfaceParams params{};
-    params.is_tiled = config.tic.IsTiled();
-    params.block_width = params.is_tiled ? config.tic.BlockWidth() : 0,
-    params.block_height = params.is_tiled ? config.tic.BlockHeight() : 0,
-    params.block_depth = params.is_tiled ? config.tic.BlockDepth() : 0,
-    params.tile_width_spacing = params.is_tiled ? (1 << config.tic.tile_width_spacing.Value()) : 1;
-    // params.srgb_conversion = config.tic.IsSrgbConversionEnabled();
-    params.pixel_format = PixelFormatFromTextureFormat(config.tic.format, config.tic.r_type.Value(),
-                                                       false /*params.srgb_conversion*/);
-    params.component_type = ComponentTypeFromTexture(config.tic.r_type.Value());
-    params.type = GetFormatType(params.pixel_format);
-    params.target = SurfaceTargetFromTextureType(config.tic.texture_type);
-    params.width = Common::AlignUp(config.tic.Width(), GetCompressionFactor(params.pixel_format));
-    params.height = Common::AlignUp(config.tic.Height(), GetCompressionFactor(params.pixel_format));
-    params.depth = config.tic.Depth();
-    if (params.target == SurfaceTarget::TextureCubemap ||
-        params.target == SurfaceTarget::TextureCubeArray) {
-        params.depth *= 6;
-    }
-    params.pitch = params.is_tiled ? 0 : config.tic.Pitch();
-    params.unaligned_height = config.tic.Height();
-    params.levels_count = config.tic.max_mip_level + 1;
-
-    params.CalculateSizes();
-    return params;
-}
-
-/*static*/ SurfaceParams SurfaceParams::CreateForDepthBuffer(
-    Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::DepthFormat format,
-    u32 block_width, u32 block_height, u32 block_depth,
-    Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type) {
-
-    SurfaceParams params{};
-    params.is_tiled = type == Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout::BlockLinear;
-    params.block_width = 1 << std::min(block_width, 5U);
-    params.block_height = 1 << std::min(block_height, 5U);
-    params.block_depth = 1 << std::min(block_depth, 5U);
-    params.tile_width_spacing = 1;
-    params.pixel_format = PixelFormatFromDepthFormat(format);
-    params.component_type = ComponentTypeFromDepthFormat(format);
-    params.type = GetFormatType(params.pixel_format);
-    // params.srgb_conversion = false;
-    params.width = zeta_width;
-    params.height = zeta_height;
-    params.unaligned_height = zeta_height;
-    params.target = SurfaceTarget::Texture2D;
-    params.depth = 1;
-    params.levels_count = 1;
-
-    params.CalculateSizes();
-    return params;
-}
-
-/*static*/ SurfaceParams SurfaceParams::CreateForFramebuffer(Core::System& system,
-                                                             std::size_t index) {
-    const auto& config{system.GPU().Maxwell3D().regs.rt[index]};
-    SurfaceParams params{};
-
-    params.is_tiled =
-        config.memory_layout.type == Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout::BlockLinear;
-    params.block_width = 1 << config.memory_layout.block_width;
-    params.block_height = 1 << config.memory_layout.block_height;
-    params.block_depth = 1 << config.memory_layout.block_depth;
-    params.tile_width_spacing = 1;
-    params.pixel_format = PixelFormatFromRenderTargetFormat(config.format);
-    // params.srgb_conversion = config.format == Tegra::RenderTargetFormat::BGRA8_SRGB ||
-    //                         config.format == Tegra::RenderTargetFormat::RGBA8_SRGB;
-    params.component_type = ComponentTypeFromRenderTarget(config.format);
-    params.type = GetFormatType(params.pixel_format);
-    if (params.is_tiled) {
-        params.width = config.width;
-    } else {
-        const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
-        params.pitch = config.width;
-        params.width = params.pitch / bpp;
-    }
-    params.height = config.height;
-    params.depth = 1;
-    params.unaligned_height = config.height;
-    params.target = SurfaceTarget::Texture2D;
-    params.levels_count = 1;
-
-    params.CalculateSizes();
-    return params;
-}
-
-/**
- * Helper function to perform software conversion (as needed) when loading a buffer from Switch
- * memory. This is for Maxwell pixel formats that cannot be represented as-is in Vulkan or with
- * typical desktop GPUs.
- */
-static void ConvertFormatAsNeeded_LoadVKBuffer(u8* data, PixelFormat pixel_format, u32 width,
-                                               u32 height, u32 depth) {
-    switch (pixel_format) {
-    case PixelFormat::ASTC_2D_4X4:
-    case PixelFormat::ASTC_2D_8X8:
-    case PixelFormat::ASTC_2D_8X5:
-    case PixelFormat::ASTC_2D_5X4:
-    case PixelFormat::ASTC_2D_5X5:
-    case PixelFormat::ASTC_2D_4X4_SRGB:
-    case PixelFormat::ASTC_2D_8X8_SRGB:
-    case PixelFormat::ASTC_2D_8X5_SRGB:
-    case PixelFormat::ASTC_2D_5X4_SRGB:
-    case PixelFormat::ASTC_2D_5X5_SRGB:
-    case PixelFormat::ASTC_2D_10X8:
-    case PixelFormat::ASTC_2D_10X8_SRGB: {
-        UNIMPLEMENTED();
-        break;
-    }
-    case PixelFormat::S8Z24:
-        UNIMPLEMENTED();
-        break;
-    }
-}
-
-void SurfaceParams::CalculateSizes() {
-    guest_size_in_bytes = GetInnerMemorySize(false, false, false);
-
-    // ASTC is uncompressed in software, in emulated as RGBA8
-    if (IsPixelFormatASTC(pixel_format)) {
-        host_size_in_bytes = width * height * depth * 4;
-    } else {
-        host_size_in_bytes = GetInnerMemorySize(true, false, false);
-    }
-}
-
-constexpr u32 GetMipmapSize(bool uncompressed, u32 mip_size, u32 tile) {
-    return uncompressed ? mip_size : std::max(1U, (mip_size + tile - 1) / tile);
-}
-
-std::size_t SurfaceParams::GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
-                                                    bool uncompressed) const {
-    const bool tiled = as_host_size ? false : is_tiled;
-    const u32 tile_x = GetDefaultBlockWidth(pixel_format);
-    const u32 tile_y = GetDefaultBlockHeight(pixel_format);
-    const u32 m_width = GetMipmapSize(uncompressed, GetMipWidth(level), tile_x);
-    const u32 m_height = GetMipmapSize(uncompressed, GetMipHeight(level), tile_y);
-    const u32 m_depth = layer_only ? 1U : GetMipDepth(level);
-    return Tegra::Texture::CalculateSize(tiled, GetBytesPerPixel(pixel_format), m_width, m_height,
-                                         m_depth, GetMipBlockHeight(level),
-                                         GetMipBlockDepth(level));
-}
-
-std::size_t SurfaceParams::GetInnerMemorySize(bool as_host_size, bool layer_only,
-                                              bool uncompressed) const {
-    std::size_t size = 0;
-    for (u32 level = 0; level < levels_count; ++level) {
-        size += GetInnerMipmapMemorySize(level, as_host_size, layer_only, uncompressed);
-    }
-    if (!as_host_size && is_tiled) {
-        size = Common::AlignUp(size, Tegra::Texture::GetGOBSize() * block_height * block_depth);
-    }
-    return size;
-}
-
-vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
+static vk::ImageCreateInfo CreateImageInfo(const VKDevice& device, const SurfaceParams& params) {
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
 
-    const auto [format, attachable] =
-        MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, pixel_format, component_type);
+    const auto [format, attachable] = MaxwellToVK::SurfaceFormat(
+        device, FormatType::Optimal, params.pixel_format, params.component_type);
 
     auto image_usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
                        vk::ImageUsageFlagBits::eTransferSrc;
     if (attachable) {
-        const bool is_zeta = pixel_format >= PixelFormat::MaxColorFormat &&
-                             pixel_format < PixelFormat::MaxDepthStencilFormat;
+        const bool is_zeta = params.pixel_format >= PixelFormat::MaxColorFormat &&
+                             params.pixel_format < PixelFormat::MaxDepthStencilFormat;
         image_usage |= is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
                                : vk::ImageUsageFlagBits::eColorAttachment;
     }
 
     vk::ImageCreateFlags flags;
     vk::Extent3D extent;
-    switch (target) {
+    switch (params.target) {
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray:
         flags |= vk::ImageCreateFlagBits::eCubeCompatible;
@@ -264,19 +105,19 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo(const VKDevice& device) const {
     case SurfaceTarget::Texture1DArray:
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
-        extent = {width, height, 1};
+        extent = {params.width, params.height, 1};
         break;
     case SurfaceTarget::Texture3D:
-        extent = {width, height, depth};
+        extent = {params.width, params.height, params.depth};
         break;
     default:
-        UNREACHABLE_MSG("Unknown surface target={}", static_cast<u32>(target));
+        UNREACHABLE_MSG("Unknown surface target={}", static_cast<u32>(params.target));
         break;
     }
 
-    return vk::ImageCreateInfo(flags, SurfaceTargetToImageVK(target), format, extent, levels_count,
-                               GetLayersCount(), sample_count, tiling, image_usage,
-                               vk::SharingMode::eExclusive, 0, nullptr,
+    return vk::ImageCreateInfo(flags, SurfaceTargetToImageVK(params.target), format, extent,
+                               params.levels_count, params.GetLayersCount(), sample_count, tiling,
+                               image_usage, vk::SharingMode::eExclusive, 0, nullptr,
                                vk::ImageLayout::eUndefined);
 }
 
@@ -309,7 +150,8 @@ static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfacePara
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
                              VKScheduler& sched, const SurfaceParams& params)
-    : VKImage(device, params.CreateInfo(device), PixelFormatToImageAspect(params.pixel_format)),
+    : VKImage(device, CreateImageInfo(device, params),
+              PixelFormatToImageAspect(params.pixel_format)),
       device{device}, resource_manager{resource_manager}, memory_manager{memory_manager},
       sched{sched}, params{params}, cached_size_in_bytes{params.guest_size_in_bytes},
       buffer_size{std::max(params.guest_size_in_bytes, params.host_size_in_bytes)},
@@ -654,10 +496,9 @@ void VKTextureCache::InvalidateRegion(VAddr address, std::size_t size) {
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetTextureSurface(
-    VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config,
-    const VKShader::SamplerEntry& entry) {
+    VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config) {
     return GetSurfaceView(exctx, GetAddressForTexture(system, config),
-                          SurfaceParams::CreateForTexture(system, config, entry), true);
+                          SurfaceParams::CreateForTexture(system, config), true);
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::GetDepthBufferSurface(VKExecutionContext exctx,

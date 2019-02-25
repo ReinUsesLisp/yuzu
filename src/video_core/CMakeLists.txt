@@ -92,6 +92,8 @@ add_library(video_core STATIC
     shader/track.cpp
     surface.cpp
     surface.h
+    texture_cache.cpp
+    texture_cache.h
     textures/astc.cpp
     textures/astc.h
     textures/convert.cpp

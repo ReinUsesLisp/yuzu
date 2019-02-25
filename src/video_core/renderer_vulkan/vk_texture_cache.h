@@ -16,6 +16,7 @@
 #include "common/hash.h"
 #include "common/logging/log.h"
 #include "common/math_util.h"
+#include "video_core/gpu.h"
 #include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_image.h"
@@ -23,6 +24,7 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 #include "video_core/surface.h"
+#include "video_core/texture_cache.h"
 #include "video_core/textures/decoders.h"
 #include "video_core/textures/texture.h"
 
@@ -41,6 +43,7 @@ class VKDevice;
 class VKResourceManager;
 class VKScheduler;
 
+using VideoCommon::SurfaceParams;
 using VideoCore::Surface::ComponentType;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceTarget;
@@ -50,147 +53,6 @@ class CachedSurface;
 class CachedView;
 using Surface = CachedSurface*;
 using View = CachedView*;
-
-struct SurfaceParams {
-    /// Creates SurfaceParams from a texture configuration
-    static SurfaceParams CreateForTexture(Core::System& system,
-                                          const Tegra::Texture::FullTextureInfo& config,
-                                          const VKShader::SamplerEntry& entry);
-
-    /// Creates SurfaceParams for a depth buffer configuration
-    static SurfaceParams CreateForDepthBuffer(
-        Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::DepthFormat format,
-        u32 block_width, u32 block_height, u32 block_depth,
-        Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
-
-    /// Creates SurfaceParams from a framebuffer configuration
-    static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
-
-    u32 GetMipWidth(u32 level) const {
-        return std::max(1U, width >> level);
-    }
-
-    u32 GetMipHeight(u32 level) const {
-        return std::max(1U, height >> level);
-    }
-
-    u32 GetMipDepth(u32 level) const {
-        return IsLayered() ? depth : std::max(1U, depth >> level);
-    }
-
-    u32 GetLayersCount() const {
-        switch (target) {
-        case SurfaceTarget::Texture1D:
-        case SurfaceTarget::Texture2D:
-        case SurfaceTarget::Texture3D:
-            return 1;
-        case SurfaceTarget::Texture1DArray:
-        case SurfaceTarget::Texture2DArray:
-        case SurfaceTarget::TextureCubemap:
-        case SurfaceTarget::TextureCubeArray:
-            return depth;
-        }
-        UNREACHABLE();
-    }
-
-    bool IsLayered() const {
-        switch (target) {
-        case SurfaceTarget::Texture1DArray:
-        case SurfaceTarget::Texture2DArray:
-        case SurfaceTarget::TextureCubeArray:
-        case SurfaceTarget::TextureCubemap:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    // Auto block resizing algorithm from:
-    // https://cgit.freedesktop.org/mesa/mesa/tree/src/gallium/drivers/nouveau/nv50/nv50_miptree.c
-    u32 GetMipBlockHeight(u32 level) const {
-        if (level == 0)
-            return block_height;
-        const u32 alt_height = GetMipHeight(level);
-        const u32 h = GetDefaultBlockHeight(pixel_format);
-        const u32 blocks_in_y = (alt_height + h - 1) / h;
-        u32 block_height = 16;
-        while (block_height > 1 && blocks_in_y <= block_height * 4) {
-            block_height >>= 1;
-        }
-        return block_height;
-    }
-
-    u32 GetMipBlockDepth(u32 level) const {
-        if (level == 0)
-            return block_depth;
-        if (target != SurfaceTarget::Texture3D)
-            return 1;
-
-        const u32 depth = GetMipDepth(level);
-        u32 block_depth = 32;
-        while (block_depth > 1 && depth * 2 <= block_depth) {
-            block_depth >>= 1;
-        }
-        if (block_depth == 32 && GetMipBlockHeight(level) >= 4) {
-            return 16;
-        }
-        return block_depth;
-    }
-
-    std::size_t GetGuestMipmapLevelOffset(u32 level) const {
-        std::size_t offset = 0;
-        for (u32 i = 0; i < level; i++) {
-            offset += GetInnerMipmapMemorySize(i, false, IsLayered(), false);
-        }
-        return offset;
-    }
-
-    std::size_t GetHostMipmapLevelOffset(u32 level) const {
-        std::size_t offset = 0;
-        for (u32 i = 0; i < level; i++) {
-            offset += GetInnerMipmapMemorySize(i, true, false, false);
-        }
-        return offset;
-    }
-
-    std::size_t GetGuestLayerMemorySize() const {
-        return GetInnerMemorySize(false, true, false);
-    }
-
-    std::size_t GetHostLayerSize(u32 level) const {
-        return GetInnerMipmapMemorySize(level, true, IsLayered(), false);
-    }
-
-    /// Initializes parameters for caching, should be called after everything has been initialized
-    void CalculateSizes();
-
-    vk::ImageCreateInfo CreateInfo(const VKDevice& device) const;
-
-    bool is_tiled;
-    u32 block_width;
-    u32 block_height;
-    u32 block_depth;
-    u32 tile_width_spacing;
-    PixelFormat pixel_format;
-    ComponentType component_type;
-    SurfaceType type;
-    SurfaceTarget target;
-    u32 width;
-    u32 height;
-    u32 depth;
-    u32 pitch;
-    u32 unaligned_height;
-    u32 levels_count;
-
-    // Cached data
-    std::size_t guest_size_in_bytes;
-    std::size_t host_size_in_bytes;
-
-private:
-    std::size_t GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
-                                         bool uncompressed) const;
-    std::size_t GetInnerMemorySize(bool as_host_size, bool layer_only, bool uncompressed) const;
-};
 
 struct SurfaceReserveKey : Common::HashableStruct<SurfaceParams> {
     static SurfaceReserveKey Create(const SurfaceParams& params) {
@@ -427,8 +289,7 @@ public:
 
     /// Get a surface based on the texture configuration
     [[nodiscard]] std::tuple<View, VKExecutionContext> GetTextureSurface(
-        VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config,
-        const VKShader::SamplerEntry& entry);
+        VKExecutionContext exctx, const Tegra::Texture::FullTextureInfo& config);
 
     /// Get the depth surface based on the framebuffer configuration
     [[nodiscard]] std::tuple<View, VKExecutionContext> GetDepthBufferSurface(

@@ -306,6 +306,8 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     ASSERT_MSG(params.pixel_format == pixel_format, "Framebuffer pixel_format is different");
 
     screen_info.image = surface;
+    screen_info.width = surface->GetSurfaceParams().width;
+    screen_info.height = surface->GetSurfaceParams().height;
     return true;
 }
 
@@ -517,7 +519,7 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
         const u32 current_binding = base_binding + bindpoint;
 
         View view;
-        std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture, entry);
+        std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture);
         UNIMPLEMENTED_IF(view == nullptr);
         const vk::ImageView image_view =
             view->GetHandle(entry.GetType(), texture.tic.x_source, texture.tic.y_source,
@@ -694,12 +696,12 @@ void RasterizerVulkan::SyncRasterizerState(PipelineParams& params) {
 
     // If the GPU is configured to flip the rasterizer triangles, then we need to flip the front and
     // back.
-    /*if (regs.screen_y_control.triangle_rast_flip == 1) {
+    if (regs.screen_y_control.triangle_rast_flip == 1) {
         if (rs.front_face == Maxwell::Cull::FrontFace::CounterClockWise)
             rs.front_face = Maxwell::Cull::FrontFace::ClockWise;
         else if (rs.front_face == Maxwell::Cull::FrontFace::ClockWise)
             rs.front_face = Maxwell::Cull::FrontFace::CounterClockWise;
-    }*/
+    }
 }
 
 } // namespace Vulkan
