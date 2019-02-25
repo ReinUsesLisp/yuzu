@@ -33,8 +33,8 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // R11FG11FB10F
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA32UI
     {vk::Format::eBc1RgbaUnormBlock, ComponentType::UNorm, false},  // DXT1
-    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT23
-    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT45
+    {vk::Format::eBc2UnormBlock, ComponentType::UNorm, false},      // DXT23
+    {vk::Format::eBc3UnormBlock, ComponentType::UNorm, false},      // DXT45
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN1
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN2UNORM
     {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN2SNORM
