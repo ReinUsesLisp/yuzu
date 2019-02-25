@@ -565,47 +565,74 @@ CachedView::CachedView(const VKDevice& device, Surface surface, u32 base_layer, 
 
 CachedView::~CachedView() = default;
 
-vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, bool is_array) {
-    const auto GetOrCreateView = [&](UniqueImageView& image_view, vk::ImageViewType view_type) {
-        if (image_view) {
-            return *image_view;
-        }
-        const vk::ComponentMapping swizzle;
-        const vk::ImageViewCreateInfo image_view_ci({}, surface->GetHandle(), view_type,
-                                                    surface->GetFormat(), swizzle,
-                                                    GetImageSubresourceRange());
-        const auto dev = device.GetLogical();
-        const auto& dld = device.GetDispatchLoader();
-        image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
-        return *image_view;
-    };
+vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type,
+                                    Tegra::Texture::SwizzleSource x_source,
+                                    Tegra::Texture::SwizzleSource y_source,
+                                    Tegra::Texture::SwizzleSource z_source,
+                                    Tegra::Texture::SwizzleSource w_source, bool is_array) {
+    const auto [view_cache, image_view_type] = GetTargetCache(texture_type, is_array);
+    return GetOrCreateView(view_cache, image_view_type, x_source, y_source, z_source, w_source);
+}
 
-    switch (texture_type) {
-    case Tegra::Shader::TextureType::Texture1D:
-        if (is_array) {
-            return GetOrCreateView(image_view_1d_array, vk::ImageViewType::e1DArray);
-        } else {
-            return GetOrCreateView(image_view_1d, vk::ImageViewType::e1D);
+std::pair<std::reference_wrapper<CachedView::ViewCache>, vk::ImageViewType>
+CachedView::GetTargetCache(Tegra::Shader::TextureType texture_type, bool is_array) {
+    if (is_array) {
+        switch (texture_type) {
+        case Tegra::Shader::TextureType::Texture1D:
+            return {image_view_1d_array, vk::ImageViewType::e1DArray};
+        case Tegra::Shader::TextureType::Texture2D:
+            return {image_view_2d_array, vk::ImageViewType::e2DArray};
+        case Tegra::Shader::TextureType::Texture3D:
+            UNREACHABLE_MSG("Arrays of 3D textures do not exist on Maxwell");
+            break;
+        case Tegra::Shader::TextureType::TextureCube:
+            return {image_view_cube_array, vk::ImageViewType::eCubeArray};
         }
-    case Tegra::Shader::TextureType::Texture2D:
-        if (is_array) {
-            return GetOrCreateView(image_view_2d_array, vk::ImageViewType::e2DArray);
-        } else {
-            return GetOrCreateView(image_view_2d, vk::ImageViewType::e2D);
+    } else {
+        switch (texture_type) {
+        case Tegra::Shader::TextureType::Texture1D:
+            return {image_view_1d, vk::ImageViewType::e1D};
+        case Tegra::Shader::TextureType::Texture2D:
+            return {image_view_2d, vk::ImageViewType::e2D};
+        case Tegra::Shader::TextureType::Texture3D:
+            return {image_view_3d, vk::ImageViewType::e3D};
+        case Tegra::Shader::TextureType::TextureCube:
+            return {image_view_cube, vk::ImageViewType::eCube};
         }
-    case Tegra::Shader::TextureType::Texture3D:
-        ASSERT_MSG(!is_array, "Arrays of 3D textures do not exist on Maxwell");
-        return GetOrCreateView(image_view_3d, vk::ImageViewType::e3D);
-    case Tegra::Shader::TextureType::TextureCube:
-        if (is_array) {
-            return GetOrCreateView(image_view_cube_array, vk::ImageViewType::eCubeArray);
-        } else {
-            return GetOrCreateView(image_view_cube, vk::ImageViewType::eCube);
-        }
-    default:
-        UNIMPLEMENTED_MSG("Texture type {} not implemented", static_cast<u32>(texture_type));
-        return {};
     }
+    UNREACHABLE();
+    return {image_view_2d, vk::ImageViewType::e2D};
+}
+
+vk::ImageView CachedView::GetOrCreateView(ViewCache& view_cache, vk::ImageViewType view_type,
+                                          Tegra::Texture::SwizzleSource x_source,
+                                          Tegra::Texture::SwizzleSource y_source,
+                                          Tegra::Texture::SwizzleSource z_source,
+                                          Tegra::Texture::SwizzleSource w_source) {
+    const u32 view_key = GetViewCacheKey(x_source, y_source, z_source, w_source);
+    const auto [entry, is_cache_miss] = view_cache.try_emplace(view_key);
+    auto& image_view = entry->second;
+    if (!is_cache_miss) {
+        return *image_view;
+    }
+
+    const vk::ImageViewCreateInfo image_view_ci(
+        {}, surface->GetHandle(), view_type, surface->GetFormat(),
+        {MaxwellToVK::SwizzleSource(x_source), MaxwellToVK::SwizzleSource(y_source),
+         MaxwellToVK::SwizzleSource(z_source), MaxwellToVK::SwizzleSource(w_source)},
+        GetImageSubresourceRange());
+
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
+    return *(image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld));
+}
+
+u32 CachedView::GetViewCacheKey(Tegra::Texture::SwizzleSource x_source,
+                                Tegra::Texture::SwizzleSource y_source,
+                                Tegra::Texture::SwizzleSource z_source,
+                                Tegra::Texture::SwizzleSource w_source) {
+    return static_cast<u8>(x_source) | static_cast<u8>(y_source) << 8 |
+           static_cast<u8>(z_source) << 16 | static_cast<u8>(w_source) << 24;
 }
 
 VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,

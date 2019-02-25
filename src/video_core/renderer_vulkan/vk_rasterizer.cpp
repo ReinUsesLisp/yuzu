@@ -519,14 +519,16 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
         View view;
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture, entry);
         UNIMPLEMENTED_IF(view == nullptr);
+        const vk::ImageView image_view =
+            view->GetHandle(entry.GetType(), texture.tic.x_source, texture.tic.y_source,
+                            texture.tic.z_source, texture.tic.w_source, entry.IsArray());
 
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
         view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
                          pipeline_stage, vk::AccessFlagBits::eShaderRead);
 
         const auto [write, image_info] = state.CaptureDescriptorWriteImage();
-        image_info = vk::DescriptorImageInfo(sampler_cache->GetSampler(texture.tsc),
-                                             view->GetHandle(entry.GetType(), entry.IsArray()),
+        image_info = vk::DescriptorImageInfo(sampler_cache->GetSampler(texture.tsc), image_view,
                                              vk::ImageLayout::eShaderReadOnlyOptimal);
         write = vk::WriteDescriptorSet(descriptor_set, current_binding, 0, 1,
                                        vk::DescriptorType::eCombinedImageSampler, &image_info,

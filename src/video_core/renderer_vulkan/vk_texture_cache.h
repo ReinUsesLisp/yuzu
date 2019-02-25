@@ -7,8 +7,10 @@
 #include <memory>
 #include <tuple>
 #include <unordered_map>
+
 #include <boost/functional/hash.hpp>
 #include <boost/icl/interval_map.hpp>
+
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "common/hash.h"
@@ -340,10 +342,16 @@ public:
                u32 levels);
     ~CachedView();
 
-    vk::ImageView GetHandle(Tegra::Shader::TextureType texture_type, bool is_array);
+    vk::ImageView GetHandle(Tegra::Shader::TextureType texture_type,
+                            Tegra::Texture::SwizzleSource x_source,
+                            Tegra::Texture::SwizzleSource y_source,
+                            Tegra::Texture::SwizzleSource z_source,
+                            Tegra::Texture::SwizzleSource w_source, bool is_array);
 
     vk::ImageView GetHandle() {
-        return GetHandle(Tegra::Shader::TextureType::Texture2D, false);
+        return GetHandle(Tegra::Shader::TextureType::Texture2D, Tegra::Texture::SwizzleSource::R,
+                         Tegra::Texture::SwizzleSource::G, Tegra::Texture::SwizzleSource::B,
+                         Tegra::Texture::SwizzleSource::A, false);
     }
 
     u32 GetWidth() const {
@@ -372,6 +380,22 @@ public:
     }
 
 private:
+    using ViewCache = std::unordered_map<u32, UniqueImageView>;
+
+    std::pair<std::reference_wrapper<ViewCache>, vk::ImageViewType> GetTargetCache(
+        Tegra::Shader::TextureType texture_type, bool is_array);
+
+    vk::ImageView GetOrCreateView(ViewCache& view_cache, vk::ImageViewType view_type,
+                                  Tegra::Texture::SwizzleSource x_source,
+                                  Tegra::Texture::SwizzleSource y_source,
+                                  Tegra::Texture::SwizzleSource z_source,
+                                  Tegra::Texture::SwizzleSource w_source);
+
+    static u32 GetViewCacheKey(Tegra::Texture::SwizzleSource x_source,
+                               Tegra::Texture::SwizzleSource y_source,
+                               Tegra::Texture::SwizzleSource z_source,
+                               Tegra::Texture::SwizzleSource w_source);
+
     // Store a copy of these values to avoid double dereference when reading them
     const SurfaceParams params;
     const vk::Image image;
@@ -383,13 +407,13 @@ private:
     const u32 layers;
     const u32 base_level;
     const u32 levels;
-    UniqueImageView image_view_1d;
-    UniqueImageView image_view_1d_array;
-    UniqueImageView image_view_2d;
-    UniqueImageView image_view_2d_array;
-    UniqueImageView image_view_3d;
-    UniqueImageView image_view_cube;
-    UniqueImageView image_view_cube_array;
+    ViewCache image_view_1d;
+    ViewCache image_view_1d_array;
+    ViewCache image_view_2d;
+    ViewCache image_view_2d_array;
+    ViewCache image_view_3d;
+    ViewCache image_view_cube;
+    ViewCache image_view_cube_array;
 };
 
 class VKTextureCache {

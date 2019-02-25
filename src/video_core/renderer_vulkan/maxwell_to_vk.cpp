@@ -363,6 +363,26 @@ vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face) {
     return {};
 }
 
+vk::ComponentSwizzle SwizzleSource(Tegra::Texture::SwizzleSource swizzle) {
+    switch (swizzle) {
+    case Tegra::Texture::SwizzleSource::Zero:
+        return vk::ComponentSwizzle::eZero;
+    case Tegra::Texture::SwizzleSource::R:
+        return vk::ComponentSwizzle::eR;
+    case Tegra::Texture::SwizzleSource::G:
+        return vk::ComponentSwizzle::eG;
+    case Tegra::Texture::SwizzleSource::B:
+        return vk::ComponentSwizzle::eB;
+    case Tegra::Texture::SwizzleSource::A:
+        return vk::ComponentSwizzle::eA;
+    case Tegra::Texture::SwizzleSource::OneInt:
+    case Tegra::Texture::SwizzleSource::OneFloat:
+        return vk::ComponentSwizzle::eOne;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented swizzle source={}", static_cast<u32>(swizzle));
+    return {};
+}
+
 namespace Sampler {
 
 vk::Filter Filter(Tegra::Texture::TextureFilter filter) {

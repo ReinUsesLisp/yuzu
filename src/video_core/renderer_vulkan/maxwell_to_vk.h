@@ -41,6 +41,8 @@ vk::FrontFace FrontFace(Maxwell::Cull::FrontFace front_face);
 
 vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face);
 
+vk::ComponentSwizzle SwizzleSource(Tegra::Texture::SwizzleSource swizzle);
+
 namespace Sampler {
 
 vk::Filter Filter(Tegra::Texture::TextureFilter filter);
