@@ -152,16 +152,14 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKScheduler& sched, const SurfaceParams& params)
     : VKImage(device, CreateImageInfo(device, params),
               PixelFormatToImageAspect(params.pixel_format)),
-      device{device}, resource_manager{resource_manager}, memory_manager{memory_manager},
-      sched{sched}, params{params}, cached_size_in_bytes{params.guest_size_in_bytes},
-      buffer_size{std::max(params.guest_size_in_bytes, params.host_size_in_bytes)},
-      view_offset_map{BuildViewOffsetMap(params)} {
+      SurfaceBase(params), device{device}, resource_manager{resource_manager},
+      memory_manager{memory_manager}, sched{sched} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
 
     image_commit = memory_manager.Commit(GetHandle(), false);
 
-    const vk::BufferCreateInfo buffer_ci({}, buffer_size,
+    const vk::BufferCreateInfo buffer_ci({}, std::max(params.guest_size_in_bytes, params.host_size_in_bytes),
                                          vk::BufferUsageFlagBits::eTransferDst |
                                              vk::BufferUsageFlagBits::eTransferSrc,
                                          vk::SharingMode::eExclusive, 0, nullptr);
@@ -179,16 +177,16 @@ void CachedSurface::LoadBuffer() {
 
         for (u32 level = 0; level < params.levels_count; ++level) {
             u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
-            SwizzleFunc(MortonSwizzleMode::MortonToLinear, address, params, buffer, level);
+            SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetAddress(), params, buffer, level);
         }
     } else {
         ASSERT_MSG(params.levels_count == 1, "Linear mipmap loading is not implemented");
         const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
         const u32 copy_size = params.width * bpp;
         if (params.pitch == copy_size) {
-            std::memcpy(vk_buffer, Memory::GetPointer(address), params.host_size_in_bytes);
+            std::memcpy(vk_buffer, Memory::GetPointer(GetAddress()), params.host_size_in_bytes);
         } else {
-            const u8* start = Memory::GetPointer(address);
+            const u8* start = Memory::GetPointer(GetAddress());
             u8* write_to = vk_buffer;
             for (u32 h = params.height; h > 0; h--) {
                 std::memcpy(write_to, start, copy_size);
@@ -207,7 +205,7 @@ void CachedSurface::LoadBuffer() {
 }
 
 VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
-    if (!is_modified) {
+    if (!IsModified()) {
         return exctx;
     }
 
@@ -227,7 +225,7 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
     ASSERT_MSG(params.block_width == 1, "Block width is defined as {}", params.block_width);
     for (u32 level = 0; level < params.levels_count; ++level) {
         u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
-        SwizzleFunc(MortonSwizzleMode::LinearToMorton, address, params, buffer, level);
+        SwizzleFunc(MortonSwizzleMode::LinearToMorton, GetAddress(), params, buffer, level);
     }
 
     return exctx;
@@ -262,96 +260,8 @@ void CachedSurface::Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_lay
     VKImage::Transition(cmdbuf, GetImageSubresourceRange(), new_layout, new_stage_mask, new_access);
 }
 
-View CachedSurface::TryGetView(VAddr view_address, const SurfaceParams& view_params) {
-    if (view_address < address || !IsFamiliar(view_params)) {
-        // It can't be a view if it's in a prior address.
-        return {};
-    }
-
-    const auto relative_offset = static_cast<u64>(view_address - address);
-    const auto it = view_offset_map.find(relative_offset);
-    if (it == view_offset_map.end()) {
-        // Couldn't find an aligned view.
-        return {};
-    }
-    const auto [layer, level] = it->second;
-
-    if (!IsViewValid(view_params, layer, level)) {
-        return {};
-    }
-
-    return GetView(layer, view_params.GetLayersCount(), level, view_params.levels_count);
-}
-
-bool CachedSurface::IsFamiliar(const SurfaceParams& view_params) const {
-    if (std::tie(params.is_tiled, params.tile_width_spacing, params.pixel_format,
-                 params.component_type, params.type) !=
-        std::tie(view_params.is_tiled, view_params.tile_width_spacing, view_params.pixel_format,
-                 view_params.component_type, view_params.type)) {
-        return false;
-    }
-
-    const SurfaceTarget view_target = view_params.target;
-    if (view_target == params.target) {
-        return true;
-    }
-
-    switch (params.target) {
-    case SurfaceTarget::Texture1D:
-    case SurfaceTarget::Texture2D:
-    case SurfaceTarget::Texture3D:
-        return false;
-    case SurfaceTarget::Texture1DArray:
-        return view_target == SurfaceTarget::Texture1D;
-    case SurfaceTarget::Texture2DArray:
-        return view_target == SurfaceTarget::Texture2D;
-    case SurfaceTarget::TextureCubemap:
-        return view_target == SurfaceTarget::Texture2D ||
-               view_target == SurfaceTarget::Texture2DArray;
-    case SurfaceTarget::TextureCubeArray:
-        return view_target == SurfaceTarget::Texture2D ||
-               view_target == SurfaceTarget::Texture2DArray ||
-               view_target == SurfaceTarget::TextureCubemap;
-    default:
-        UNIMPLEMENTED_MSG("Unimplemented texture family={}", static_cast<u32>(params.target));
-        return false;
-    }
-}
-
-bool CachedSurface::IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const {
-    return IsDimensionValid(view_params, level) && IsDepthValid(view_params, level) &&
-           IsInBounds(view_params, layer, level);
-}
-
-bool CachedSurface::IsDimensionValid(const SurfaceParams& view_params, u32 level) const {
-    return view_params.width == params.GetMipWidth(level) &&
-           view_params.height == params.GetMipHeight(level);
-}
-
-bool CachedSurface::IsDepthValid(const SurfaceParams& view_params, u32 level) const {
-    if (view_params.target != SurfaceTarget::Texture3D) {
-        return true;
-    }
-    return view_params.depth == params.GetMipDepth(level);
-}
-
-bool CachedSurface::IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const {
-    return layer + view_params.GetLayersCount() <= params.GetLayersCount() &&
-           level + view_params.levels_count <= params.levels_count;
-}
-
-View CachedSurface::GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
-    ViewKey key;
-    key.base_layer = base_layer;
-    key.layers = layers;
-    key.base_level = base_level;
-    key.levels = levels;
-    const auto [entry, is_cache_miss] = views.try_emplace(key);
-    auto& view = entry->second;
-    if (is_cache_miss) {
-        view = std::make_unique<CachedView>(device, this, base_layer, layers, base_level, levels);
-    }
-    return view.get();
+std::unique_ptr<CachedView> CachedSurface::CreateView(const ViewKey& view_key) {
+    return std::make_unique<CachedView>(device, this, view_key);
 }
 
 vk::BufferImageCopy CachedSurface::GetBufferImageCopy(u32 level) const {
@@ -365,45 +275,11 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
     return {GetAspectMask(), 0, params.levels_count, 0, params.GetLayersCount()};
 }
 
-std::map<u64, std::pair<u32, u32>> CachedSurface::BuildViewOffsetMap(const SurfaceParams& params) {
-    std::map<u64, std::pair<u32, u32>> view_offset_map;
-    switch (params.target) {
-    case SurfaceTarget::Texture1D:
-    case SurfaceTarget::Texture2D:
-    case SurfaceTarget::Texture3D: {
-        constexpr u32 layer = 0;
-        for (u32 level = 0; level < params.levels_count; ++level) {
-            const std::size_t offset = params.GetGuestMipmapLevelOffset(level);
-            view_offset_map.insert({offset, {layer, level}});
-        }
-        break;
-    }
-    case SurfaceTarget::Texture1DArray:
-    case SurfaceTarget::Texture2DArray:
-    case SurfaceTarget::TextureCubemap:
-    case SurfaceTarget::TextureCubeArray: {
-        const std::size_t layer_size = params.GetGuestLayerMemorySize();
-        for (u32 level = 0; level < params.levels_count; ++level) {
-            const std::size_t level_offset = params.GetGuestMipmapLevelOffset(level);
-            for (u32 layer = 0; layer < params.GetLayersCount(); ++layer) {
-                const auto layer_offset = static_cast<std::size_t>(layer_size * layer);
-                const std::size_t offset = level_offset + layer_offset;
-                view_offset_map.insert({offset, {layer, level}});
-            }
-        }
-        break;
-    }
-    default:
-        UNIMPLEMENTED_MSG("Unimplemented surface target {}", static_cast<u32>(params.target));
-    }
-    return view_offset_map;
-}
-
-CachedView::CachedView(const VKDevice& device, Surface surface, u32 base_layer, u32 layers,
-                       u32 base_level, u32 levels)
+CachedView::CachedView(const VKDevice& device, Surface surface, const ViewKey& key)
     : params{surface->GetSurfaceParams()}, image{surface->GetHandle()},
       aspect_mask{surface->GetAspectMask()}, device{device}, surface{surface},
-      base_layer{base_layer}, layers{layers}, base_level{base_level}, levels{levels} {};
+      base_layer{key.base_layer}, layers{key.layers},
+      base_level{key.base_level}, levels{key.levels} {};
 
 CachedView::~CachedView() = default;
 

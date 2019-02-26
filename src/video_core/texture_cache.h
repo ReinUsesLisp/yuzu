@@ -13,6 +13,7 @@
 
 #include <boost/icl/interval_map.hpp>
 
+#include "common/assert.h"
 #include "common/common_types.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/gpu.h"
@@ -46,6 +47,8 @@ struct SurfaceParams {
     /// Creates SurfaceParams from a framebuffer configuration
     static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
 
+    std::map<u64, std::pair<u32, u32>> CreateViewOffsetMap() const;
+
     u32 GetMipWidth(u32 level) const;
 
     u32 GetMipHeight(u32 level) const;
@@ -67,6 +70,10 @@ struct SurfaceParams {
     std::size_t GetGuestLayerMemorySize() const;
 
     std::size_t GetHostLayerSize(u32 level) const;
+
+    bool IsFamiliar(const SurfaceParams& view_params) const;
+
+    bool IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const;
 
     std::size_t Hash() const;
 
@@ -93,12 +100,29 @@ struct SurfaceParams {
     std::size_t host_size_in_bytes;
 
 private:
-    void CalculateSizes();
+    void CalculateCachedValues();
 
     std::size_t GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
                                          bool uncompressed) const;
 
     std::size_t GetInnerMemorySize(bool as_host_size, bool layer_only, bool uncompressed) const;
+
+    bool IsDimensionValid(const SurfaceParams& view_params, u32 level) const;
+
+    bool IsDepthValid(const SurfaceParams& view_params, u32 level) const;
+
+    bool IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const;
+};
+
+struct ViewKey {
+    std::size_t Hash() const;
+
+    bool operator==(const ViewKey& rhs) const;
+
+    u32 base_layer;
+    u32 layers;
+    u32 base_level;
+    u32 levels;
 };
 
 } // namespace VideoCommon
@@ -112,9 +136,117 @@ struct hash<VideoCommon::SurfaceParams> {
     }
 };
 
+template <>
+struct hash<VideoCommon::ViewKey> {
+    std::size_t operator()(const VideoCommon::ViewKey& k) const {
+        return k.Hash();
+    }
+};
+
 } // namespace std
 
 namespace VideoCommon {
+
+template <typename TView, typename TExecutionContext>
+class SurfaceBase {
+    static_assert(std::is_trivially_copyable<TExecutionContext>::value);
+
+public:
+    SurfaceBase(const SurfaceParams& params)
+        : params{params}, view_offset_map{params.CreateViewOffsetMap()} {}
+
+    virtual void LoadBuffer() = 0;
+
+    virtual TExecutionContext FlushBuffer(TExecutionContext exctx) = 0;
+
+    virtual TExecutionContext UploadTexture(TExecutionContext exctx) = 0;
+
+    TView* TryGetView(VAddr view_address, const SurfaceParams& view_params) {
+        if (view_address < address || !params.IsFamiliar(view_params)) {
+            // It can't be a view if it's in a prior address.
+            return {};
+        }
+
+        const auto relative_offset = static_cast<u64>(view_address - address);
+        const auto it = view_offset_map.find(relative_offset);
+        if (it == view_offset_map.end()) {
+            // Couldn't find an aligned view.
+            return {};
+        }
+        const auto [layer, level] = it->second;
+
+        if (!params.IsViewValid(view_params, layer, level)) {
+            return {};
+        }
+
+        return GetView(layer, view_params.GetLayersCount(), level, view_params.levels_count);
+    }
+
+    VAddr GetAddress() const {
+        return address;
+    }
+
+    std::size_t GetSizeInBytes() const {
+        return params.host_size_in_bytes;
+    }
+
+    void MarkAsModified(bool is_modified_) {
+        is_modified = is_modified_;
+    }
+
+    const SurfaceParams& GetSurfaceParams() const {
+        return params;
+    }
+
+    TView* GetView(VAddr view_address, const SurfaceParams& view_params) {
+        TView* view = TryGetView(view_address, view_params);
+        ASSERT(view != nullptr);
+        return view;
+    }
+
+    void Register(VAddr address_) {
+        ASSERT(!is_registered);
+        is_registered = true;
+        address = address_;
+    }
+
+    void Unregister() {
+        ASSERT(is_registered);
+        is_registered = false;
+    }
+
+    bool IsRegistered() const {
+        return is_registered;
+    }
+
+protected:
+    virtual std::unique_ptr<TView> CreateView(const ViewKey& view_key) = 0;
+
+    bool IsModified() const {
+        return is_modified;
+    }
+
+    const SurfaceParams params;
+
+private:
+    TView* GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
+        const ViewKey key{base_layer, layers, base_level, levels};
+        const auto [entry, is_cache_miss] = views.try_emplace(key);
+        auto& view = entry->second;
+        if (is_cache_miss) {
+            view = CreateView(key);
+        }
+        return view.get();
+    }
+
+    const std::map<u64, std::pair<u32, u32>> view_offset_map;
+
+    std::unordered_map<ViewKey, std::unique_ptr<TView>> views;
+
+    VAddr address{};
+    bool is_modified{};
+    bool is_registered{};
+};
 
 template <typename TSurface, typename TView, typename TExecutionContext>
 class TextureCache {

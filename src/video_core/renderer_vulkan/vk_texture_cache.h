@@ -44,6 +44,7 @@ class VKResourceManager;
 class VKScheduler;
 
 using VideoCommon::SurfaceParams;
+using VideoCommon::ViewKey;
 using VideoCore::Surface::ComponentType;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceTarget;
@@ -54,47 +55,8 @@ class CachedView;
 using Surface = CachedSurface*;
 using View = CachedView*;
 
-struct SurfaceReserveKey : Common::HashableStruct<SurfaceParams> {
-    static SurfaceReserveKey Create(const SurfaceParams& params) {
-        SurfaceReserveKey res;
-        res.state = params;
-        return res;
-    }
-};
-
-struct ViewKey {
-    u32 base_layer;
-    u32 layers;
-    u32 base_level;
-    u32 levels;
-
-    bool operator==(const ViewKey& rhs) const {
-        return std::tie(base_layer, layers, base_level, levels) ==
-               std::tie(rhs.base_layer, rhs.layers, rhs.base_level, rhs.levels);
-    }
-};
-
-} // namespace Vulkan
-
-namespace std {
-
-template <>
-struct hash<Vulkan::ViewKey> {
-    std::size_t operator()(const Vulkan::ViewKey& key) const {
-        std::size_t hash = 0;
-        boost::hash_combine(hash, key.base_layer);
-        boost::hash_combine(hash, key.layers);
-        boost::hash_combine(hash, key.base_level);
-        boost::hash_combine(hash, key.levels);
-        return hash;
-    }
-};
-
-} // namespace std
-
-namespace Vulkan {
-
-class CachedSurface : public VKImage {
+class CachedSurface : public VKImage,
+                      public VideoCommon::SurfaceBase<CachedView, VKExecutionContext> {
 public:
     explicit CachedSurface(Core::System& system, const VKDevice& device,
                            VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
@@ -103,6 +65,8 @@ public:
 
     // Read/Write data in Switch memory to/from vk_buffer
     void LoadBuffer();
+
+    //
     VKExecutionContext FlushBuffer(VKExecutionContext exctx);
 
     // Upload data in vk_buffer to this surface's texture
@@ -111,90 +75,29 @@ public:
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout layout,
                     vk::PipelineStageFlags stage_flags, vk::AccessFlags access_flags);
 
-    View TryGetView(VAddr view_address, const SurfaceParams& view_params);
-
-    VAddr GetAddress() const {
-        return address;
-    }
-
-    std::size_t GetSizeInBytes() const {
-        return cached_size_in_bytes;
-    }
-
-    void MarkAsModified(bool is_modified_) {
-        is_modified = is_modified_;
-    }
-
-    const SurfaceParams& GetSurfaceParams() const {
-        return params;
-    }
-
-    View GetView(VAddr view_address, const SurfaceParams& view_params) {
-        const View view = TryGetView(view_address, view_params);
-        ASSERT(view != nullptr);
-        return view;
-    }
-
-    void Register(VAddr address_) {
-        ASSERT(!is_registered);
-        is_registered = true;
-        address = address_;
-    }
-
-    void Unregister() {
-        ASSERT(is_registered);
-        is_registered = false;
-    }
-
-    bool IsRegistered() const {
-        return is_registered;
-    }
+protected:
+    std::unique_ptr<CachedView> CreateView(const ViewKey& view_key);
 
 private:
-    View GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels);
-
-    bool IsFamiliar(const SurfaceParams& view_params) const;
-
-    bool IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const;
-
-    bool IsDimensionValid(const SurfaceParams& view_params, u32 level) const;
-
-    bool IsDepthValid(const SurfaceParams& view_params, u32 level) const;
-
-    bool IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const;
-
     vk::BufferImageCopy GetBufferImageCopy(u32 level) const;
 
     vk::ImageSubresourceRange GetImageSubresourceRange() const;
-
-    static std::map<u64, std::pair<u32, u32>> BuildViewOffsetMap(const SurfaceParams& params);
 
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
     VKScheduler& sched;
-    const SurfaceParams params;
-    const std::size_t buffer_size;
-    const std::map<u64, std::pair<u32, u32>> view_offset_map;
 
     VKMemoryCommit image_commit;
 
     UniqueBuffer buffer;
     VKMemoryCommit buffer_commit;
     u8* vk_buffer{};
-
-    std::unordered_map<ViewKey, std::unique_ptr<CachedView>> views;
-
-    VAddr address{};
-    std::size_t cached_size_in_bytes{};
-    bool is_modified{};
-    bool is_registered{};
 };
 
 class CachedView {
 public:
-    CachedView(const VKDevice& device, Surface surface, u32 base_layer, u32 layers, u32 base_level,
-               u32 levels);
+    CachedView(const VKDevice& device, Surface surface, const ViewKey& key);
     ~CachedView();
 
     vk::ImageView GetHandle(Tegra::Shader::TextureType texture_type,
