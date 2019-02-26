@@ -440,7 +440,7 @@ void RasterizerVulkan::SetupVertexArrays(PipelineParams& params) {
 
         ASSERT(end > start);
         const std::size_t size = end - start + 1;
-        const auto [offset, buffer] = buffer_cache->UploadMemory(start, size);
+        const auto offset = buffer_cache->UploadMemory(start, size);
 
         PipelineParams::VertexBinding binding;
         binding.index = index;
@@ -448,16 +448,17 @@ void RasterizerVulkan::SetupVertexArrays(PipelineParams& params) {
         binding.divisor = vertex_array.divisor;
         params.vertex_input.bindings.Push(binding);
 
-        state.AddVertexBinding(buffer, offset);
+        state.AddVertexBinding(buffer_cache->GetBuffer(), offset);
     }
 }
 
 void RasterizerVulkan::SetupIndexBuffer() {
     const auto& regs = system.GPU().Maxwell3D().regs;
 
-    const auto [offset, buffer] =
+    const auto offset =
         buffer_cache->UploadMemory(regs.index_array.IndexStart(), CalculateIndexBufferSize());
-    state.SetIndexBinding(buffer, offset, MaxwellToVK::IndexFormat(regs.index_array.format));
+    state.SetIndexBinding(buffer_cache->GetBuffer(), offset,
+                          MaxwellToVK::IndexFormat(regs.index_array.format));
 }
 
 void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& shader,
@@ -494,12 +495,12 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& sha
         size = Common::AlignUp(size, 4 * sizeof(float));
         ASSERT_MSG(size <= MaxConstbufferSize, "Constant buffer is too big");
 
-        const auto [offset, buffer_handle] =
+        const auto offset =
             buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
 
         auto [write, buffer_info] = state.CaptureDescriptorWriteBuffer();
-        buffer_info =
-            vk::DescriptorBufferInfo(buffer_handle, offset, static_cast<vk::DeviceSize>(size));
+        buffer_info = vk::DescriptorBufferInfo(buffer_cache->GetBuffer(), offset,
+                                               static_cast<vk::DeviceSize>(size));
         write = vk::WriteDescriptorSet(descriptor_set, current_binding, 0, 1,
                                        vk::DescriptorType::eUniformBuffer, nullptr, &buffer_info,
                                        nullptr);

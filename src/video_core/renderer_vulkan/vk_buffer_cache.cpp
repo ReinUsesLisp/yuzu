@@ -27,12 +27,13 @@ VKBufferCache::VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
     stream_buffer =
         std::make_unique<VKStreamBuffer>(device, memory_manager, sched, size, usage, access,
                                          vk::PipelineStageFlagBits::eAllCommands);
+    buffer_handle = stream_buffer->GetBuffer();
 }
 
 VKBufferCache::~VKBufferCache() = default;
 
-std::tuple<u64, vk::Buffer> VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size,
-                                                        u64 alignment, bool cache) {
+u64 VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size, u64 alignment,
+                                bool cache) {
     const auto cpu_addr{system.GPU().MemoryManager().GpuToCpuAddress(gpu_addr)};
     ASSERT(cpu_addr);
 
@@ -43,7 +44,7 @@ std::tuple<u64, vk::Buffer> VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr
     if (cache) {
         if (auto entry = TryGet(*cpu_addr); entry) {
             if (entry->size >= size && entry->alignment == alignment) {
-                return {entry->offset, entry->buffer};
+                return entry->offset;
             }
             Unregister(entry);
         }
@@ -60,41 +61,38 @@ std::tuple<u64, vk::Buffer> VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr
     if (cache) {
         auto entry = std::make_shared<CachedBufferEntry>();
         entry->offset = uploaded_offset;
-        entry->buffer = buffer_handle;
         entry->size = size;
         entry->alignment = alignment;
         entry->addr = *cpu_addr;
         Register(entry);
     }
 
-    return {uploaded_offset, buffer_handle};
+    return uploaded_offset;
 }
 
-std::tuple<u64, vk::Buffer> VKBufferCache::UploadHostMemory(const u8* raw_pointer, std::size_t size,
-                                                            u64 alignment) {
+u64 VKBufferCache::UploadHostMemory(const u8* raw_pointer, std::size_t size, u64 alignment) {
     AlignBuffer(alignment);
     std::memcpy(buffer_ptr, raw_pointer, size);
     const u64 uploaded_offset = buffer_offset;
 
     buffer_ptr += size;
     buffer_offset += size;
-    return {uploaded_offset, buffer_handle};
+    return uploaded_offset;
 }
 
-std::tuple<u8*, u64, vk::Buffer> VKBufferCache::ReserveMemory(std::size_t size, u64 alignment) {
+std::tuple<u8*, u64> VKBufferCache::ReserveMemory(std::size_t size, u64 alignment) {
     AlignBuffer(alignment);
     u8* const uploaded_ptr = buffer_ptr;
     const u64 uploaded_offset = buffer_offset;
 
     buffer_ptr += size;
     buffer_offset += size;
-    return {uploaded_ptr, uploaded_offset, buffer_handle};
+    return {uploaded_ptr, uploaded_offset};
 }
 
 void VKBufferCache::Reserve(std::size_t max_size) {
     bool invalidate;
-    std::tie(buffer_ptr, buffer_offset_base, buffer_handle, invalidate) =
-        stream_buffer->Reserve(max_size, false);
+    std::tie(buffer_ptr, buffer_offset_base, invalidate) = stream_buffer->Reserve(max_size);
     buffer_offset = buffer_offset_base;
 
     if (invalidate) {
