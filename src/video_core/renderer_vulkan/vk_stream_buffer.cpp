@@ -1,8 +1,9 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -109,8 +110,6 @@ void VKStreamBuffer::CreateBuffers(VKMemoryManager& memory_manager, vk::BufferUs
                                              usage | vk::BufferUsageFlagBits::eTransferDst,
                                              vk::SharingMode::eExclusive, 0, nullptr);
         device_buffer = dev.createBufferUnique(buffer_ci, nullptr, dld);
-
-        const vk::MemoryRequirements reqs = dev.getBufferMemoryRequirements(*device_buffer, dld);
         device_commit = memory_manager.Commit(*device_buffer, false);
     }
 }
