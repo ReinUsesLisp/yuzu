@@ -61,23 +61,6 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     }
 }
 
-static VAddr GetAddressForTexture(Core::System& system,
-                                  const Tegra::Texture::FullTextureInfo& config) {
-    auto& memory_manager{system.GPU().MemoryManager()};
-    const auto cpu_addr{memory_manager.GpuToCpuAddress(config.tic.Address())};
-    ASSERT(cpu_addr);
-    return cpu_addr.value_or(0);
-}
-
-static VAddr GetAddressForFramebuffer(Core::System& system, std::size_t index) {
-    auto& memory_manager{system.GPU().MemoryManager()};
-    const auto& config{system.GPU().Maxwell3D().regs.rt[index]};
-    const auto cpu_addr{memory_manager.GpuToCpuAddress(
-        config.Address() + config.base_layer * config.layer_stride * sizeof(u32))};
-    ASSERT(cpu_addr);
-    return *cpu_addr;
-}
-
 static vk::ImageCreateInfo CreateImageInfo(const VKDevice& device, const SurfaceParams& params) {
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
