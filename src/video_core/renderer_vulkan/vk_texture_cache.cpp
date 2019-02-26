@@ -23,13 +23,8 @@ namespace Vulkan {
 
 using VideoCore::MortonSwizzle;
 using VideoCore::MortonSwizzleMode;
-using VideoCore::Surface::ComponentTypeFromDepthFormat;
-using VideoCore::Surface::ComponentTypeFromRenderTarget;
-using VideoCore::Surface::ComponentTypeFromTexture;
-using VideoCore::Surface::PixelFormatFromDepthFormat;
-using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
-using VideoCore::Surface::PixelFormatFromTextureFormat;
-using VideoCore::Surface::SurfaceTargetFromTextureType;
+
+using Tegra::Texture::SwizzleSource;
 
 static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     switch (target) {
@@ -142,10 +137,10 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
 
     image_commit = memory_manager.Commit(GetHandle(), false);
 
-    const vk::BufferCreateInfo buffer_ci({}, std::max(params.guest_size_in_bytes, params.host_size_in_bytes),
-                                         vk::BufferUsageFlagBits::eTransferDst |
-                                             vk::BufferUsageFlagBits::eTransferSrc,
-                                         vk::SharingMode::eExclusive, 0, nullptr);
+    const vk::BufferCreateInfo buffer_ci(
+        {}, std::max(params.guest_size_in_bytes, params.host_size_in_bytes),
+        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
+        vk::SharingMode::eExclusive, 0, nullptr);
     buffer = dev.createBufferUnique(buffer_ci, nullptr, dld);
     buffer_commit = memory_manager.Commit(*buffer, true);
     vk_buffer = buffer_commit->GetData();
@@ -266,11 +261,9 @@ CachedView::CachedView(const VKDevice& device, Surface surface, const ViewKey& k
 
 CachedView::~CachedView() = default;
 
-vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type,
-                                    Tegra::Texture::SwizzleSource x_source,
-                                    Tegra::Texture::SwizzleSource y_source,
-                                    Tegra::Texture::SwizzleSource z_source,
-                                    Tegra::Texture::SwizzleSource w_source, bool is_array) {
+vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, SwizzleSource x_source,
+                                    SwizzleSource y_source, SwizzleSource z_source,
+                                    SwizzleSource w_source, bool is_array) {
     const auto [view_cache, image_view_type] = GetTargetCache(texture_type, is_array);
     return GetOrCreateView(view_cache, image_view_type, x_source, y_source, z_source, w_source);
 }
@@ -306,10 +299,8 @@ CachedView::GetTargetCache(Tegra::Shader::TextureType texture_type, bool is_arra
 }
 
 vk::ImageView CachedView::GetOrCreateView(ViewCache& view_cache, vk::ImageViewType view_type,
-                                          Tegra::Texture::SwizzleSource x_source,
-                                          Tegra::Texture::SwizzleSource y_source,
-                                          Tegra::Texture::SwizzleSource z_source,
-                                          Tegra::Texture::SwizzleSource w_source) {
+                                          SwizzleSource x_source, SwizzleSource y_source,
+                                          SwizzleSource z_source, SwizzleSource w_source) {
     const u32 view_key = GetViewCacheKey(x_source, y_source, z_source, w_source);
     const auto [entry, is_cache_miss] = view_cache.try_emplace(view_key);
     auto& image_view = entry->second;
@@ -328,10 +319,8 @@ vk::ImageView CachedView::GetOrCreateView(ViewCache& view_cache, vk::ImageViewTy
     return *(image_view = dev.createImageViewUnique(image_view_ci, nullptr, dld));
 }
 
-u32 CachedView::GetViewCacheKey(Tegra::Texture::SwizzleSource x_source,
-                                Tegra::Texture::SwizzleSource y_source,
-                                Tegra::Texture::SwizzleSource z_source,
-                                Tegra::Texture::SwizzleSource w_source) {
+u32 CachedView::GetViewCacheKey(SwizzleSource x_source, SwizzleSource y_source,
+                                SwizzleSource z_source, SwizzleSource w_source) {
     return static_cast<u8>(x_source) | static_cast<u8>(y_source) << 8 |
            static_cast<u8>(z_source) << 16 | static_cast<u8>(w_source) << 24;
 }
