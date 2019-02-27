@@ -921,8 +921,13 @@ private:
         UNREACHABLE();
     }
 
-    Id Branch(Operation) {
-        UNREACHABLE();
+    Id Branch(Operation operation) {
+        const auto target = std::get_if<ImmediateNode>(operation[0]);
+        UNIMPLEMENTED_IF(!target);
+
+        Emit(OpStore(jmp_to, Constant(t_uint, target->GetValue())));
+        BranchingOp([&]() { Emit(OpBranch(continue_label)); });
+        return {};
     }
 
     Id PushFlowStack(Operation operation) {
