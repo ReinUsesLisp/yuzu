@@ -55,7 +55,8 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
 
     const auto [color_format, color_attachable] = MaxwellToVK::SurfaceFormat(
         device, FormatType::Optimal, first_map.pixel_format, first_map.component_type);
-    ASSERT(color_attachable);
+    ASSERT_MSG(color_attachable, "Trying to attach a non-attacheable format with format {}",
+               static_cast<u32>(first_map.pixel_format));
 
     descriptors.Push(vk::AttachmentDescription(
         {}, color_format, vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore,
