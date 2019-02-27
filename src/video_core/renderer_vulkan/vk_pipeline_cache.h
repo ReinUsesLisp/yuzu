@@ -7,7 +7,7 @@
 #include <memory>
 #include <tuple>
 #include <unordered_map>
-#include <boost/functional/hash.hpp>
+
 #include "common/common_types.h"
 #include "common/static_vector.h"
 #include "video_core/engines/maxwell_3d.h"
@@ -44,17 +44,8 @@ struct PipelineParams {
         u32 stride = 0;
         u32 divisor = 0;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, index);
-            boost::hash_combine(hash, stride);
-            boost::hash_combine(hash, divisor);
-            return hash;
-        }
-
-        bool operator==(const VertexBinding& rhs) const {
-            return std::tie(index, stride, divisor) == std::tie(rhs.index, rhs.stride, rhs.divisor);
-        }
+        std::size_t Hash() const;
+        bool operator==(const VertexBinding& rhs) const;
     };
 
     struct VertexAttribute {
@@ -64,20 +55,8 @@ struct PipelineParams {
         Maxwell::VertexAttribute::Size size = Maxwell::VertexAttribute::Size::Size_8;
         u32 offset = 0;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, index);
-            boost::hash_combine(hash, buffer);
-            boost::hash_combine(hash, type);
-            boost::hash_combine(hash, size);
-            boost::hash_combine(hash, offset);
-            return hash;
-        }
-
-        bool operator==(const VertexAttribute& rhs) const {
-            return std::tie(index, buffer, type, size, offset) ==
-                   std::tie(rhs.index, rhs.buffer, rhs.type, rhs.size, rhs.offset);
-        }
+        std::size_t Hash() const;
+        bool operator==(const VertexAttribute& rhs) const;
     };
 
     struct StencilFace {
@@ -89,24 +68,8 @@ struct PipelineParams {
         u32 test_mask = 0;
         u32 write_mask = 0;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, action_stencil_fail);
-            boost::hash_combine(hash, action_depth_fail);
-            boost::hash_combine(hash, action_depth_pass);
-            boost::hash_combine(hash, test_func);
-            boost::hash_combine(hash, test_ref);
-            boost::hash_combine(hash, test_mask);
-            boost::hash_combine(hash, write_mask);
-            return hash;
-        }
-
-        bool operator==(const StencilFace& rhs) const {
-            return std::tie(action_stencil_fail, action_depth_fail, action_depth_pass, test_func,
-                            test_ref, test_mask, write_mask) ==
-                   std::tie(rhs.action_stencil_fail, rhs.action_depth_fail, rhs.action_depth_pass,
-                            rhs.test_func, rhs.test_ref, rhs.test_mask, rhs.write_mask);
-        }
+        std::size_t Hash() const;
+        bool operator==(const StencilFace& rhs) const;
     };
 
     struct BlendingAttachment {
@@ -119,60 +82,25 @@ struct PipelineParams {
         Maxwell::Blend::Factor dst_a_func = Maxwell::Blend::Factor::Zero;
         std::array<bool, 4> components{true, true, true, true};
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, enable);
-            boost::hash_combine(hash, rgb_equation);
-            boost::hash_combine(hash, src_rgb_func);
-            boost::hash_combine(hash, dst_rgb_func);
-            boost::hash_combine(hash, a_equation);
-            boost::hash_combine(hash, src_a_func);
-            boost::hash_combine(hash, dst_a_func);
-            boost::hash_combine(hash, components);
-            return hash;
-        }
-
-        bool operator==(const BlendingAttachment& rhs) const {
-            return std::tie(enable, rgb_equation, src_rgb_func, dst_rgb_func, a_equation,
-                            src_a_func, dst_a_func, components) ==
-                   std::tie(rhs.enable, rhs.rgb_equation, rhs.src_rgb_func, rhs.dst_rgb_func,
-                            rhs.a_equation, rhs.src_a_func, rhs.dst_a_func, rhs.components);
-        }
+        std::size_t Hash() const;
+        bool operator==(const BlendingAttachment& rhs) const;
     };
 
     struct VertexInput {
         StaticVector<VertexBinding, Maxwell::NumVertexArrays> bindings;
         StaticVector<VertexAttribute, Maxwell::NumVertexAttributes> attributes;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            for (const auto& binding : bindings)
-                boost::hash_combine(hash, binding.Hash());
-            for (const auto& attribute : attributes)
-                boost::hash_combine(hash, attribute.Hash());
-            return hash;
-        }
+        std::size_t Hash() const;
 
-        bool operator==(const VertexInput& rhs) const {
-            return std::tie(bindings, attributes) == std::tie(rhs.bindings, rhs.attributes);
-        }
+        bool operator==(const VertexInput& rhs) const;
     } vertex_input;
 
     struct InputAssembly {
         Maxwell::PrimitiveTopology topology = Maxwell::PrimitiveTopology::Points;
         bool primitive_restart_enable = false;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, topology);
-            boost::hash_combine(hash, primitive_restart_enable);
-            return hash;
-        }
-
-        bool operator==(const InputAssembly& rhs) const {
-            return std::tie(topology, primitive_restart_enable) ==
-                   std::tie(rhs.topology, rhs.primitive_restart_enable);
-        }
+        std::size_t Hash() const;
+        bool operator==(const InputAssembly& rhs) const;
     } input_assembly;
 
     struct ViewportState {
@@ -181,18 +109,8 @@ struct PipelineParams {
         float width{};
         float height{};
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, x);
-            boost::hash_combine(hash, y);
-            boost::hash_combine(hash, width);
-            boost::hash_combine(hash, height);
-            return hash;
-        }
-
-        bool operator==(const ViewportState& rhs) const {
-            return std::tie(x, y, width, height) == std::tie(rhs.x, rhs.y, rhs.width, rhs.height);
-        }
+        std::size_t Hash() const;
+        bool operator==(const ViewportState& rhs) const;
     } viewport_state;
 
     struct Rasterizer {
@@ -200,18 +118,8 @@ struct PipelineParams {
         Maxwell::Cull::CullFace cull_face = Maxwell::Cull::CullFace::Back;
         Maxwell::Cull::FrontFace front_face = Maxwell::Cull::FrontFace::CounterClockWise;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, cull_enable);
-            boost::hash_combine(hash, cull_face);
-            boost::hash_combine(hash, front_face);
-            return hash;
-        }
-
-        bool operator==(const Rasterizer& rhs) const {
-            return std::tie(cull_enable, cull_face, front_face) ==
-                   std::tie(rhs.cull_enable, rhs.cull_face, rhs.front_face);
-        }
+        std::size_t Hash() const;
+        bool operator==(const Rasterizer& rhs) const;
     } rasterizer;
 
     /*
@@ -237,28 +145,8 @@ struct PipelineParams {
         float depth_bounds_min = 0.0f;
         float depth_bounds_max = 0.0f;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, depth_test_enable);
-            boost::hash_combine(hash, depth_write_enable);
-            boost::hash_combine(hash, depth_bounds_enable);
-            boost::hash_combine(hash, stencil_enable);
-            boost::hash_combine(hash, depth_test_function);
-            boost::hash_combine(hash, front_stencil.Hash());
-            boost::hash_combine(hash, back_stencil.Hash());
-            boost::hash_combine(hash, depth_bounds_min);
-            boost::hash_combine(hash, depth_bounds_max);
-            return hash;
-        }
-
-        bool operator==(const DepthStencil& rhs) const {
-            return std::tie(depth_test_enable, depth_write_enable, depth_bounds_enable,
-                            depth_test_function, stencil_enable, front_stencil, back_stencil,
-                            depth_bounds_min, depth_bounds_max) ==
-                   std::tie(rhs.depth_test_enable, rhs.depth_write_enable, rhs.depth_bounds_enable,
-                            rhs.depth_test_function, rhs.stencil_enable, rhs.front_stencil,
-                            rhs.back_stencil, rhs.depth_bounds_min, rhs.depth_bounds_max);
-        }
+        std::size_t Hash() const;
+        bool operator==(const DepthStencil& rhs) const;
     } depth_stencil;
 
     struct ColorBlending {
@@ -266,39 +154,16 @@ struct PipelineParams {
         std::array<BlendingAttachment, Maxwell::NumRenderTargets> attachments;
         bool independent_blend = false;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, blend_constants);
-            for (const auto& attachment : attachments)
-                boost::hash_combine(hash, attachment.Hash());
-            boost::hash_combine(hash, independent_blend);
-            return hash;
-        }
-
-        bool operator==(const ColorBlending& rhs) const {
-            return std::tie(blend_constants, attachments, independent_blend) ==
-                   std::tie(rhs.blend_constants, rhs.attachments, rhs.independent_blend);
-        }
+        std::size_t Hash() const;
+        bool operator==(const ColorBlending& rhs) const;
     } color_blending;
 
-    std::size_t Hash() const {
-        std::size_t hash = 0;
-        boost::hash_combine(hash, vertex_input.Hash());
-        boost::hash_combine(hash, input_assembly.Hash());
-        boost::hash_combine(hash, viewport_state.Hash());
-        boost::hash_combine(hash, rasterizer.Hash());
-        // boost::hash_combine(hash, multisampling.Hash());
-        boost::hash_combine(hash, depth_stencil.Hash());
-        boost::hash_combine(hash, color_blending.Hash());
-        return hash;
-    }
+    std::size_t hash;
 
-    bool operator==(const PipelineParams& rhs) const {
-        return std::tie(vertex_input, input_assembly, viewport_state, rasterizer, /*multisampling,*/
-                        depth_stencil, color_blending) ==
-               std::tie(rhs.vertex_input, rhs.input_assembly, rhs.viewport_state, rhs.rasterizer,
-                        /*rhs.multisampling,*/ rhs.depth_stencil, rhs.color_blending);
-    }
+    void CalculateHash();
+
+    std::size_t Hash() const;
+    bool operator==(const PipelineParams& rhs) const;
 };
 
 } // namespace Vulkan
