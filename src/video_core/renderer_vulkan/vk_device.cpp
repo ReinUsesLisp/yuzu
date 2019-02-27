@@ -231,6 +231,7 @@ std::map<vk::Format, vk::FormatProperties> VKDevice::GetFormatProperties(
     AddFormatQuery(vk::Format::eBc1RgbaUnormBlock);
     AddFormatQuery(vk::Format::eBc2UnormBlock);
     AddFormatQuery(vk::Format::eBc3UnormBlock);
+    AddFormatQuery(vk::Format::eBc4UnormBlock);
 
     return format_properties;
 }
