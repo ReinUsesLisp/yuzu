@@ -18,6 +18,18 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using PixelFormat = VideoCore::Surface::PixelFormat;
 using ComponentType = VideoCore::Surface::ComponentType;
 
+namespace Sampler {
+
+vk::Filter Filter(Tegra::Texture::TextureFilter filter);
+
+vk::SamplerMipmapMode MipmapMode(Tegra::Texture::TextureMipmapFilter mipmap_filter);
+
+vk::SamplerAddressMode WrapMode(Tegra::Texture::WrapMode wrap_mode);
+
+vk::CompareOp DepthCompareFunction(Tegra::Texture::DepthCompareFunc depth_compare_func);
+
+} // namespace Sampler
+
 std::pair<vk::Format, bool> SurfaceFormat(const VKDevice& device, FormatType format_type,
                                           PixelFormat pixel_format, ComponentType component_type);
 
@@ -42,17 +54,5 @@ vk::FrontFace FrontFace(Maxwell::Cull::FrontFace front_face);
 vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face);
 
 vk::ComponentSwizzle SwizzleSource(Tegra::Texture::SwizzleSource swizzle);
-
-namespace Sampler {
-
-vk::Filter Filter(Tegra::Texture::TextureFilter filter);
-
-vk::SamplerMipmapMode MipmapMode(Tegra::Texture::TextureMipmapFilter mipmap_filter);
-
-vk::SamplerAddressMode WrapMode(Tegra::Texture::WrapMode wrap_mode);
-
-vk::CompareOp DepthCompareFunction(Tegra::Texture::DepthCompareFunc depth_compare_func);
-
-} // namespace Sampler
 
 } // namespace Vulkan::MaxwellToVK
