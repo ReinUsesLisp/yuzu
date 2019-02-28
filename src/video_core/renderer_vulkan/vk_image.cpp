@@ -12,27 +12,44 @@ namespace Vulkan {
 
 VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
                  vk::ImageAspectFlags aspect_mask)
-    : device{device}, format{image_ci.format}, aspect_mask{aspect_mask},
-      current_layout{image_ci.initialLayout} {
+    : device{device}, format{image_ci.format},
+      aspect_mask{aspect_mask}, layers{image_ci.arrayLayers}, levels{image_ci.mipLevels} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     image = dev.createImageUnique(image_ci, nullptr, dld);
+
+    barriers.resize(layers * levels);
+    states.resize(layers * levels);
 }
 
 VKImage::~VKImage() = default;
 
-void VKImage::Transition(vk::CommandBuffer cmdbuf, vk::ImageSubresourceRange subresource_range,
-                         vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
-                         vk::AccessFlags new_access, u32 new_family) {
-    const auto& dld = device.GetDispatchLoader();
-    const vk::ImageMemoryBarrier barrier(current_access, new_access, current_layout, new_layout,
-                                         current_family, new_family, *image, subresource_range);
-    cmdbuf.pipelineBarrier(current_stage_mask, new_stage_mask, {}, {}, {}, {barrier}, dld);
+void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 layers, u32 base_level,
+                         u32 levels, vk::PipelineStageFlags new_stage_mask,
+                         vk::AccessFlags new_access, vk::ImageLayout new_layout, u32 new_family) {
+    std::size_t i = 0;
+    for (u32 layer_it = 0; layer_it < layers; ++layer_it) {
+        for (u32 level_it = 0; level_it < levels; ++level_it, ++i) {
+            const u32 layer = base_layer + layer_it;
+            const u32 level = base_level + level_it;
+            auto& state = GetState(layer, level);
+            barriers[i] = {
+                state.access, new_access, state.layout, new_layout,
+                state.family, new_family, *image,       {aspect_mask, level, 1, layer, 1}};
+            state.access = new_access;
+            state.layout = new_layout;
+            state.family = new_family;
+        }
+    }
 
-    current_layout = new_layout;
+    // TODO(Rodrigo): Implement a way to use the latest stage across subresources
+    constexpr auto pipeline_stage_stub = vk::PipelineStageFlagBits::eAllCommands;
+
+    const auto& dld = device.GetDispatchLoader();
+    cmdbuf.pipelineBarrier(pipeline_stage_stub, pipeline_stage_stub, {}, 0, nullptr, 0, nullptr,
+                           static_cast<u32>(i), barriers.data(), dld);
+
     current_stage_mask = new_stage_mask;
-    current_access = new_access;
-    current_family = new_family;
 }
 
 void VKImage::CreatePresentView() {
@@ -42,6 +59,10 @@ void VKImage::CreatePresentView() {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     present_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
+}
+
+VKImage::SubrangeState& VKImage::GetState(u32 layer, u32 level) {
+    return states[layer * levels + level];
 }
 
 } // namespace Vulkan

@@ -188,8 +188,8 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
     }
 
     const auto cmdbuf = exctx.GetCommandBuffer();
-    Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eTransfer,
-               vk::AccessFlagBits::eTransferRead);
+    FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferRead,
+                   vk::ImageLayout::eTransferSrcOptimal);
 
     const auto& dld = device.GetDispatchLoader();
     // TODO(Rodrigo): Do this in a single copy
@@ -211,8 +211,8 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
 
 VKExecutionContext CachedSurface::UploadTexture(VKExecutionContext exctx) {
     const auto cmdbuf = exctx.GetCommandBuffer();
-    Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eTransfer,
-               vk::AccessFlagBits::eTransferWrite);
+    FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite,
+                   vk::ImageLayout::eTransferDstOptimal);
 
     for (u32 level = 0; level < params.levels_count; ++level) {
         vk::BufferImageCopy copy = GetBufferImageCopy(level);
@@ -231,11 +231,6 @@ VKExecutionContext CachedSurface::UploadTexture(VKExecutionContext exctx) {
         }
     }
     return exctx;
-}
-
-void CachedSurface::Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
-                               vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access) {
-    VKImage::Transition(cmdbuf, GetImageSubresourceRange(), new_layout, new_stage_mask, new_access);
 }
 
 std::unique_ptr<CachedView> CachedSurface::CreateView(const ViewKey& view_key) {
@@ -366,12 +361,12 @@ std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
     Register(dst_surface, address);
 
     const auto cmdbuf = exctx.GetCommandBuffer();
-    src_surface->Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal,
-                            vk::PipelineStageFlagBits::eTransfer,
-                            vk::AccessFlagBits::eTransferRead);
-    dst_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
-                            vk::PipelineStageFlagBits::eTransfer,
-                            vk::AccessFlagBits::eTransferWrite);
+    src_surface->FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer,
+                                vk::AccessFlagBits::eTransferRead,
+                                vk::ImageLayout::eTransferSrcOptimal);
+    dst_surface->FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer,
+                                vk::AccessFlagBits::eTransferWrite,
+                                vk::ImageLayout::eTransferDstOptimal);
 
     // TODO(Rodrigo): Copy mipmaps
     const auto& dld = device.GetDispatchLoader();

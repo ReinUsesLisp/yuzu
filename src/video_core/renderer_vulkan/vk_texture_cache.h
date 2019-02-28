@@ -72,8 +72,11 @@ public:
     // Upload data in vk_buffer to this surface's texture
     VKExecutionContext UploadTexture(VKExecutionContext exctx);
 
-    void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout layout,
-                    vk::PipelineStageFlags stage_flags, vk::AccessFlags access_flags);
+    void FullTransition(vk::CommandBuffer cmdbuf, vk::PipelineStageFlags new_stage_mask,
+                        vk::AccessFlags new_access, vk::ImageLayout new_layout) {
+        Transition(cmdbuf, 0, params.GetLayersCount(), 0, params.levels_count, new_stage_mask,
+                   new_access, new_layout);
+    }
 
 protected:
     std::unique_ptr<CachedView> CreateView(const ViewKey& view_key);
@@ -130,7 +133,8 @@ public:
 
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
                     vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access) const {
-        surface->Transition(cmdbuf, new_layout, new_stage_mask, new_access);
+        surface->Transition(cmdbuf, base_layer, layers, base_level, levels, new_stage_mask,
+                            new_access, new_layout);
     }
 
     void MarkAsModified(bool is_modified) const {
