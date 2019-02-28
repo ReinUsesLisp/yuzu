@@ -333,7 +333,7 @@ void CachedShader::CreateDescriptorSetLayout() {
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.const_buffers.size());
          ++bindpoint) {
         const auto& entry = entries.const_buffers[bindpoint];
-        const u32 current_binding = entries.constant_buffers_base_binding + bindpoint;
+        const u32 current_binding = entries.const_buffers_base_binding + bindpoint;
         bindings.emplace_back(current_binding, vk::DescriptorType::eUniformBuffer, 1, stage,
                               nullptr);
     }

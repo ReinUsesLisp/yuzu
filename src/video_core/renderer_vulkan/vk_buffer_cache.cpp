@@ -1,4 +1,4 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <tuple>
+
 #include "common/alignment.h"
 #include "core/core.h"
 #include "core/memory.h"
@@ -17,7 +18,7 @@ namespace Vulkan {
 
 VKBufferCache::VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
                              const VKDevice& device, VKMemoryManager& memory_manager,
-                             VKScheduler& sched, u64 size)
+                             VKScheduler& scheduler, u64 size)
     : RasterizerCache{rasterizer}, system{system} {
     const auto usage = vk::BufferUsageFlagBits::eVertexBuffer |
                        vk::BufferUsageFlagBits::eIndexBuffer |
@@ -25,7 +26,7 @@ VKBufferCache::VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
     const auto access = vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndexRead |
                         vk::AccessFlagBits::eUniformRead;
     stream_buffer =
-        std::make_unique<VKStreamBuffer>(device, memory_manager, sched, size, usage, access,
+        std::make_unique<VKStreamBuffer>(device, memory_manager, scheduler, size, usage, access,
                                          vk::PipelineStageFlagBits::eAllCommands);
     buffer_handle = stream_buffer->GetBuffer();
 }

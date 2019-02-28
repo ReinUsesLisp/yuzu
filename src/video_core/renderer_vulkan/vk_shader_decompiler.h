@@ -40,7 +40,7 @@ private:
 using SamplerEntry = VideoCommon::Shader::Sampler;
 
 struct ShaderEntries {
-    u32 constant_buffers_base_binding;
+    u32 const_buffers_base_binding;
     u32 samplers_base_binding;
     std::vector<ConstBufferEntry> const_buffers;
     std::vector<SamplerEntry> samplers;

@@ -1,12 +1,12 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
 #pragma once
 
-#include <cstddef>
 #include <memory>
 #include <tuple>
+
 #include "common/common_types.h"
 #include "video_core/gpu.h"
 #include "video_core/rasterizer_cache.h"
@@ -48,7 +48,7 @@ class VKBufferCache final : public RasterizerCache<std::shared_ptr<CachedBufferE
 public:
     explicit VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
                            const VKDevice& device, VKMemoryManager& memory_manager,
-                           VKScheduler& sched, u64 size);
+                           VKScheduler& scheduler, u64 size);
     ~VKBufferCache();
 
     /// Uploads data from a guest GPU address. Returns host's buffer offset where it's been
@@ -62,18 +62,20 @@ public:
     /// Reserves memory to be used by host's CPU. Returns mapped address and offset.
     std::tuple<u8*, u64> ReserveMemory(std::size_t size, u64 alignment = 4);
 
+    /// Reserves a region of memory to be used in subsequent upload/reserve operations.
     void Reserve(std::size_t max_size);
 
+    /// Ensures that the set data is sent to the device.
     [[nodiscard]] VKExecutionContext Send(VKExecutionContext exctx);
 
+    /// Returns the buffer cache handle.
     vk::Buffer GetBuffer() const {
         return buffer_handle;
     }
 
-protected:
+private:
     void AlignBuffer(std::size_t alignment);
 
-private:
     Core::System& system;
 
     std::unique_ptr<VKStreamBuffer> stream_buffer;

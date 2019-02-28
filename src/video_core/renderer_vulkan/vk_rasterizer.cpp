@@ -467,7 +467,7 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& sha
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& shader_stage = gpu.state.shader_stages[static_cast<std::size_t>(stage)];
     const auto& entries = shader->GetEntries().const_buffers;
-    const u32 base_binding = shader->GetEntries().constant_buffers_base_binding;
+    const u32 base_binding = shader->GetEntries().const_buffers_base_binding;
 
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {
         const auto& used_buffer = entries[bindpoint];

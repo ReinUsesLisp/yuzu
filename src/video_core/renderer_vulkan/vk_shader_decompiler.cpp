@@ -168,7 +168,7 @@ public:
 
     ShaderEntries GetShaderEntries() const {
         ShaderEntries entries;
-        entries.constant_buffers_base_binding = constant_buffers_base_binding;
+        entries.const_buffers_base_binding = const_buffers_base_binding;
         entries.samplers_base_binding = samplers_base_binding;
         for (const auto& cbuf : ir.GetConstantBuffers()) {
             entries.const_buffers.emplace_back(cbuf.second, cbuf.first);
@@ -201,7 +201,7 @@ private:
             binding_iterator += static_cast<u32>(count);
             return current_binding;
         };
-        constant_buffers_base_binding = Allocate(ir.GetConstantBuffers().size());
+        const_buffers_base_binding = Allocate(ir.GetConstantBuffers().size());
         samplers_base_binding = Allocate(ir.GetSamplers().size());
     }
 
@@ -434,7 +434,7 @@ private:
     }
 
     void DeclareConstantBuffers() {
-        u32 binding = constant_buffers_base_binding;
+        u32 binding = const_buffers_base_binding;
         for (const auto& entry : ir.GetConstantBuffers()) {
             const auto [index, size] = entry;
             const Id id = OpVariable(t_cbuf_ubo, spv::StorageClass::Uniform);
@@ -1230,7 +1230,7 @@ private:
 
     std::vector<Id> interfaces;
 
-    u32 constant_buffers_base_binding{};
+    u32 const_buffers_base_binding{};
     u32 samplers_base_binding{};
 
     Id execute_function{};
