@@ -4,7 +4,9 @@
 
 #include <array>
 #include <memory>
+
 #include <boost/functional/hash.hpp>
+
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -677,13 +679,18 @@ void RasterizerVulkan::SyncColorBlending(PipelineParams& params) {
 
 void RasterizerVulkan::SyncViewportState(PipelineParams& params) {
     const auto& regs = system.GPU().Maxwell3D().regs;
-    auto& vs = params.viewport_state;
-
     const auto& viewport = regs.viewport_transform[0];
+
+    float scale_y = viewport.scale_y;
+    if (regs.view_volume_clip_control.flip_y == 1) {
+        scale_y = -scale_y;
+    }
+
+    auto& vs = params.viewport_state;
     vs.x = viewport.translate_x - viewport.scale_x;
-    vs.y = viewport.translate_y - viewport.scale_y;
+    vs.y = viewport.translate_y - scale_y;
     vs.width = viewport.translate_x + viewport.scale_x - vs.x;
-    vs.height = viewport.translate_y + viewport.scale_y - vs.y;
+    vs.height = viewport.translate_y + scale_y - vs.y;
 }
 
 void RasterizerVulkan::SyncRasterizerState(PipelineParams& params) {

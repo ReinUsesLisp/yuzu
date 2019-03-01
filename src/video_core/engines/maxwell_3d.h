@@ -929,6 +929,7 @@ public:
                     BitField<0, 1, u32> depth_range_0_1;
                     BitField<3, 1, u32> depth_clamp_near;
                     BitField<4, 1, u32> depth_clamp_far;
+                    BitField<11, 1, u32> flip_y;
                 } view_volume_clip_control;
 
                 INSERT_PADDING_WORDS(0x21);
