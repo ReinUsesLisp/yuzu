@@ -1,7 +1,8 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include "common/assert.h"
 #include "common/common_types.h"
 #include "common/logging/log.h"
 #include "video_core/engines/maxwell_3d.h"
@@ -93,16 +94,16 @@ vk::CompareOp DepthCompareFunction(Tegra::Texture::DepthCompareFunc depth_compar
 } // namespace Sampler
 
 struct FormatTuple {
-    vk::Format format;
-    ComponentType component_type;
-    bool attachable;
+    vk::Format format;            ///< Vulkan format
+    ComponentType component_type; ///< Abstracted component type
+    bool attachable;              ///< True when this format can be used as an attachment
 };
 
 static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex_format_tuples = {{
     {vk::Format::eA8B8G8R8UnormPack32, ComponentType::UNorm, true},    // ABGR8U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // ABGR8S
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // ABGR8UI
-    {vk::Format::eR5G6B5UnormPack16, ComponentType::UNorm, false},     // B5G6R5U
+    {vk::Format::eB5G6R5UnormPack16, ComponentType::UNorm, false},     // B5G6R5U
     {vk::Format::eA2B10G10R10UnormPack32, ComponentType::UNorm, true}, // A2B10G10R10U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // A1B5G5R5U
     {vk::Format::eR8Unorm, ComponentType::UNorm, true},                // R8U
@@ -137,7 +138,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG16I
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG16S
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RGB32F
-    {vk::Format::eA8B8G8R8UnormPack32, ComponentType::UNorm, true},    // RGBA8_SRGB
+    {vk::Format::eA8B8G8R8SrgbPack32, ComponentType::UNorm, true},     // RGBA8_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG8U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG8S
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG32UI
@@ -167,9 +168,14 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
 
     // DepthStencil formats
     {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // Z24S8
-    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // S8Z24
+    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // S8Z24 (emulated)
     {vk::Format::eUndefined, ComponentType::Invalid, false},   // Z32FS8
 }};
+
+constexpr bool IsZetaFormat(PixelFormat pixel_format) {
+    return pixel_format >= PixelFormat::MaxColorFormat &&
+           pixel_format < PixelFormat::MaxDepthStencilFormat;
+}
 
 std::pair<vk::Format, bool> SurfaceFormat(const VKDevice& device, FormatType format_type,
                                           PixelFormat pixel_format, ComponentType component_type) {
@@ -184,10 +190,8 @@ std::pair<vk::Format, bool> SurfaceFormat(const VKDevice& device, FormatType for
     auto usage = vk::FormatFeatureFlagBits::eSampledImage |
                  vk::FormatFeatureFlagBits::eTransferDst | vk::FormatFeatureFlagBits::eTransferSrc;
     if (tuple.attachable) {
-        const bool is_zeta = pixel_format >= PixelFormat::MaxColorFormat &&
-                             pixel_format < PixelFormat::MaxDepthStencilFormat;
-        usage |= is_zeta ? vk::FormatFeatureFlagBits::eDepthStencilAttachment
-                         : vk::FormatFeatureFlagBits::eColorAttachment;
+        usage |= IsZetaFormat(pixel_format) ? vk::FormatFeatureFlagBits::eDepthStencilAttachment
+                                            : vk::FormatFeatureFlagBits::eColorAttachment;
     }
     return {device.GetSupportedFormat(tuple.format, usage, format_type), tuple.attachable};
 }
@@ -196,6 +200,12 @@ vk::ShaderStageFlagBits ShaderStage(Maxwell::ShaderStage stage) {
     switch (stage) {
     case Maxwell::ShaderStage::Vertex:
         return vk::ShaderStageFlagBits::eVertex;
+    case Maxwell::ShaderStage::TesselationControl:
+        return vk::ShaderStageFlagBits::eTessellationControl;
+    case Maxwell::ShaderStage::TesselationEval:
+        return vk::ShaderStageFlagBits::eTessellationEvaluation;
+    case Maxwell::ShaderStage::Geometry:
+        return vk::ShaderStageFlagBits::eGeometry;
     case Maxwell::ShaderStage::Fragment:
         return vk::ShaderStageFlagBits::eFragment;
     }
@@ -298,7 +308,7 @@ vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
 vk::IndexType IndexFormat(Maxwell::IndexFormat index_format) {
     switch (index_format) {
     case Maxwell::IndexFormat::UnsignedByte:
-        UNIMPLEMENTED_MSG("Vulkan does not support native u8 index type");
+        UNIMPLEMENTED_MSG("Vulkan does not support native u8 index format");
         return vk::IndexType::eUint16;
     case Maxwell::IndexFormat::UnsignedShort:
         return vk::IndexType::eUint16;
