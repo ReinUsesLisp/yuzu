@@ -590,8 +590,6 @@ private:
         return {};
     }
 
-    // Helpers
-
     template <typename... Args>
     Id AccessElement(Id pointer_type, Id composite, Args... elements_) {
         std::vector<Id> members;
@@ -769,22 +767,27 @@ private:
 
     Id HNegate(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id HMergeF32(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id HMergeH0(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id HMergeH1(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id HPack2(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id LogicalAssign(Operation operation) {
@@ -814,14 +817,17 @@ private:
 
     Id LogicalPick2(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id LogicalAll2(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id LogicalAny2(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id GenerateTexture(Operation operation,
@@ -907,18 +913,19 @@ private:
 
     Id TextureGather(Operation) {
         UNREACHABLE();
+        return {};
     }
 
     Id TextureQueryDimensions(Operation) {
-        UNREACHABLE();
+        UNREACHABLE();return {};
     }
 
     Id TextureQueryLod(Operation) {
-        UNREACHABLE();
+        UNREACHABLE();return {};
     }
 
     Id TexelFetch(Operation) {
-        UNREACHABLE();
+        UNREACHABLE();return {};
     }
 
     Id Branch(Operation operation) {
@@ -1012,15 +1019,15 @@ private:
     }
 
     Id EmitVertex(Operation) {
-        UNREACHABLE();
+        UNREACHABLE();return {};
     }
 
     Id EndPrimitive(Operation) {
-        UNREACHABLE();
+        UNREACHABLE();return {};
     }
 
     Id YNegate(Operation) {
-        UNREACHABLE();
+        UNREACHABLE();return {};
     }
 
     void BranchingOp(std::function<void()> call) {
