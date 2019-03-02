@@ -12,6 +12,10 @@
 #include "common/ring_buffer.h"
 #include "core/settings.h"
 
+#ifdef _MSC_VER
+#include <objbase.h>
+#endif
+
 namespace AudioCore {
 
 class CubebSinkStream final : public SinkStream {
@@ -46,7 +50,7 @@ public:
         }
     }
 
-    ~CubebSinkStream() {
+    ~CubebSinkStream() override {
         if (!ctx) {
             return;
         }
@@ -75,11 +79,11 @@ public:
         queue.Push(samples);
     }
 
-    std::size_t SamplesInQueue(u32 num_channels) const override {
+    std::size_t SamplesInQueue(u32 channel_count) const override {
         if (!ctx)
             return 0;
 
-        return queue.Size() / num_channels;
+        return queue.Size() / channel_count;
     }
 
     void Flush() override {
@@ -98,7 +102,7 @@ private:
     u32 num_channels{};
 
     Common::RingBuffer<s16, 0x10000> queue;
-    std::array<s16, 2> last_frame;
+    std::array<s16, 2> last_frame{};
     std::atomic<bool> should_flush{};
     TimeStretcher time_stretch;
 
@@ -108,6 +112,11 @@ private:
 };
 
 CubebSink::CubebSink(std::string_view target_device_name) {
+    // Cubeb requires COM to be initialized on the thread calling cubeb_init on Windows
+#ifdef _MSC_VER
+    com_init_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+#endif
+
     if (cubeb_init(&ctx, "yuzu", nullptr) != CUBEB_OK) {
         LOG_CRITICAL(Audio_Sink, "cubeb_init failed");
         return;
@@ -142,6 +151,12 @@ CubebSink::~CubebSink() {
     }
 
     cubeb_destroy(ctx);
+
+#ifdef _MSC_VER
+    if (SUCCEEDED(com_init_result)) {
+        CoUninitialize();
+    }
+#endif
 }
 
 SinkStream& CubebSink::AcquireSinkStream(u32 sample_rate, u32 num_channels,

@@ -10,16 +10,17 @@
 #include "common/alignment.h"
 #include "core/core.h"
 #include "core/memory.h"
+#include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
-#include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
 
 namespace Vulkan {
 
-VKBufferCache::VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
-                             const VKDevice& device, VKMemoryManager& memory_manager,
-                             VKScheduler& scheduler, u64 size)
-    : RasterizerCache{rasterizer}, system{system} {
+VKBufferCache::VKBufferCache(Tegra::MemoryManager& tegra_memory_manager,
+                             VideoCore::RasterizerInterface& rasterizer, const VKDevice& device,
+                             VKMemoryManager& memory_manager, VKScheduler& scheduler, u64 size)
+    : RasterizerCache{rasterizer}, tegra_memory_manager{tegra_memory_manager} {
     const auto usage = vk::BufferUsageFlagBits::eVertexBuffer |
                        vk::BufferUsageFlagBits::eIndexBuffer |
                        vk::BufferUsageFlagBits::eUniformBuffer;
@@ -35,7 +36,7 @@ VKBufferCache::~VKBufferCache() = default;
 
 u64 VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size, u64 alignment,
                                 bool cache) {
-    const auto cpu_addr{system.GPU().MemoryManager().GpuToCpuAddress(gpu_addr)};
+    const auto cpu_addr{tegra_memory_manager.GpuToCpuAddress(gpu_addr)};
     ASSERT(cpu_addr);
 
     // Cache management is a big overhead, so only cache entries with a given size.

@@ -28,12 +28,13 @@ namespace OpenGL {
 
 class CachedSurface;
 using Surface = std::shared_ptr<CachedSurface>;
-using SurfaceSurfaceRect_Tuple = std::tuple<Surface, Surface, MathUtil::Rectangle<u32>>;
+using SurfaceSurfaceRect_Tuple = std::tuple<Surface, Surface, Common::Rectangle<u32>>;
 
 using SurfaceTarget = VideoCore::Surface::SurfaceTarget;
 using SurfaceType = VideoCore::Surface::SurfaceType;
 using PixelFormat = VideoCore::Surface::PixelFormat;
 using ComponentType = VideoCore::Surface::ComponentType;
+using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 struct SurfaceParams {
     enum class SurfaceClass {
@@ -71,7 +72,7 @@ struct SurfaceParams {
     }
 
     /// Returns the rectangle corresponding to this surface
-    MathUtil::Rectangle<u32> GetRect(u32 mip_level = 0) const;
+    Common::Rectangle<u32> GetRect(u32 mip_level = 0) const;
 
     /// Returns the total size of this surface in bytes, adjusted for compression
     std::size_t SizeInBytesRaw(bool ignore_tiled = false) const {
@@ -140,8 +141,16 @@ struct SurfaceParams {
         return offset;
     }
 
+    std::size_t GetMipmapSingleSize(u32 mip_level) const {
+        return InnerMipmapMemorySize(mip_level, false, is_layered);
+    }
+
     u32 MipWidth(u32 mip_level) const {
         return std::max(1U, width >> mip_level);
+    }
+
+    u32 MipWidthGobAligned(u32 mip_level) const {
+        return Common::AlignUp(std::max(1U, width >> mip_level), 64U * 8U / GetFormatBpp());
     }
 
     u32 MipHeight(u32 mip_level) const {
@@ -346,6 +355,10 @@ public:
         return cached_size_in_bytes;
     }
 
+    std::size_t GetMemorySize() const {
+        return memory_size;
+    }
+
     void Flush() override {
         FlushGLBuffer();
     }
@@ -395,6 +408,26 @@ public:
                        Tegra::Texture::SwizzleSource swizzle_z,
                        Tegra::Texture::SwizzleSource swizzle_w);
 
+    void MarkReinterpreted() {
+        reinterpreted = true;
+    }
+
+    bool IsReinterpreted() const {
+        return reinterpreted;
+    }
+
+    void MarkForReload(bool reload) {
+        must_reload = reload;
+    }
+
+    bool MustReload() const {
+        return must_reload;
+    }
+
+    bool IsUploaded() const {
+        return params.identity == SurfaceParams::SurfaceClass::Uploaded;
+    }
+
 private:
     void UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle, GLuint draw_fb_handle);
 
@@ -408,6 +441,9 @@ private:
     GLenum gl_internal_format{};
     std::size_t cached_size_in_bytes{};
     std::array<GLenum, 4> swizzle{GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA};
+    std::size_t memory_size;
+    bool reinterpreted = false;
+    bool must_reload = false;
 };
 
 class RasterizerCacheOpenGL final : public RasterizerCache<Surface> {
@@ -430,8 +466,11 @@ public:
     /// Copies the contents of one surface to another
     void FermiCopySurface(const Tegra::Engines::Fermi2D::Regs::Surface& src_config,
                           const Tegra::Engines::Fermi2D::Regs::Surface& dst_config,
-                          const MathUtil::Rectangle<u32>& src_rect,
-                          const MathUtil::Rectangle<u32>& dst_rect);
+                          const Common::Rectangle<u32>& src_rect,
+                          const Common::Rectangle<u32>& dst_rect);
+
+    void SignalPreDrawCall();
+    void SignalPostDrawCall();
 
 private:
     void LoadSurface(const Surface& surface);
@@ -449,6 +488,10 @@ private:
     /// Tries to get a reserved surface for the specified parameters
     Surface TryGetReservedSurface(const SurfaceParams& params);
 
+    // Partialy reinterpret a surface based on a triggering_surface that collides with it.
+    // returns true if the reinterpret was successful, false in case it was not.
+    bool PartialReinterpretSurface(Surface triggering_surface, Surface intersect);
+
     /// Performs a slow but accurate surface copy, flushing to RAM and reinterpreting the data
     void AccurateCopySurface(const Surface& src_surface, const Surface& dst_surface);
     void FastLayeredCopySurface(const Surface& src_surface, const Surface& dst_surface);
@@ -465,12 +508,50 @@ private:
     OGLFramebuffer read_framebuffer;
     OGLFramebuffer draw_framebuffer;
 
+    bool texception = false;
+
     /// Use a Pixel Buffer Object to download the previous texture and then upload it to the new one
     /// using the new format.
     OGLBuffer copy_pbo;
 
-    std::array<Surface, Tegra::Engines::Maxwell3D::Regs::NumRenderTargets> last_color_buffers;
+    std::array<Surface, Maxwell::NumRenderTargets> last_color_buffers;
+    std::array<Surface, Maxwell::NumRenderTargets> current_color_buffers;
     Surface last_depth_buffer;
+
+    using SurfaceIntervalCache = boost::icl::interval_map<VAddr, Surface>;
+    using SurfaceInterval = typename SurfaceIntervalCache::interval_type;
+
+    static auto GetReinterpretInterval(const Surface& object) {
+        return SurfaceInterval::right_open(object->GetAddr() + 1,
+                                           object->GetAddr() + object->GetMemorySize() - 1);
+    }
+
+    // Reinterpreted surfaces are very fragil as the game may keep rendering into them.
+    SurfaceIntervalCache reinterpreted_surfaces;
+
+    void RegisterReinterpretSurface(Surface reinterpret_surface) {
+        auto interval = GetReinterpretInterval(reinterpret_surface);
+        reinterpreted_surfaces.insert({interval, reinterpret_surface});
+        reinterpret_surface->MarkReinterpreted();
+    }
+
+    Surface CollideOnReinterpretedSurface(VAddr addr) const {
+        const SurfaceInterval interval{addr};
+        for (auto& pair :
+             boost::make_iterator_range(reinterpreted_surfaces.equal_range(interval))) {
+            return pair.second;
+        }
+        return nullptr;
+    }
+
+    /// Unregisters an object from the cache
+    void UnregisterSurface(const Surface& object) {
+        if (object->IsReinterpreted()) {
+            auto interval = GetReinterpretInterval(object);
+            reinterpreted_surfaces.erase(interval);
+        }
+        Unregister(object);
+    }
 };
 
 } // namespace OpenGL

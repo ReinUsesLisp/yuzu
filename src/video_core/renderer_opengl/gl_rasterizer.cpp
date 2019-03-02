@@ -102,8 +102,8 @@ struct FramebufferCacheKey {
 
 RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& window, Core::System& system,
                                    ScreenInfo& info)
-    : res_cache{*this}, shader_cache{*this, system}, emu_window{window}, screen_info{info},
-      buffer_cache(*this, STREAM_BUFFER_SIZE), global_cache{*this} {
+    : res_cache{*this}, shader_cache{*this, system}, global_cache{*this}, emu_window{window},
+      screen_info{info}, buffer_cache(*this, STREAM_BUFFER_SIZE) {
     // Create sampler objects
     for (std::size_t i = 0; i < texture_samplers.size(); ++i) {
         texture_samplers[i].Create();
@@ -200,7 +200,7 @@ GLuint RasterizerOpenGL::SetupVertexFormat() {
     }
 
     // Rebinding the VAO invalidates the vertex buffer bindings.
-    gpu.dirty_flags.vertex_array = 0xFFFFFFFF;
+    gpu.dirty_flags.vertex_array.set();
 
     state.draw.vertex_array = vao_entry.handle;
     return vao_entry.handle;
@@ -210,14 +210,14 @@ void RasterizerOpenGL::SetupVertexBuffer(GLuint vao) {
     auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
     const auto& regs = gpu.regs;
 
-    if (!gpu.dirty_flags.vertex_array)
+    if (gpu.dirty_flags.vertex_array.none())
         return;
 
     MICROPROFILE_SCOPE(OpenGL_VB);
 
     // Upload all guest vertex arrays sequentially to our buffer
     for (u32 index = 0; index < Maxwell::NumVertexArrays; ++index) {
-        if (~gpu.dirty_flags.vertex_array & (1u << index))
+        if (!gpu.dirty_flags.vertex_array[index])
             continue;
 
         const auto& vertex_array = regs.vertex_array[index];
@@ -244,7 +244,7 @@ void RasterizerOpenGL::SetupVertexBuffer(GLuint vao) {
         }
     }
 
-    gpu.dirty_flags.vertex_array = 0;
+    gpu.dirty_flags.vertex_array.reset();
 }
 
 DrawParameters RasterizerOpenGL::SetupDraw() {
@@ -488,13 +488,13 @@ std::pair<bool, bool> RasterizerOpenGL::ConfigureFramebuffers(
     OpenGLState& current_state, bool using_color_fb, bool using_depth_fb, bool preserve_contents,
     std::optional<std::size_t> single_color_target) {
     MICROPROFILE_SCOPE(OpenGL_Framebuffer);
-    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
+    auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
     const auto& regs = gpu.regs;
 
     const FramebufferConfigState fb_config_state{using_color_fb, using_depth_fb, preserve_contents,
                                                  single_color_target};
-    if (fb_config_state == current_framebuffer_config_state && gpu.dirty_flags.color_buffer == 0 &&
-        !gpu.dirty_flags.zeta_buffer) {
+    if (fb_config_state == current_framebuffer_config_state &&
+        gpu.dirty_flags.color_buffer.none() && !gpu.dirty_flags.zeta_buffer) {
         // Only skip if the previous ConfigureFramebuffers call was from the same kind (multiple or
         // single color targets). This is done because the guest registers may not change but the
         // host framebuffer may contain different attachments
@@ -721,10 +721,10 @@ void RasterizerOpenGL::DrawArrays() {
     // Add space for at least 18 constant buffers
     buffer_size += Maxwell::MaxConstBuffers * (MaxConstbufferSize + uniform_buffer_alignment);
 
-    bool invalidate = buffer_cache.Map(buffer_size);
+    const bool invalidate = buffer_cache.Map(buffer_size);
     if (invalidate) {
         // As all cached buffers are invalidated, we need to recheck their state.
-        gpu.dirty_flags.vertex_array = 0xFFFFFFFF;
+        gpu.dirty_flags.vertex_array.set();
     }
 
     const GLuint vao = SetupVertexFormat();
@@ -738,8 +738,12 @@ void RasterizerOpenGL::DrawArrays() {
     shader_program_manager->ApplyTo(state);
     state.Apply();
 
+    res_cache.SignalPreDrawCall();
+
     // Execute draw call
     params.DispatchDraw();
+
+    res_cache.SignalPostDrawCall();
 
     // Disable scissor test
     state.viewports[0].scissor.enabled = false;
@@ -779,8 +783,8 @@ void RasterizerOpenGL::FlushAndInvalidateRegion(VAddr addr, u64 size) {
 
 bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
                                              const Tegra::Engines::Fermi2D::Regs::Surface& dst,
-                                             const MathUtil::Rectangle<u32>& src_rect,
-                                             const MathUtil::Rectangle<u32>& dst_rect) {
+                                             const Common::Rectangle<u32>& src_rect,
+                                             const Common::Rectangle<u32>& dst_rect) {
     MICROPROFILE_SCOPE(OpenGL_Blits);
     res_cache.FermiCopySurface(src, dst, src_rect, dst_rect);
     return true;
@@ -1034,7 +1038,7 @@ void RasterizerOpenGL::SyncViewport(OpenGLState& current_state) {
     for (std::size_t i = 0; i < viewport_count; i++) {
         auto& viewport = current_state.viewports[i];
         const auto& src = regs.viewports[i];
-        const MathUtil::Rectangle<s32> viewport_rect{regs.viewport_transform[i].GetRect()};
+        const Common::Rectangle<s32> viewport_rect{regs.viewport_transform[i].GetRect()};
         viewport.x = viewport_rect.left;
         viewport.y = viewport_rect.bottom;
         viewport.width = viewport_rect.GetWidth();

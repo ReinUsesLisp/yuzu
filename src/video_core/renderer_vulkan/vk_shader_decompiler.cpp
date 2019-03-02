@@ -390,13 +390,13 @@ private:
             Decorate(id, spv::Decoration::Location, {location});
 
             switch (interp_mode) {
-            case IpaInterpMode::Flat:
+            case IpaInterpMode::Constant:
                 Decorate(id, spv::Decoration::Flat);
                 break;
-            case IpaInterpMode::Linear:
+            case IpaInterpMode::Pass:
                 Decorate(id, spv::Decoration::NoPerspective);
                 break;
-            case IpaInterpMode::Perspective:
+            case IpaInterpMode::Multiply:
                 // Default, Smooth
                 break;
             default:

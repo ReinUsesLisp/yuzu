@@ -541,7 +541,7 @@ void VKBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer) co
     const auto& framebuffer_transform_flags = framebuffer.transform_flags;
     const auto& framebuffer_crop_rect = framebuffer.crop_rect;
 
-    const MathUtil::Rectangle<f32> texcoords{0.f, 0.f, 1.f, 1.f};
+    const Common::Rectangle<f32> texcoords{0.f, 0.f, 1.f, 1.f};
     const auto left = texcoords.left;
     const auto right = texcoords.right;
 

@@ -12,19 +12,17 @@
 #include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
-#include "video_core/renderer_vulkan/vk_stream_buffer.h"
 
-namespace Core {
-class System;
+namespace Tegra {
+class MemoryManager;
 }
 
 namespace Vulkan {
 
-class RasterizerVulkan;
 class VKDevice;
-class VKMemoryManager;
 class VKFence;
-class VKScheduler;
+class VKMemoryManager;
+class VKStreamBuffer;
 
 struct CachedBufferEntry final : public RasterizerCacheObject {
     VAddr GetAddr() const override {
@@ -46,9 +44,9 @@ struct CachedBufferEntry final : public RasterizerCacheObject {
 
 class VKBufferCache final : public RasterizerCache<std::shared_ptr<CachedBufferEntry>> {
 public:
-    explicit VKBufferCache(Core::System& system, RasterizerVulkan& rasterizer,
-                           const VKDevice& device, VKMemoryManager& memory_manager,
-                           VKScheduler& scheduler, u64 size);
+    explicit VKBufferCache(Tegra::MemoryManager& tegra_memory_manager,
+                           VideoCore::RasterizerInterface& rasterizer, const VKDevice& device,
+                           VKMemoryManager& memory_manager, VKScheduler& scheduler, u64 size);
     ~VKBufferCache();
 
     /// Uploads data from a guest GPU address. Returns host's buffer offset where it's been
@@ -76,7 +74,7 @@ public:
 private:
     void AlignBuffer(std::size_t alignment);
 
-    Core::System& system;
+    Tegra::MemoryManager& tegra_memory_manager;
 
     std::unique_ptr<VKStreamBuffer> stream_buffer;
     vk::Buffer buffer_handle;

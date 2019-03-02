@@ -135,6 +135,15 @@ protected:
     /// Called when an object is invalidated and unregistered.
     virtual void ObjectInvalidated(const T& object){};
 
+    /// Flushes the specified object, updating appropriate cache state as needed
+    void FlushObject(const T& object) {
+        if (!object->IsDirty()) {
+            return;
+        }
+        object->Flush();
+        object->MarkAsModified(false, *this);
+    }
+
 private:
     /// Returns a list of cached objects from the specified memory region, ordered by access time
     std::vector<T> GetSortedObjectsFromRegion(VAddr addr, u64 size) {
@@ -158,15 +167,6 @@ private:
         });
 
         return objects;
-    }
-
-    /// Flushes the specified object, updating appropriate cache state as needed
-    void FlushObject(const T& object) {
-        if (!object->IsDirty()) {
-            return;
-        }
-        object->Flush();
-        object->MarkAsModified(false, *this);
     }
 
     using ObjectSet = std::set<T>;
