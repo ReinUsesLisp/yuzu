@@ -126,7 +126,7 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
     texture_cache = std::make_unique<VKTextureCache>(system, *this, device, resource_manager,
                                                      memory_manager, sched);
     pipeline_cache = std::make_unique<VKPipelineCache>(system, *this, device, sched);
-    buffer_cache = std::make_unique<VKBufferCache>(system.GPU().MemoryManager(), *this, device,
+    buffer_cache = std::make_unique<VKBufferCache>(system, *this, device,
                                                    memory_manager, sched, STREAM_BUFFER_SIZE);
     renderpass_cache = std::make_unique<VKRenderPassCache>(device);
     sampler_cache = std::make_unique<VKSamplerCache>(device);
