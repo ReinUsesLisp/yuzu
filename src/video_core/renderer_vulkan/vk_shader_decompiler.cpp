@@ -79,7 +79,7 @@ bool IsPrecise(Operation operand) {
 class SPIRVDecompiler : public Sirit::Module {
 public:
     explicit SPIRVDecompiler(const ShaderIR& ir, ShaderStage stage)
-        : Module(0x00010000), ir{ir}, stage{stage}, header{ir.GetHeader()},
+        : Module(0x00010300), ir{ir}, stage{stage}, header{ir.GetHeader()},
           descriptor_set{static_cast<u32>(stage)} {}
 
     void Decompile() {
@@ -221,6 +221,7 @@ private:
 
         guest_position = OpVariable(t_out_float4, spv::StorageClass::Output);
         AddGlobalVariable(Name(guest_position, "guest_position"));
+
         interfaces.push_back(guest_position);
     }
 
@@ -272,7 +273,21 @@ private:
         Decorate(frag_coord, spv::Decoration::BuiltIn, {static_cast<u32>(spv::BuiltIn::FragCoord)});
     }
 
+    Id DeclareBuiltIn(spv::BuiltIn builtin, spv::StorageClass storage, Id type,
+                      const std::string& name) {
+        const Id id = OpVariable(type, storage);
+        Decorate(id, spv::Decoration::BuiltIn, {static_cast<u32>(builtin)});
+        AddGlobalVariable(Name(id, name));
+        interfaces.push_back(id);
+        return id;
+    }
+
     void DeclareVertexRedeclarations() {
+        vertex_index = DeclareBuiltIn(spv::BuiltIn::VertexIndex, spv::StorageClass::Input,
+                                      t_in_uint, "vertex_index");
+        instance_index = DeclareBuiltIn(spv::BuiltIn::InstanceIndex, spv::StorageClass::Input,
+                                        t_in_uint, "instance_index");
+
         bool is_point_size_declared = false;
         bool is_clip_distances_declared = false;
         for (const auto index : ir.GetOutputAttributes()) {
@@ -526,6 +541,19 @@ private:
                     }
                     return Emit(OpLoad(t_float, AccessElement(t_in_float, frag_coord, element)));
                 }
+            case Attribute::Index::TessCoordInstanceIDVertexID:
+                // TODO(Subv): Find out what the values are for the first two elements when inside a
+                // vertex shader, and what's the value of the fourth element when inside a Tess Eval
+                // shader.
+                ASSERT(stage == ShaderStage::Vertex);
+                switch (element) {
+                case 2:
+                    return Emit(OpBitcast(t_float, Emit(OpLoad(t_uint, instance_index))));
+                case 3:
+                    return Emit(OpBitcast(t_float, Emit(OpLoad(t_uint, vertex_index))));
+                }
+                UNIMPLEMENTED_MSG("Unmanaged TessCoordInstanceIDVertexID element={}", element);
+                return Constant(t_float, 0);
             default:
                 if (attribute >= Attribute::Index::Attribute_0 &&
                     attribute <= Attribute::Index::Attribute_31) {
@@ -917,15 +945,18 @@ private:
     }
 
     Id TextureQueryDimensions(Operation) {
-        UNREACHABLE();return {};
+        UNREACHABLE();
+        return {};
     }
 
     Id TextureQueryLod(Operation) {
-        UNREACHABLE();return {};
+        UNREACHABLE();
+        return {};
     }
 
     Id TexelFetch(Operation) {
-        UNREACHABLE();return {};
+        UNREACHABLE();
+        return {};
     }
 
     Id Branch(Operation operation) {
@@ -1019,15 +1050,18 @@ private:
     }
 
     Id EmitVertex(Operation) {
-        UNREACHABLE();return {};
+        UNREACHABLE();
+        return {};
     }
 
     Id EndPrimitive(Operation) {
-        UNREACHABLE();return {};
+        UNREACHABLE();
+        return {};
     }
 
     Id YNegate(Operation) {
-        UNREACHABLE();return {};
+        UNREACHABLE();
+        return {};
     }
 
     void BranchingOp(std::function<void()> call) {
@@ -1197,6 +1231,7 @@ private:
 
     const Id t_func_uint = Name(OpTypePointer(spv::StorageClass::Function, t_uint), "func_uint");
 
+    const Id t_in_uint = Name(OpTypePointer(spv::StorageClass::Input, t_uint), "in_uint");
     const Id t_in_float = Name(OpTypePointer(spv::StorageClass::Input, t_float), "in_float");
     const Id t_in_float4 = Name(OpTypePointer(spv::StorageClass::Input, t_float4), "in_float4");
 
@@ -1226,7 +1261,9 @@ private:
     std::map<u32, Id> constant_buffers;
     std::map<u32, std::pair<Id, Id>> samplers;
 
-    std::array<Id, Maxwell::NumRenderTargets> frag_colors;
+    Id instance_index{};
+    Id vertex_index{};
+    std::array<Id, Maxwell::NumRenderTargets> frag_colors{};
     Id frag_depth{};
     Id frag_coord{};
     Id guest_position{};
