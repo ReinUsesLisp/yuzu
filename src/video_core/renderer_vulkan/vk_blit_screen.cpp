@@ -164,11 +164,11 @@ constexpr std::array<f32, 4 * 4> MakeOrthographicMatrix(const f32 width, const f
 VKBlitScreen::VKBlitScreen(Core::Frontend::EmuWindow& render_window,
                            VideoCore::RasterizerInterface& rasterizer, const VKDevice& device,
                            VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                           VKSwapchain& swapchain, VKScheduler& sched,
+                           VKSwapchain& swapchain, VKScheduler& scheduler,
                            const VKScreenInfo& screen_info)
     : render_window{render_window}, rasterizer{rasterizer}, device{device},
       resource_manager{resource_manager}, memory_manager{memory_manager}, swapchain{swapchain},
-      sched{sched}, image_count{swapchain.GetImageCount()}, screen_info{screen_info} {
+      scheduler{scheduler}, image_count{swapchain.GetImageCount()}, screen_info{screen_info} {
 
     watches.resize(image_count);
     std::generate(watches.begin(), watches.end(),
@@ -194,7 +194,7 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
 
     const u32 image_index = swapchain.GetImageIndex();
 
-    const auto exctx = sched.GetExecutionContext();
+    const auto exctx = scheduler.GetExecutionContext();
     const auto cmdbuf = exctx.GetCommandBuffer();
     auto& fence = exctx.GetFence();
 
@@ -258,7 +258,7 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
     cmdbuf.endRenderPass(dld);
 
     const vk::Semaphore render_semaphore = *semaphores[image_index];
-    sched.Flush(render_semaphore);
+    scheduler.Flush(render_semaphore);
 
     return {fence, render_semaphore};
 }

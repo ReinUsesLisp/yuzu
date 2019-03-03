@@ -330,19 +330,19 @@ void CachedShader::CreateDescriptorSetLayout() {
     const vk::ShaderStageFlags stage = MaxwellToVK::ShaderStage(GetStageFromProgram(program_type));
 
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
-    for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.const_buffers.size());
-         ++bindpoint) {
-        const auto& entry = entries.const_buffers[bindpoint];
-        const u32 current_binding = entries.const_buffers_base_binding + bindpoint;
-        bindings.emplace_back(current_binding, vk::DescriptorType::eUniformBuffer, 1, stage,
-                              nullptr);
-    }
-    for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.samplers.size()); ++bindpoint) {
-        const auto& entry = entries.samplers[bindpoint];
-        const u32 current_binding = entries.samplers_base_binding + bindpoint;
-        bindings.emplace_back(current_binding, vk::DescriptorType::eCombinedImageSampler, 1, stage,
-                              nullptr);
-    }
+    const auto AddBindings = [&bindings, stage](vk::DescriptorType descriptor_type,
+                                                std::size_t num_entries, u32 base_binding) {
+        for (u32 bindpoint = 0; bindpoint < static_cast<u32>(num_entries); ++bindpoint) {
+            const u32 current_binding = base_binding + bindpoint;
+            bindings.emplace_back(current_binding, descriptor_type, 1, stage, nullptr);
+        }
+    };
+    AddBindings(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size(),
+                entries.const_buffers_base_binding);
+    AddBindings(vk::DescriptorType::eStorageBuffer, entries.global_buffers.size(),
+                entries.global_buffers_base_binding);
+    AddBindings(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size(),
+                entries.samplers_base_binding);
 
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
@@ -352,15 +352,16 @@ void CachedShader::CreateDescriptorSetLayout() {
 
 void CachedShader::CreateDescriptorPool() {
     std::vector<vk::DescriptorPoolSize> pool_sizes;
-
     const auto PushSize = [&](vk::DescriptorType descriptor_type, std::size_t size) {
         if (size > 0) {
             pool_sizes.push_back({descriptor_type, static_cast<u32>(size * SETS_PER_POOL)});
         }
     };
+
     PushSize(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size());
-    PushSize(vk::DescriptorType::eInputAttachment, entries.attributes.size());
+    PushSize(vk::DescriptorType::eStorageBuffer, entries.global_buffers.size());
     PushSize(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size());
+    PushSize(vk::DescriptorType::eInputAttachment, entries.attributes.size());
 
     if (pool_sizes.size() == 0) {
         // If the shader doesn't use descriptor sets, skip the pool creation.
@@ -443,7 +444,7 @@ void VKPipelineCache::ObjectInvalidated(const Shader& shader) {
     for (auto it = cache.begin(); it != cache.end();) {
         auto& entry = it->first;
         const bool has_addr = [&]() {
-            const auto [shaders, renderpass_params, params] = entry;
+            auto [shaders, renderpass_params, params] = entry;
             for (auto& shader_addr : shaders) {
                 if (shader_addr == invalidated_addr) {
                     return true;

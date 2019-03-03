@@ -38,7 +38,7 @@ public:
     explicit VKBlitScreen(Core::Frontend::EmuWindow& render_window,
                           VideoCore::RasterizerInterface& rasterizer, const VKDevice& device,
                           VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                          VKSwapchain& swapchain, VKScheduler& sched,
+                          VKSwapchain& swapchain, VKScheduler& scheduler,
                           const VKScreenInfo& screen_info);
     ~VKBlitScreen();
 
@@ -81,7 +81,7 @@ private:
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
     VKSwapchain& swapchain;
-    VKScheduler& sched;
+    VKScheduler& scheduler;
     const u32 image_count;
     const VKScreenInfo& screen_info;
 

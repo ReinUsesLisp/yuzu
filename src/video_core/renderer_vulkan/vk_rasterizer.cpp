@@ -19,6 +19,7 @@
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_device.h"
+#include "video_core/renderer_vulkan/vk_global_cache.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
@@ -40,10 +41,10 @@ struct FramebufferInfo {
 };
 
 void PipelineState::Reset() {
-    vertex_bindings.Clear();
-    descriptor_bindings_count = 0;
-    buffer_info_count = 0;
-    image_info_count = 0;
+    vertex_bindings.clear();
+    descriptor_bindings.clear();
+    buffer_infos.clear();
+    image_infos.clear();
 }
 
 void PipelineState::AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set) {
@@ -54,7 +55,7 @@ void PipelineState::AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_
 }
 
 void PipelineState::AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
-    vertex_bindings.Push({buffer, offset});
+    vertex_bindings.emplace_back(buffer, offset);
 }
 
 void PipelineState::SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type) {
@@ -63,31 +64,27 @@ void PipelineState::SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk
     index_type = type;
 }
 
-std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&>
-PipelineState::CaptureDescriptorWriteBuffer() {
-    const u32 desc_index = descriptor_bindings_count++;
-    const u32 info_index = buffer_info_count++;
-    ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
-    ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_BUFFERS));
-
-    return {descriptor_bindings[desc_index], buffer_infos[info_index]};
+void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
+                                  vk::DescriptorType descriptor_type, vk::Buffer buffer, u64 offset,
+                                  std::size_t size) {
+    auto& info = buffer_infos.emplace_back(buffer, offset, static_cast<vk::DeviceSize>(size));
+    descriptor_bindings.emplace_back(descriptor_set, current_binding, 0, 1, descriptor_type,
+                                     nullptr, &info, nullptr);
 }
 
-std::tuple<vk::WriteDescriptorSet&, vk::DescriptorImageInfo&>
-PipelineState::CaptureDescriptorWriteImage() {
-    const u32 desc_index = descriptor_bindings_count++;
-    const u32 info_index = image_info_count++;
-    ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
-    ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_IMAGES));
-
-    return {descriptor_bindings[desc_index], image_infos[info_index]};
+void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
+                       vk::DescriptorType descriptor_type, vk::Sampler sampler, vk::ImageView image_view,
+                       vk::ImageLayout image_layout) {
+    auto& info = image_infos.emplace_back(sampler, image_view, image_layout);
+    descriptor_bindings.emplace_back(descriptor_set, current_binding, 0, 1, descriptor_type,
+                                     &info, nullptr, nullptr);
 }
 
 void PipelineState::UpdateDescriptorSets(const VKDevice& device) const {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
-    dev.updateDescriptorSets(descriptor_bindings_count, descriptor_bindings.data(), 0, nullptr,
-                             dld);
+    dev.updateDescriptorSets(static_cast<u32>(descriptor_bindings.size()),
+                             descriptor_bindings.data(), 0, nullptr, dld);
 }
 
 void PipelineState::BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout,
@@ -103,8 +100,8 @@ void PipelineState::BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout
 void PipelineState::BindVertexBuffers(vk::CommandBuffer cmdbuf,
                                       const vk::DispatchLoaderDynamic& dld) const {
     // TODO(Rodrigo): Sort data and bindings to do this in a single call.
-    for (u32 index = 0; index < vertex_bindings.Size(); ++index) {
-        const auto [buffer, size] = vertex_bindings.Data()[index];
+    for (u32 index = 0; index < static_cast<u32>(vertex_bindings.size()); ++index) {
+        const auto [buffer, size] = vertex_bindings[index];
         cmdbuf.bindVertexBuffers(index, {buffer}, {size}, dld);
     }
 }
@@ -118,16 +115,18 @@ void PipelineState::BindIndexBuffer(vk::CommandBuffer cmdbuf,
 RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWindow& renderer,
                                    VKScreenInfo& screen_info, const VKDevice& device,
                                    VKResourceManager& resource_manager,
-                                   VKMemoryManager& memory_manager, VKScheduler& sched)
+                                   VKMemoryManager& memory_manager, VKScheduler& scheduler)
     : VideoCore::RasterizerInterface(), system{system}, render_window{renderer},
       screen_info{screen_info}, device{device}, resource_manager{resource_manager},
-      memory_manager{memory_manager}, sched{sched}, uniform_buffer_alignment{
-                                                        device.GetUniformBufferAlignment()} {
+      memory_manager{memory_manager}, scheduler{scheduler},
+      uniform_buffer_alignment{device.GetUniformBufferAlignment()} {
     texture_cache = std::make_unique<VKTextureCache>(system, *this, device, resource_manager,
-                                                     memory_manager, sched);
-    pipeline_cache = std::make_unique<VKPipelineCache>(system, *this, device, sched);
-    buffer_cache = std::make_unique<VKBufferCache>(system, *this, device,
-                                                   memory_manager, sched, STREAM_BUFFER_SIZE);
+                                                     memory_manager, scheduler);
+    pipeline_cache = std::make_unique<VKPipelineCache>(system, *this, device, scheduler);
+    buffer_cache = std::make_unique<VKBufferCache>(system, *this, device, memory_manager, scheduler,
+                                                   STREAM_BUFFER_SIZE);
+    global_cache = std::make_unique<VKGlobalCache>(system, *this, device, memory_manager);
+
     renderpass_cache = std::make_unique<VKRenderPassCache>(device);
     sampler_cache = std::make_unique<VKSamplerCache>(device);
 }
@@ -172,7 +171,7 @@ void RasterizerVulkan::DrawArrays() {
     const Pipeline pipeline = pipeline_cache->GetPipeline(params, renderpass_params, renderpass);
 
     const auto& dld = device.GetDispatchLoader();
-    auto exctx = sched.GetExecutionContext();
+    auto exctx = scheduler.GetExecutionContext();
 
     for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
         const Shader& shader = pipeline.shaders[stage];
@@ -238,7 +237,7 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    auto exctx = sched.GetExecutionContext();
+    auto exctx = scheduler.GetExecutionContext();
     const auto& dld = device.GetDispatchLoader();
 
     if (use_color) {
@@ -281,6 +280,7 @@ void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
     texture_cache->InvalidateRegion(addr, size);
     pipeline_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
+    global_cache->InvalidateRegion(addr, size);
 }
 
 void RasterizerVulkan::FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
@@ -494,18 +494,15 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& sha
 
         // Align the actual size so it ends up being a multiple of vec4 to meet the OpenGL
         // std140 UBO alignment requirements.
+        // ???
         size = Common::AlignUp(size, 4 * sizeof(float));
         ASSERT_MSG(size <= MaxConstbufferSize, "Constant buffer is too big");
 
         const auto offset =
             buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
 
-        auto [write, buffer_info] = state.CaptureDescriptorWriteBuffer();
-        buffer_info = vk::DescriptorBufferInfo(buffer_cache->GetBuffer(), offset,
-                                               static_cast<vk::DeviceSize>(size));
-        write = vk::WriteDescriptorSet(descriptor_set, current_binding, 0, 1,
-                                       vk::DescriptorType::eUniformBuffer, nullptr, &buffer_info,
-                                       nullptr);
+        state.AddDescriptor(descriptor_set, current_binding, vk::DescriptorType::eUniformBuffer,
+                            buffer_cache->GetBuffer(), offset, size);
     }
 }
 
@@ -532,12 +529,10 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
         view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
                          pipeline_stage, vk::AccessFlagBits::eShaderRead);
 
-        const auto [write, image_info] = state.CaptureDescriptorWriteImage();
-        image_info = vk::DescriptorImageInfo(sampler_cache->GetSampler(texture.tsc), image_view,
-                                             vk::ImageLayout::eShaderReadOnlyOptimal);
-        write = vk::WriteDescriptorSet(descriptor_set, current_binding, 0, 1,
-                                       vk::DescriptorType::eCombinedImageSampler, &image_info,
-                                       nullptr, nullptr);
+        state.AddDescriptor(descriptor_set, current_binding,
+                            vk::DescriptorType::eCombinedImageSampler,
+                            sampler_cache->GetSampler(texture.tsc), image_view,
+                            vk::ImageLayout::eShaderReadOnlyOptimal);
     }
     return exctx;
 }

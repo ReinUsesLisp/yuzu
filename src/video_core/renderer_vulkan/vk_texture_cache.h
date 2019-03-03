@@ -60,7 +60,7 @@ class CachedSurface : public VKImage,
 public:
     explicit CachedSurface(Core::System& system, const VKDevice& device,
                            VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                           VKScheduler& sched, const SurfaceParams& params);
+                           VKScheduler& scheduler, const SurfaceParams& params);
     ~CachedSurface();
 
     // Read/Write data in Switch memory to/from vk_buffer
@@ -89,7 +89,7 @@ private:
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
-    VKScheduler& sched;
+    VKScheduler& scheduler;
 
     VKMemoryCommit image_commit;
 
@@ -183,7 +183,7 @@ class VKTextureCache
 public:
     explicit VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                             const VKDevice& device, VKResourceManager& resource_manager,
-                            VKMemoryManager& memory_manager, VKScheduler& sched);
+                            VKMemoryManager& memory_manager, VKScheduler& scheduler);
     ~VKTextureCache();
 
 private:
@@ -200,7 +200,7 @@ private:
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
-    VKScheduler& sched;
+    VKScheduler& scheduler;
 };
 
 } // namespace Vulkan

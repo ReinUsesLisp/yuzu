@@ -32,6 +32,7 @@ class VKPipelineCache;
 class VKBufferCache;
 class VKRenderPassCache;
 class VKSamplerCache;
+class VKGlobalCache;
 
 struct FramebufferInfo;
 
@@ -84,9 +85,13 @@ public:
 
     void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type);
 
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> CaptureDescriptorWriteBuffer();
+    void AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
+                       vk::DescriptorType descriptor_type, vk::Buffer buffer, u64 offset,
+                       std::size_t size);
 
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorImageInfo&> CaptureDescriptorWriteImage();
+    void AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
+                       vk::DescriptorType descriptor_type, vk::Sampler sampler, vk::ImageView image_view,
+                       vk::ImageLayout image_layout);
 
     void UpdateDescriptorSets(const VKDevice& device) const;
 
@@ -98,13 +103,7 @@ public:
     void BindIndexBuffer(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const;
 
 private:
-    static constexpr std::size_t MAX_DESCRIPTOR_BUFFERS =
-        Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
-    static constexpr std::size_t MAX_DESCRIPTOR_IMAGES = Maxwell::NumTextureSamplers;
-    static constexpr std::size_t MAX_DESCRIPTOR_WRITES =
-        MAX_DESCRIPTOR_BUFFERS + MAX_DESCRIPTOR_IMAGES;
-
-    StaticVector<std::tuple<vk::Buffer, vk::DeviceSize>, Maxwell::NumVertexArrays> vertex_bindings;
+    std::vector<std::pair<vk::Buffer, vk::DeviceSize>> vertex_bindings;
 
     vk::Buffer index_buffer{};
     vk::DeviceSize index_offset{};
@@ -112,14 +111,9 @@ private:
 
     std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets{};
 
-    u32 descriptor_bindings_count{};
-    std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_WRITES> descriptor_bindings;
-
-    u32 buffer_info_count{};
-    std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BUFFERS> buffer_infos;
-
-    u32 image_info_count{};
-    std::array<vk::DescriptorImageInfo, MAX_DESCRIPTOR_IMAGES> image_infos;
+    std::vector<vk::WriteDescriptorSet> descriptor_bindings;
+    std::vector<vk::DescriptorBufferInfo> buffer_infos;
+    std::vector<vk::DescriptorImageInfo> image_infos;
 };
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {
@@ -127,7 +121,7 @@ public:
     explicit RasterizerVulkan(Core::System& system, Core::Frontend::EmuWindow& render_window,
                               VKScreenInfo& screen_info, const VKDevice& device,
                               VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                              VKScheduler& sched);
+                              VKScheduler& scheduler);
     ~RasterizerVulkan() override;
 
     void DrawArrays() override;
@@ -181,12 +175,13 @@ private:
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
-    VKScheduler& sched;
+    VKScheduler& scheduler;
     const u64 uniform_buffer_alignment;
 
     std::unique_ptr<VKTextureCache> texture_cache;
     std::unique_ptr<VKPipelineCache> pipeline_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
+    std::unique_ptr<VKGlobalCache> global_cache;
 
     std::unique_ptr<VKRenderPassCache> renderpass_cache;
     std::unique_ptr<VKSamplerCache> sampler_cache;

@@ -129,11 +129,11 @@ static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfacePara
 
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                             VKScheduler& sched, const SurfaceParams& params)
+                             VKScheduler& scheduler, const SurfaceParams& params)
     : VKImage(device, GenerateImageCreateInfo(device, params),
               PixelFormatToImageAspect(params.pixel_format)),
       SurfaceBase(params), device{device}, resource_manager{resource_manager},
-      memory_manager{memory_manager}, sched{sched} {
+      memory_manager{memory_manager}, scheduler{scheduler} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
 
@@ -199,7 +199,7 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
         cmdbuf.copyImageToBuffer(GetHandle(), vk::ImageLayout::eTransferSrcOptimal, *buffer,
                                  {GetBufferImageCopy(level)}, dld);
     }
-    exctx = sched.Finish();
+    exctx = scheduler.Finish();
 
     UNIMPLEMENTED_IF(!params.is_tiled);
     ASSERT_MSG(params.block_width == 1, "Block width is defined as {}", params.block_width);
@@ -324,9 +324,9 @@ u32 CachedView::GetViewCacheKey(SwizzleSource x_source, SwizzleSource y_source,
 
 VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                                const VKDevice& device, VKResourceManager& resource_manager,
-                               VKMemoryManager& memory_manager, VKScheduler& sched)
+                               VKMemoryManager& memory_manager, VKScheduler& scheduler)
     : TextureCache(system, rasterizer), device{device}, resource_manager{resource_manager},
-      memory_manager{memory_manager}, sched{sched} {}
+      memory_manager{memory_manager}, scheduler{scheduler} {}
 
 VKTextureCache::~VKTextureCache() = default;
 
@@ -349,8 +349,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
 }
 
 std::unique_ptr<CachedSurface> VKTextureCache::CreateSurface(const SurfaceParams& params) {
-    return std::make_unique<CachedSurface>(system, device, resource_manager, memory_manager, sched,
-                                           params);
+    return std::make_unique<CachedSurface>(system, device, resource_manager, memory_manager,
+                                           scheduler, params);
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(

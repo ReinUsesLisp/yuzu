@@ -59,7 +59,7 @@ private:
     std::unique_ptr<VKSwapchain> swapchain;
     std::unique_ptr<VKMemoryManager> memory_manager;
     std::unique_ptr<VKResourceManager> resource_manager;
-    std::unique_ptr<VKScheduler> sched;
+    std::unique_ptr<VKScheduler> scheduler;
     std::unique_ptr<VKBlitScreen> blit_screen;
 };
 
