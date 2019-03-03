@@ -55,8 +55,6 @@ struct SurfaceParams {
 
     u32 GetMipDepth(u32 level) const;
 
-    u32 GetLayersCount() const;
-
     bool IsLayered() const;
 
     u32 GetMipBlockHeight(u32 level) const;
@@ -93,11 +91,12 @@ struct SurfaceParams {
     u32 depth;
     u32 pitch;
     u32 unaligned_height;
-    u32 levels_count;
+    u32 num_levels;
 
     // Cached data
     std::size_t guest_size_in_bytes;
     std::size_t host_size_in_bytes;
+    u32 num_layers;
 
 private:
     void CalculateCachedValues();
@@ -179,7 +178,7 @@ public:
             return {};
         }
 
-        return GetView(layer, view_params.GetLayersCount(), level, view_params.levels_count);
+        return GetView(layer, view_params.num_layers, level, view_params.num_levels);
     }
 
     VAddr GetAddress() const {

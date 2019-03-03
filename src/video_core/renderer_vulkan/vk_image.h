@@ -20,10 +20,13 @@ public:
             vk::ImageAspectFlags aspect_mask);
     ~VKImage();
 
-    void Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 layers, u32 base_level,
-                    u32 levels, vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access,
-                    vk::ImageLayout new_layout, u32 new_family = VK_QUEUE_FAMILY_IGNORED);
+    /// Records in the passed command buffer an image transition and updates the state of the image.
+    void Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 num_layers, u32 base_level,
+                    u32 num_levels, vk::PipelineStageFlags new_stage_mask,
+                    vk::AccessFlags new_access, vk::ImageLayout new_layout,
+                    u32 new_family = VK_QUEUE_FAMILY_IGNORED);
 
+    /// Returns a view compatible with presentation, the image has to be 2D.
     vk::ImageView GetPresentView() {
         if (!present_view)
             CreatePresentView();
@@ -51,21 +54,22 @@ private:
 
     void CreatePresentView();
 
-    SubrangeState& GetState(u32 layer, u32 level);
+    /// Returns the subrange state for a layer and layer
+    SubrangeState& GetSubrangeState(u32 layer, u32 level);
 
-    const VKDevice& device;
-    const vk::Format format;
-    const vk::ImageAspectFlags aspect_mask;
-    const u32 layers;
-    const u32 levels;
+    const VKDevice& device;                 ///< Device handler
+    const vk::Format format;                ///< Vulkan format
+    const vk::ImageAspectFlags aspect_mask; ///< Vulkan aspect mask
+    const u32 num_layers;                   ///< Number of layers
+    const u32 num_levels;                   ///< Number of mipmap levels
 
     UniqueImage image;
     UniqueImageView present_view;
 
     vk::PipelineStageFlags current_stage_mask = vk::PipelineStageFlagBits::eTopOfPipe;
 
-    std::vector<vk::ImageMemoryBarrier> barriers;
-    std::vector<SubrangeState> states;
+    std::vector<vk::ImageMemoryBarrier> barriers; ///< Pool of barriers.
+    std::vector<SubrangeState> subrange_states;   ///< Current subrange state.
 };
 
 } // namespace Vulkan

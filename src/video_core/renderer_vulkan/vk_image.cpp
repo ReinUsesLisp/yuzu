@@ -12,30 +12,31 @@ namespace Vulkan {
 
 VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
                  vk::ImageAspectFlags aspect_mask)
-    : device{device}, format{image_ci.format},
-      aspect_mask{aspect_mask}, layers{image_ci.arrayLayers}, levels{image_ci.mipLevels} {
+    : device{device}, format{image_ci.format}, aspect_mask{aspect_mask},
+      num_layers{image_ci.arrayLayers}, num_levels{image_ci.mipLevels} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     image = dev.createImageUnique(image_ci, nullptr, dld);
 
-    barriers.resize(layers * levels);
-    states.resize(layers * levels);
+    const u32 num_ranges = num_layers * num_levels;
+    barriers.resize(num_ranges);
+    subrange_states.resize(num_ranges);
 }
 
 VKImage::~VKImage() = default;
 
-void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 layers, u32 base_level,
-                         u32 levels, vk::PipelineStageFlags new_stage_mask,
+void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 num_layers, u32 base_level,
+                         u32 num_levels, vk::PipelineStageFlags new_stage_mask,
                          vk::AccessFlags new_access, vk::ImageLayout new_layout, u32 new_family) {
     std::size_t i = 0;
-    for (u32 layer_it = 0; layer_it < layers; ++layer_it) {
-        for (u32 level_it = 0; level_it < levels; ++level_it, ++i) {
+    for (u32 layer_it = 0; layer_it < num_layers; ++layer_it) {
+        for (u32 level_it = 0; level_it < num_levels; ++level_it, ++i) {
             const u32 layer = base_layer + layer_it;
             const u32 level = base_level + level_it;
-            auto& state = GetState(layer, level);
-            barriers[i] = {
-                state.access, new_access, state.layout, new_layout,
-                state.family, new_family, *image,       {aspect_mask, level, 1, layer, 1}};
+            auto& state = GetSubrangeState(layer, level);
+            barriers[i] = vk::ImageMemoryBarrier(state.access, new_access, state.layout, new_layout,
+                                                 state.family, new_family, *image,
+                                                 {aspect_mask, level, 1, layer, 1});
             state.access = new_access;
             state.layout = new_layout;
             state.family = new_family;
@@ -53,7 +54,7 @@ void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 layers, u
 }
 
 void VKImage::CreatePresentView() {
-    // Image type has to be 2D to be presented
+    // Image type has to be 2D to be presented.
     const vk::ImageViewCreateInfo image_view_ci({}, *image, vk::ImageViewType::e2D, format, {},
                                                 {aspect_mask, 0, 1, 0, 1});
     const auto dev = device.GetLogical();
@@ -61,8 +62,8 @@ void VKImage::CreatePresentView() {
     present_view = dev.createImageViewUnique(image_view_ci, nullptr, dld);
 }
 
-VKImage::SubrangeState& VKImage::GetState(u32 layer, u32 level) {
-    return states[layer * levels + level];
+VKImage::SubrangeState& VKImage::GetSubrangeState(u32 layer, u32 level) {
+    return subrange_states[layer * num_levels + level];
 }
 
 } // namespace Vulkan

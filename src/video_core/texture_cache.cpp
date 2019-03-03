@@ -52,7 +52,7 @@ SurfaceParams SurfaceParams::CreateForTexture(Core::System& system,
     }
     params.pitch = params.is_tiled ? 0 : config.tic.Pitch();
     params.unaligned_height = config.tic.Height();
-    params.levels_count = config.tic.max_mip_level + 1;
+    params.num_levels = config.tic.max_mip_level + 1;
 
     params.CalculateCachedValues();
     return params;
@@ -77,7 +77,7 @@ SurfaceParams SurfaceParams::CreateForDepthBuffer(
     params.unaligned_height = zeta_height;
     params.target = SurfaceTarget::Texture2D;
     params.depth = 1;
-    params.levels_count = 1;
+    params.num_levels = 1;
 
     params.CalculateCachedValues();
     return params;
@@ -109,7 +109,7 @@ SurfaceParams SurfaceParams::CreateForFramebuffer(Core::System& system, std::siz
     params.depth = 1;
     params.unaligned_height = config.height;
     params.target = SurfaceTarget::Texture2D;
-    params.levels_count = 1;
+    params.num_levels = 1;
 
     params.CalculateCachedValues();
     return params;
@@ -122,7 +122,7 @@ std::map<u64, std::pair<u32, u32>> SurfaceParams::CreateViewOffsetMap() const {
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture3D: {
         constexpr u32 layer = 0;
-        for (u32 level = 0; level < levels_count; ++level) {
+        for (u32 level = 0; level < num_levels; ++level) {
             const std::size_t offset = GetGuestMipmapLevelOffset(level);
             view_offset_map.insert({offset, {layer, level}});
         }
@@ -133,9 +133,9 @@ std::map<u64, std::pair<u32, u32>> SurfaceParams::CreateViewOffsetMap() const {
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray: {
         const std::size_t layer_size = GetGuestLayerMemorySize();
-        for (u32 level = 0; level < levels_count; ++level) {
+        for (u32 level = 0; level < num_levels; ++level) {
             const std::size_t level_offset = GetGuestMipmapLevelOffset(level);
-            for (u32 layer = 0; layer < GetLayersCount(); ++layer) {
+            for (u32 layer = 0; layer < num_layers; ++layer) {
                 const auto layer_offset = static_cast<std::size_t>(layer_size * layer);
                 const std::size_t offset = level_offset + layer_offset;
                 view_offset_map.insert({offset, {layer, level}});
@@ -159,21 +159,6 @@ u32 SurfaceParams::GetMipHeight(u32 level) const {
 
 u32 SurfaceParams::GetMipDepth(u32 level) const {
     return IsLayered() ? depth : std::max(1U, depth >> level);
-}
-
-u32 SurfaceParams::GetLayersCount() const {
-    switch (target) {
-    case SurfaceTarget::Texture1D:
-    case SurfaceTarget::Texture2D:
-    case SurfaceTarget::Texture3D:
-        return 1;
-    case SurfaceTarget::Texture1DArray:
-    case SurfaceTarget::Texture2DArray:
-    case SurfaceTarget::TextureCubemap:
-    case SurfaceTarget::TextureCubeArray:
-        return depth;
-    }
-    UNREACHABLE();
 }
 
 bool SurfaceParams::IsLayered() const {
@@ -292,6 +277,22 @@ void SurfaceParams::CalculateCachedValues() {
     } else {
         host_size_in_bytes = GetInnerMemorySize(true, false, false);
     }
+
+    switch (target) {
+    case SurfaceTarget::Texture1D:
+    case SurfaceTarget::Texture2D:
+    case SurfaceTarget::Texture3D:
+        num_layers = 1;
+        break;
+    case SurfaceTarget::Texture1DArray:
+    case SurfaceTarget::Texture2DArray:
+    case SurfaceTarget::TextureCubemap:
+    case SurfaceTarget::TextureCubeArray:
+        num_layers = depth;
+        break;
+    default:
+        UNREACHABLE();
+    }
 }
 
 std::size_t SurfaceParams::GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
@@ -310,7 +311,7 @@ std::size_t SurfaceParams::GetInnerMipmapMemorySize(u32 level, bool as_host_size
 std::size_t SurfaceParams::GetInnerMemorySize(bool as_host_size, bool layer_only,
                                               bool uncompressed) const {
     std::size_t size = 0;
-    for (u32 level = 0; level < levels_count; ++level) {
+    for (u32 level = 0; level < num_levels; ++level) {
         size += GetInnerMipmapMemorySize(level, as_host_size, layer_only, uncompressed);
     }
     if (!as_host_size && is_tiled) {
@@ -331,8 +332,8 @@ bool SurfaceParams::IsDepthValid(const SurfaceParams& view_params, u32 level) co
 }
 
 bool SurfaceParams::IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const {
-    return layer + view_params.GetLayersCount() <= GetLayersCount() &&
-           level + view_params.levels_count <= levels_count;
+    return layer + view_params.num_layers <= num_layers &&
+           level + view_params.num_levels <= num_levels;
 }
 
 std::size_t SurfaceParams::Hash() const {
@@ -351,18 +352,18 @@ std::size_t SurfaceParams::Hash() const {
     boost::hash_combine(hash, depth);
     boost::hash_combine(hash, pitch);
     boost::hash_combine(hash, unaligned_height);
-    boost::hash_combine(hash, levels_count);
+    boost::hash_combine(hash, num_levels);
     return hash;
 }
 
 bool SurfaceParams::operator==(const SurfaceParams& rhs) const {
     return std::tie(is_tiled, block_width, block_height, block_depth, tile_width_spacing,
                     pixel_format, component_type, type, target, width, height, depth, pitch,
-                    unaligned_height, levels_count) ==
+                    unaligned_height, num_levels) ==
            std::tie(rhs.is_tiled, rhs.block_width, rhs.block_height, rhs.block_depth,
                     rhs.tile_width_spacing, rhs.pixel_format, rhs.component_type, rhs.type,
                     rhs.target, rhs.width, rhs.height, rhs.depth, rhs.pitch, rhs.unaligned_height,
-                    rhs.levels_count);
+                    rhs.num_levels);
 }
 
 std::size_t ViewKey::Hash() const {

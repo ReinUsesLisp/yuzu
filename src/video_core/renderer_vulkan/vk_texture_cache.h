@@ -74,8 +74,8 @@ public:
 
     void FullTransition(vk::CommandBuffer cmdbuf, vk::PipelineStageFlags new_stage_mask,
                         vk::AccessFlags new_access, vk::ImageLayout new_layout) {
-        Transition(cmdbuf, 0, params.GetLayersCount(), 0, params.levels_count, new_stage_mask,
-                   new_access, new_layout);
+        Transition(cmdbuf, 0, params.num_layers, 0, params.num_levels, new_stage_mask, new_access,
+                   new_layout);
     }
 
 protected:

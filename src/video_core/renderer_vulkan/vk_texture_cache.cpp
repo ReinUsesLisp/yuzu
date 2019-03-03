@@ -94,7 +94,7 @@ static vk::ImageCreateInfo CreateImageInfo(const VKDevice& device, const Surface
     }
 
     return vk::ImageCreateInfo(flags, SurfaceTargetToImageVK(params.target), format, extent,
-                               params.levels_count, params.GetLayersCount(), sample_count, tiling,
+                               params.num_levels, params.num_layers, sample_count, tiling,
                                image_usage, vk::SharingMode::eExclusive, 0, nullptr,
                                vk::ImageLayout::eUndefined);
 }
@@ -111,7 +111,7 @@ static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfacePara
         std::size_t host_offset = 0;
         const std::size_t guest_stride = params.GetGuestLayerMemorySize();
         const std::size_t host_stride = params.GetHostLayerSize(level);
-        for (u32 layer = 0; layer < params.GetLayersCount(); layer++) {
+        for (u32 layer = 0; layer < params.num_layers; layer++) {
             MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth, 1,
                           params.tile_width_spacing, buffer + host_offset, host_stride,
                           address + guest_offset);
@@ -153,12 +153,12 @@ void CachedSurface::LoadBuffer() {
         ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture target {}",
                    params.block_width, static_cast<u32>(params.target));
 
-        for (u32 level = 0; level < params.levels_count; ++level) {
+        for (u32 level = 0; level < params.num_levels; ++level) {
             u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
             SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetAddress(), params, buffer, level);
         }
     } else {
-        ASSERT_MSG(params.levels_count == 1, "Linear mipmap loading is not implemented");
+        ASSERT_MSG(params.num_levels == 1, "Linear mipmap loading is not implemented");
         const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
         const u32 copy_size = params.width * bpp;
         if (params.pitch == copy_size) {
@@ -174,7 +174,7 @@ void CachedSurface::LoadBuffer() {
         }
     }
 
-    for (u32 level = 0; level < params.levels_count; ++level) {
+    for (u32 level = 0; level < params.num_levels; ++level) {
         Tegra::Texture::ConvertFromGuestToHost(vk_buffer + params.GetHostMipmapLevelOffset(level),
                                                params.pixel_format, params.GetMipWidth(level),
                                                params.GetMipHeight(level),
@@ -193,7 +193,7 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
 
     const auto& dld = device.GetDispatchLoader();
     // TODO(Rodrigo): Do this in a single copy
-    for (u32 level = 0; level < params.levels_count; ++level) {
+    for (u32 level = 0; level < params.num_levels; ++level) {
         cmdbuf.copyImageToBuffer(GetHandle(), vk::ImageLayout::eTransferSrcOptimal, *buffer,
                                  {GetBufferImageCopy(level)}, dld);
     }
@@ -201,7 +201,7 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
 
     UNIMPLEMENTED_IF(!params.is_tiled);
     ASSERT_MSG(params.block_width == 1, "Block width is defined as {}", params.block_width);
-    for (u32 level = 0; level < params.levels_count; ++level) {
+    for (u32 level = 0; level < params.num_levels; ++level) {
         u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
         SwizzleFunc(MortonSwizzleMode::LinearToMorton, GetAddress(), params, buffer, level);
     }
@@ -214,7 +214,7 @@ VKExecutionContext CachedSurface::UploadTexture(VKExecutionContext exctx) {
     FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite,
                    vk::ImageLayout::eTransferDstOptimal);
 
-    for (u32 level = 0; level < params.levels_count; ++level) {
+    for (u32 level = 0; level < params.num_levels; ++level) {
         vk::BufferImageCopy copy = GetBufferImageCopy(level);
         const auto& dld = device.GetDispatchLoader();
         if (GetAspectMask() ==
@@ -240,12 +240,12 @@ std::unique_ptr<CachedView> CachedSurface::CreateView(const ViewKey& view_key) {
 vk::BufferImageCopy CachedSurface::GetBufferImageCopy(u32 level) const {
     const u32 vk_depth = params.target == SurfaceTarget::Texture3D ? params.GetMipDepth(level) : 1;
     return vk::BufferImageCopy(params.GetHostMipmapLevelOffset(level), 0, 0,
-                               {GetAspectMask(), level, 0, params.GetLayersCount()}, {0, 0, 0},
+                               {GetAspectMask(), level, 0, params.num_layers}, {0, 0, 0},
                                {params.GetMipWidth(level), params.GetMipHeight(level), vk_depth});
 }
 
 vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
-    return {GetAspectMask(), 0, params.levels_count, 0, params.GetLayersCount()};
+    return {GetAspectMask(), 0, params.num_levels, 0, params.num_layers};
 }
 
 CachedView::CachedView(const VKDevice& device, Surface surface, const ViewKey& key)
