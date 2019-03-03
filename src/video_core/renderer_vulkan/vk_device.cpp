@@ -231,6 +231,15 @@ std::map<vk::Format, vk::FormatProperties> VKDevice::GetFormatProperties(
     AddFormatQuery(vk::Format::eBc2UnormBlock);
     AddFormatQuery(vk::Format::eBc3UnormBlock);
     AddFormatQuery(vk::Format::eBc4UnormBlock);
+    AddFormatQuery(vk::Format::eAstc4x4UnormBlock);
+    AddFormatQuery(vk::Format::eAstc4x4SrgbBlock);
+    AddFormatQuery(vk::Format::eAstc8x8SrgbBlock);
+    AddFormatQuery(vk::Format::eAstc8x6SrgbBlock);
+    AddFormatQuery(vk::Format::eAstc5x4SrgbBlock);
+    AddFormatQuery(vk::Format::eAstc5x5UnormBlock);
+    AddFormatQuery(vk::Format::eAstc5x5SrgbBlock);
+    AddFormatQuery(vk::Format::eAstc10x8UnormBlock);
+    AddFormatQuery(vk::Format::eAstc10x8SrgbBlock);
 
     return format_properties;
 }

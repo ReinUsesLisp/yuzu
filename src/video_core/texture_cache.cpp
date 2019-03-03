@@ -95,7 +95,7 @@ SurfaceParams SurfaceParams::CreateForFramebuffer(Core::System& system, std::siz
     params.tile_width_spacing = 1;
     params.pixel_format = PixelFormatFromRenderTargetFormat(config.format);
     // params.srgb_conversion = config.format == Tegra::RenderTargetFormat::BGRA8_SRGB ||
-    //                         config.format == Tegra::RenderTargetFormat::RGBA8_SRGB;
+    //                          config.format == Tegra::RenderTargetFormat::RGBA8_SRGB;
     params.component_type = ComponentTypeFromRenderTarget(config.format);
     params.type = GetFormatType(params.pixel_format);
     if (params.is_tiled) {

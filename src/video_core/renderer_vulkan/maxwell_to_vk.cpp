@@ -122,7 +122,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC7U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC6H_UF16
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC6H_SF16
-    {vk::Format::eUndefined, ComponentType::Invalid, false},           // ASTC_2D_4X4
+    {vk::Format::eAstc4x4UnormBlock, ComponentType::UNorm, false},     // ASTC_2D_4X4
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BGRA8
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RGBA32F
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG32F
@@ -138,7 +138,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG16I
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG16S
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RGB32F
-    {vk::Format::eA8B8G8R8SrgbPack32, ComponentType::UNorm, true},     // RGBA8_SRGB
+    {vk::Format::eR8G8B8A8Srgb, ComponentType::UNorm, true},           // RGBA8_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG8U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG8S
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG32UI
@@ -146,21 +146,19 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // ASTC_2D_8X8
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // ASTC_2D_8X5
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // ASTC_2D_5X4
-
-    // Compressed sRGB formats
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // BGRA8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // DXT1_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // DXT23_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // DXT45_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // BC7U_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_4X4_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_8X8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_8X5_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_5X4_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_5X5
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_5X5_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_10X8
-    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_10X8_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false},           // BGRA8_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false},           // DXT1_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false},           // DXT23_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false},           // DXT45_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC7U_SRGB
+    {vk::Format::eAstc4x4SrgbBlock, ComponentType::UNorm, false},      // ASTC_2D_4X4_SRGB
+    {vk::Format::eAstc8x8SrgbBlock, ComponentType::UNorm, false},      // ASTC_2D_8X8_SRGB
+    {vk::Format::eAstc8x6SrgbBlock, ComponentType::UNorm, false},      // ASTC_2D_8X5_SRGB
+    {vk::Format::eAstc5x4SrgbBlock, ComponentType::UNorm, false},      // ASTC_2D_5X4_SRGB
+    {vk::Format::eAstc5x5UnormBlock, ComponentType::UNorm, false},     // ASTC_2D_5X5
+    {vk::Format::eAstc5x5SrgbBlock, ComponentType::UNorm, false},      // ASTC_2D_5X5_SRGB
+    {vk::Format::eAstc10x8UnormBlock, ComponentType::UNorm, false},    // ASTC_2D_10X8
+    {vk::Format::eAstc10x8SrgbBlock, ComponentType::UNorm, false},     // ASTC_2D_10X8_SRGB
 
     // Depth formats
     {vk::Format::eD32Sfloat, ComponentType::Float, true}, // Z32F
