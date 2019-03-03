@@ -96,6 +96,7 @@ public:
         DeclareInputAttributes();
         DeclareOutputAttributes();
         DeclareConstantBuffers();
+        DeclareGlobalBuffers();
         DeclareSamplers();
 
         execute_function =
@@ -202,6 +203,7 @@ private:
             return current_binding;
         };
         const_buffers_base_binding = Allocate(ir.GetConstantBuffers().size());
+        global_buffers_base_binding = Allocate(ir.GetGlobalMemoryBases().size());
         samplers_base_binding = Allocate(ir.GetSamplers().size());
     }
 
@@ -461,6 +463,19 @@ private:
         }
     }
 
+    void DeclareGlobalBuffers() {
+        u32 binding = global_buffers_base_binding;
+        for (const auto& entry : ir.GetGlobalMemoryBases()) {
+            const Id id = OpVariable(t_gmem_ssbo, spv::StorageClass::StorageBuffer);
+            AddGlobalVariable(
+                Name(id, fmt::format("gmem_{}_{}", entry.cbuf_index, entry.cbuf_offset)));
+
+            Decorate(id, spv::Decoration::Binding, {binding++});
+            Decorate(id, spv::Decoration::DescriptorSet, {descriptor_set});
+            global_buffers.insert({entry, id});
+        }
+    }
+
     void DeclareSamplers() {
         u32 binding = samplers_base_binding;
         for (const auto& sampler : ir.GetSamplers()) {
@@ -548,9 +563,9 @@ private:
                 ASSERT(stage == ShaderStage::Vertex);
                 switch (element) {
                 case 2:
-                    return Emit(OpBitcast(t_float, Emit(OpLoad(t_uint, instance_index))));
+                    return BitcastFrom<Type::Uint>(Emit(OpLoad(t_uint, instance_index)));
                 case 3:
-                    return Emit(OpBitcast(t_float, Emit(OpLoad(t_uint, vertex_index))));
+                    return BitcastFrom<Type::Uint>(Emit(OpLoad(t_uint, vertex_index)));
                 }
                 UNIMPLEMENTED_MSG("Unmanaged TessCoordInstanceIDVertexID element={}", element);
                 return Constant(t_float, 0);
@@ -595,6 +610,16 @@ private:
             const Id pointer = Emit(OpAccessChain(
                 t_cbuf_float, buffer_id, {Constant(t_uint, 0), buffer_index, buffer_element}));
             return Emit(OpLoad(t_float, pointer));
+
+        } else if (const auto gmem = std::get_if<GmemNode>(node)) {
+            const Id gmem_buffer = global_buffers.at(gmem->GetDescriptor());
+            const Id real = BitcastTo<Type::Uint>(Visit(gmem->GetRealAddress()));
+            const Id base = BitcastTo<Type::Uint>(Visit(gmem->GetBaseAddress()));
+
+            Id offset = Emit(OpIAdd(t_uint, real, base));
+            offset = Emit(OpUDiv(t_uint, offset, Constant(t_uint, 4u)));
+            return Emit(OpLoad(t_float, Emit(OpAccessChain(t_gmem_float, gmem_buffer,
+                                                           {Constant(t_uint, 0u), offset}))));
 
         } else if (const auto conditional = std::get_if<ConditionalNode>(node)) {
             // It's invalid to call conditional on nested nodes, use an operation instead
@@ -650,7 +675,7 @@ private:
     }
 
     template <Type type>
-    Id BitwiseCastResult(Id value) {
+    Id BitcastFrom(Id value) {
         switch (type) {
         case Type::Bool:
         case Type::Bool2:
@@ -659,6 +684,23 @@ private:
         case Type::Int:
         case Type::Uint:
             return Emit(OpBitcast(t_float, value));
+        case Type::HalfFloat:
+            UNIMPLEMENTED();
+        }
+        UNREACHABLE();
+        return value;
+    }
+
+    template <Type type>
+    Id BitcastTo(Id value) {
+        switch (type) {
+        case Type::Bool:
+        case Type::Bool2:
+        case Type::Float:
+            return Emit(OpBitcast(t_float, value));
+        case Type::Int:
+        case Type::Uint:
+            return Emit(OpBitcast(t_uint, value));
         case Type::HalfFloat:
             UNIMPLEMENTED();
         }
@@ -690,7 +732,7 @@ private:
         const Id type_def = GetTypeDefinition(result_type);
         const Id op_a = VisitOperand<type_a>(operation, 0);
 
-        const Id value = BitwiseCastResult<result_type>(Emit((this->*func)(type_def, op_a)));
+        const Id value = BitcastFrom<result_type>(Emit((this->*func)(type_def, op_a)));
         if (IsPrecise(operation)) {
             Decorate(value, spv::Decoration::NoContraction);
         }
@@ -704,7 +746,7 @@ private:
         const Id op_a = VisitOperand<type_a>(operation, 0);
         const Id op_b = VisitOperand<type_b>(operation, 1);
 
-        const Id value = BitwiseCastResult<result_type>(Emit((this->*func)(type_def, op_a, op_b)));
+        const Id value = BitcastFrom<result_type>(Emit((this->*func)(type_def, op_a, op_b)));
         if (IsPrecise(operation)) {
             Decorate(value, spv::Decoration::NoContraction);
         }
@@ -719,8 +761,7 @@ private:
         const Id op_b = VisitOperand<type_b>(operation, 1);
         const Id op_c = VisitOperand<type_c>(operation, 2);
 
-        const Id value =
-            BitwiseCastResult<result_type>(Emit((this->*func)(type_def, op_a, op_b, op_c)));
+        const Id value = BitcastFrom<result_type>(Emit((this->*func)(type_def, op_a, op_b, op_c)));
         if (IsPrecise(operation)) {
             Decorate(value, spv::Decoration::NoContraction);
         }
@@ -737,7 +778,7 @@ private:
         const Id op_d = VisitOperand<type_d>(operation, 3);
 
         const Id value =
-            BitwiseCastResult<result_type>(Emit((this->*func)(type_def, op_a, op_b, op_c, op_d)));
+            BitcastFrom<result_type>(Emit((this->*func)(type_def, op_a, op_b, op_c, op_d)));
         if (IsPrecise(operation)) {
             Decorate(value, spv::Decoration::NoContraction);
         }
@@ -1247,6 +1288,14 @@ private:
                        spv::Decoration::Offset, {0});
     const Id t_cbuf_ubo = OpTypePointer(spv::StorageClass::Uniform, t_cbuf_struct);
 
+    const Id t_gmem_float = OpTypePointer(spv::StorageClass::StorageBuffer, t_float);
+    const Id t_gmem_array = Name(
+        Decorate(OpTypeRuntimeArray(t_float), spv::Decoration::ArrayStride, {4u}), "GmemArray");
+    const Id t_gmem_struct =
+        MemberDecorate(Decorate(OpTypeStruct({t_gmem_array}), spv::Decoration::Block), 0,
+                       spv::Decoration::Offset, {0});
+    const Id t_gmem_ssbo = OpTypePointer(spv::StorageClass::StorageBuffer, t_gmem_struct);
+
     const Id v_float_zero = Constant(t_float, 0.0f);
     const Id v_true = ConstantTrue(t_bool);
     const Id v_false = ConstantFalse(t_bool);
@@ -1259,6 +1308,7 @@ private:
     std::map<Attribute::Index, Id> input_attributes;
     std::map<Attribute::Index, Id> output_attributes;
     std::map<u32, Id> constant_buffers;
+    std::map<GlobalMemoryBase, Id> global_buffers;
     std::map<u32, std::pair<Id, Id>> samplers;
 
     Id instance_index{};
@@ -1275,6 +1325,7 @@ private:
     std::vector<Id> interfaces;
 
     u32 const_buffers_base_binding{};
+    u32 global_buffers_base_binding{};
     u32 samplers_base_binding{};
 
     Id execute_function{};

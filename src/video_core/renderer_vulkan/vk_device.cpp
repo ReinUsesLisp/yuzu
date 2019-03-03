@@ -57,7 +57,9 @@ VKDevice::~VKDevice() = default;
 
 bool VKDevice::Create(const vk::DispatchLoaderDynamic& dldi, vk::Instance instance) {
     const auto queue_cis = GetDeviceQueueCreateInfos();
-    vk::PhysicalDeviceFeatures device_features{};
+
+    vk::PhysicalDeviceFeatures device_features;
+    device_features.vertexPipelineStoresAndAtomics = true;
 
     const std::vector<const char*> extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     const vk::DeviceCreateInfo device_ci({}, static_cast<u32>(queue_cis.size()), queue_cis.data(),
@@ -162,6 +164,12 @@ bool VKDevice::IsSuitable(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDev
     // TODO(Rodrigo): Check if the device matches all requeriments.
     const vk::PhysicalDeviceProperties props = physical.getProperties(dldi);
     if (props.limits.maxUniformBufferRange < 65536) {
+        return false;
+    }
+
+    // TODO(Rodrigo): Check if the device matches all requeriments.
+    const vk::PhysicalDeviceFeatures features = physical.getFeatures(dldi);
+    if (!features.vertexPipelineStoresAndAtomics) {
         return false;
     }
 
