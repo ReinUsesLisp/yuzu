@@ -2,7 +2,10 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <unordered_map>
 #include <optional>
+
+#include <boost/functional/hash.hpp>
 
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
@@ -22,6 +25,26 @@ static std::optional<vk::BorderColor> TryConvertBorderColor(std::array<float, 4>
     } else {
         return {};
     }
+}
+
+std::size_t SamplerCacheKey::Hash() const {
+    std::size_t hash = 0;
+    boost::hash_combine(hash, raw0);
+    boost::hash_combine(hash, raw1);
+    boost::hash_combine(hash, raw2);
+    boost::hash_combine(hash, raw3);
+    boost::hash_combine(hash, border_color_r);
+    boost::hash_combine(hash, border_color_g);
+    boost::hash_combine(hash, border_color_b);
+    boost::hash_combine(hash, border_color_a);
+    return hash;
+}
+
+bool SamplerCacheKey::operator==(const SamplerCacheKey& rhs) const {
+    return std::tie(raw0, raw1, raw2, raw3, border_color_r, border_color_g, border_color_b,
+                    border_color_a) == std::tie(rhs.raw0, rhs.raw1, rhs.raw2, rhs.raw3,
+                                                rhs.border_color_r, rhs.border_color_g,
+                                                rhs.border_color_b, rhs.border_color_a);
 }
 
 VKSamplerCache::VKSamplerCache(const VKDevice& device) : device{device} {}
