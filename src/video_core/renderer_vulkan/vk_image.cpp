@@ -14,6 +14,9 @@ VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
                  vk::ImageAspectFlags aspect_mask)
     : device{device}, format{image_ci.format}, aspect_mask{aspect_mask},
       num_layers{image_ci.arrayLayers}, num_levels{image_ci.mipLevels} {
+    UNIMPLEMENTED_IF_MSG(image_ci.queueFamilyIndexCount != 0,
+                         "Queue family tracking is not implemented");
+
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     image = dev.createImageUnique(image_ci, nullptr, dld);
@@ -21,6 +24,10 @@ VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
     const u32 num_ranges = num_layers * num_levels;
     barriers.resize(num_ranges);
     subrange_states.resize(num_ranges);
+    for (auto& state : subrange_states) {
+        state.layout = image_ci.initialLayout;
+        state.family = VK_QUEUE_FAMILY_IGNORED;
+    }
 }
 
 VKImage::~VKImage() = default;
@@ -44,11 +51,11 @@ void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 num_layer
     }
 
     // TODO(Rodrigo): Implement a way to use the latest stage across subresources
-    constexpr auto pipeline_stage_stub = vk::PipelineStageFlagBits::eAllCommands;
+    constexpr auto stage_stub = vk::PipelineStageFlagBits::eAllCommands;
 
     const auto& dld = device.GetDispatchLoader();
-    cmdbuf.pipelineBarrier(pipeline_stage_stub, pipeline_stage_stub, {}, 0, nullptr, 0, nullptr,
-                           static_cast<u32>(i), barriers.data(), dld);
+    cmdbuf.pipelineBarrier(stage_stub, stage_stub, {}, 0, nullptr, 0, nullptr, static_cast<u32>(i),
+                           barriers.data(), dld);
 
     current_stage_mask = new_stage_mask;
 }

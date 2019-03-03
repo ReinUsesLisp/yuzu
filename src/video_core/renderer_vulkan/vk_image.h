@@ -47,11 +47,12 @@ public:
 
 private:
     struct SubrangeState {
-        vk::AccessFlags access = {};
-        vk::ImageLayout layout = vk::ImageLayout::eUndefined;
+        vk::AccessFlags access = {};                          ///< Current access bits.
+        vk::ImageLayout layout = vk::ImageLayout::eUndefined; ///< Current image layout,
         u32 family = VK_QUEUE_FAMILY_IGNORED;
     };
 
+    /// Creates a presentation view.
     void CreatePresentView();
 
     /// Returns the subrange state for a layer and layer
@@ -63,8 +64,8 @@ private:
     const u32 num_layers;                   ///< Number of layers
     const u32 num_levels;                   ///< Number of mipmap levels
 
-    UniqueImage image;
-    UniqueImageView present_view;
+    UniqueImage image;            ///< Image handle
+    UniqueImageView present_view; ///< Image view compatible with presentation
 
     vk::PipelineStageFlags current_stage_mask = vk::PipelineStageFlagBits::eTopOfPipe;
 

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "core/core.h"
@@ -56,7 +57,8 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
     }
 }
 
-static vk::ImageCreateInfo CreateImageInfo(const VKDevice& device, const SurfaceParams& params) {
+static vk::ImageCreateInfo GenerateImageCreateInfo(const VKDevice& device,
+                                                   const SurfaceParams& params) {
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
 
@@ -128,7 +130,7 @@ static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfacePara
 CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
                              VKScheduler& sched, const SurfaceParams& params)
-    : VKImage(device, CreateImageInfo(device, params),
+    : VKImage(device, GenerateImageCreateInfo(device, params),
               PixelFormatToImageAspect(params.pixel_format)),
       SurfaceBase(params), device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, sched{sched} {
