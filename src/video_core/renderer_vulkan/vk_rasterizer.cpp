@@ -305,7 +305,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
         VideoCore::Surface::PixelFormatFromGPUPixelFormat(config.pixel_format)};
     ASSERT_MSG(params.width == config.width, "Framebuffer width is different");
     ASSERT_MSG(params.height == config.height, "Framebuffer height is different");
-    ASSERT_MSG(params.pixel_format == pixel_format, "Framebuffer pixel_format is different");
+    // ASSERT_MSG(params.pixel_format == pixel_format, "Framebuffer pixel_format is different");
 
     screen_info.image = surface;
     screen_info.width = surface->GetSurfaceParams().width;

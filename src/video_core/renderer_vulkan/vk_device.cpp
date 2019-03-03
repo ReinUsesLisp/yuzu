@@ -204,10 +204,11 @@ void VKDevice::SetupProperties(const vk::DispatchLoaderDynamic& dldi) {
     const vk::PhysicalDeviceProperties props = physical.getProperties(dldi);
     device_type = props.deviceType;
     uniform_buffer_alignment = static_cast<u64>(props.limits.minUniformBufferOffsetAlignment);
+    max_storage_buffer_range = static_cast<u64>(props.limits.maxStorageBufferRange);
 }
 
 std::vector<vk::DeviceQueueCreateInfo> VKDevice::GetDeviceQueueCreateInfos() const {
-    static const float QUEUE_PRIORITY = 1.f;
+    static const float QUEUE_PRIORITY = 1.0f;
 
     std::set<u32> unique_queue_families = {graphics_family, present_family};
     std::vector<vk::DeviceQueueCreateInfo> queue_cis;

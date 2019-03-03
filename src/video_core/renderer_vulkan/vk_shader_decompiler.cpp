@@ -170,9 +170,13 @@ public:
     ShaderEntries GetShaderEntries() const {
         ShaderEntries entries;
         entries.const_buffers_base_binding = const_buffers_base_binding;
+        entries.global_buffers_base_binding = global_buffers_base_binding;
         entries.samplers_base_binding = samplers_base_binding;
         for (const auto& cbuf : ir.GetConstantBuffers()) {
             entries.const_buffers.emplace_back(cbuf.second, cbuf.first);
+        }
+        for (const auto& gmem : ir.GetGlobalMemoryBases()) {
+            entries.global_buffers.emplace_back(gmem.cbuf_index, gmem.cbuf_offset);
         }
         for (const auto& sampler : ir.GetSamplers()) {
             entries.samplers.emplace_back(sampler);

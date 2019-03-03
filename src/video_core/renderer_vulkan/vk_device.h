@@ -11,7 +11,7 @@
 
 namespace Vulkan {
 
-/// Format usage descriptor
+/// Format usage descriptor.
 enum class FormatType { Linear, Optimal, Buffer };
 
 /// Handles data specific to a physical device.
@@ -34,12 +34,12 @@ public:
     vk::Format GetSupportedFormat(vk::Format wanted_format, vk::FormatFeatureFlags wanted_usage,
                                   FormatType format_type) const;
 
-    /// Returns the dispatch loader with direct function pointers of the device
+    /// Returns the dispatch loader with direct function pointers of the device.
     const vk::DispatchLoaderDynamic& GetDispatchLoader() const {
         return dld;
     }
 
-    /// Returns the logical device
+    /// Returns the logical device.
     vk::Device GetLogical() const {
         return logical.get();
     }
@@ -69,14 +69,19 @@ public:
         return present_family;
     }
 
-    /// Returns if the device is integrated with the host CPU
+    /// Returns if the device is integrated with the host CPU.
     bool IsIntegrated() const {
         return device_type == vk::PhysicalDeviceType::eIntegratedGpu;
     }
 
-    /// Returns uniform buffer alignment requeriment
+    /// Returns uniform buffer alignment requeriment.
     u64 GetUniformBufferAlignment() const {
         return uniform_buffer_alignment;
+    }
+
+    /// Returns the maximum range for storage buffers.
+    u64 GetMaxStorageBufferRange() const {
+        return max_storage_buffer_range;
     }
 
     /// Checks if the physical device is suitable.
@@ -101,16 +106,17 @@ private:
     static std::map<vk::Format, vk::FormatProperties> GetFormatProperties(
         const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical);
 
-    const vk::PhysicalDevice physical;  ///< Physical device
-    vk::DispatchLoaderDynamic dld;      ///< Device function pointers
-    UniqueDevice logical;               ///< Logical device
-    vk::Queue graphics_queue;           ///< Main graphics queue
-    vk::Queue present_queue;            ///< Main present queue
-    u32 graphics_family{};              ///< Main graphics queue family index
-    u32 present_family{};               ///< Main present queue family index
-    vk::PhysicalDeviceType device_type; ///< Physical device type
-    u64 uniform_buffer_alignment{};     ///< Uniform buffer alignment requeriment
-    std::map<vk::Format, vk::FormatProperties> format_properties; ///< Format properties dictionary
+    const vk::PhysicalDevice physical;  ///< Physical device.
+    vk::DispatchLoaderDynamic dld;      ///< Device function pointers.
+    UniqueDevice logical;               ///< Logical device.
+    vk::Queue graphics_queue;           ///< Main graphics queue.
+    vk::Queue present_queue;            ///< Main present queue.
+    u32 graphics_family{};              ///< Main graphics queue family index.
+    u32 present_family{};               ///< Main present queue family index.
+    vk::PhysicalDeviceType device_type; ///< Physical device type.
+    u64 uniform_buffer_alignment{};     ///< Uniform buffer alignment requeriment.
+    u64 max_storage_buffer_range{};     ///< Max storage buffer size.
+    std::map<vk::Format, vk::FormatProperties> format_properties; ///< Format properties dictionary.
 };
 
 } // namespace Vulkan
