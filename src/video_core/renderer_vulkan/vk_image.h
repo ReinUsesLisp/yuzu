@@ -33,14 +33,17 @@ public:
         return *present_view;
     }
 
+    /// Returns the Vulkan image handler.
     vk::Image GetHandle() const {
         return *image;
     }
 
+    /// Returns the Vulkan format for this image.
     vk::Format GetFormat() const {
         return format;
     }
 
+    /// Returns the Vulkan aspect mask.
     vk::ImageAspectFlags GetAspectMask() const {
         return aspect_mask;
     }
@@ -48,26 +51,24 @@ public:
 private:
     struct SubrangeState {
         vk::AccessFlags access = {};                          ///< Current access bits.
-        vk::ImageLayout layout = vk::ImageLayout::eUndefined; ///< Current image layout,
+        vk::ImageLayout layout = vk::ImageLayout::eUndefined; ///< Current image layout.
         u32 family = VK_QUEUE_FAMILY_IGNORED;
     };
 
     /// Creates a presentation view.
     void CreatePresentView();
 
-    /// Returns the subrange state for a layer and layer
+    /// Returns the subrange state for a layer and layer.
     SubrangeState& GetSubrangeState(u32 layer, u32 level);
 
-    const VKDevice& device;                 ///< Device handler
-    const vk::Format format;                ///< Vulkan format
-    const vk::ImageAspectFlags aspect_mask; ///< Vulkan aspect mask
-    const u32 num_layers;                   ///< Number of layers
-    const u32 num_levels;                   ///< Number of mipmap levels
+    const VKDevice& device;                 ///< Device handler.
+    const vk::Format format;                ///< Vulkan format.
+    const vk::ImageAspectFlags aspect_mask; ///< Vulkan aspect mask.
+    const u32 num_layers;                   ///< Number of layers.
+    const u32 num_levels;                   ///< Number of mipmap levels.
 
-    UniqueImage image;            ///< Image handle
-    UniqueImageView present_view; ///< Image view compatible with presentation
-
-    vk::PipelineStageFlags current_stage_mask = vk::PipelineStageFlagBits::eTopOfPipe;
+    UniqueImage image;            ///< Image handle.
+    UniqueImageView present_view; ///< Image view compatible with presentation.
 
     std::vector<vk::ImageMemoryBarrier> barriers; ///< Pool of barriers.
     std::vector<SubrangeState> subrange_states;   ///< Current subrange state.

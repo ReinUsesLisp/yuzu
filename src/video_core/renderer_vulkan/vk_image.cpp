@@ -3,8 +3,10 @@
 // Refer to the license.txt file included.
 
 #include <memory>
+#include <vector>
+
+#include "common/assert.h"
 #include "video_core/renderer_vulkan/declarations.h"
-#include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_image.h"
 
@@ -23,11 +25,7 @@ VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
 
     const u32 num_ranges = num_layers * num_levels;
     barriers.resize(num_ranges);
-    subrange_states.resize(num_ranges);
-    for (auto& state : subrange_states) {
-        state.layout = image_ci.initialLayout;
-        state.family = VK_QUEUE_FAMILY_IGNORED;
-    }
+    subrange_states.resize(num_ranges, {{}, image_ci.initialLayout, VK_QUEUE_FAMILY_IGNORED});
 }
 
 VKImage::~VKImage() = default;
@@ -50,14 +48,12 @@ void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 num_layer
         }
     }
 
-    // TODO(Rodrigo): Implement a way to use the latest stage across subresources
+    // TODO(Rodrigo): Implement a way to use the latest stage across subresources.
     constexpr auto stage_stub = vk::PipelineStageFlagBits::eAllCommands;
 
     const auto& dld = device.GetDispatchLoader();
     cmdbuf.pipelineBarrier(stage_stub, stage_stub, {}, 0, nullptr, 0, nullptr, static_cast<u32>(i),
                            barriers.data(), dld);
-
-    current_stage_mask = new_stage_mask;
 }
 
 void VKImage::CreatePresentView() {
