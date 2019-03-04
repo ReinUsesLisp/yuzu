@@ -154,6 +154,9 @@ private:
     void SetupConstBuffers(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);
 
+    void SetupGlobalBuffers(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
+                            vk::DescriptorSet descriptor_set);
+
     VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
                                      Maxwell::ShaderStage stage, vk::DescriptorSet descriptor_set);
 
