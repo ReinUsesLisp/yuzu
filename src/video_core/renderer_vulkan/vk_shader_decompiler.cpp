@@ -620,7 +620,7 @@ private:
             const Id real = BitcastTo<Type::Uint>(Visit(gmem->GetRealAddress()));
             const Id base = BitcastTo<Type::Uint>(Visit(gmem->GetBaseAddress()));
 
-            Id offset = Emit(OpIAdd(t_uint, real, base));
+            Id offset = Emit(OpISub(t_uint, real, base));
             offset = Emit(OpUDiv(t_uint, offset, Constant(t_uint, 4u)));
             return Emit(OpLoad(t_float, Emit(OpAccessChain(t_gmem_float, gmem_buffer,
                                                            {Constant(t_uint, 0u), offset}))));

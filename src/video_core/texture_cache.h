@@ -186,7 +186,7 @@ public:
     }
 
     std::size_t GetSizeInBytes() const {
-        return params.host_size_in_bytes;
+        return params.guest_size_in_bytes;
     }
 
     void MarkAsModified(bool is_modified_) {

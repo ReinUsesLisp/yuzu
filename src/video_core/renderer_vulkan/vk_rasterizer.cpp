@@ -222,11 +222,13 @@ void RasterizerVulkan::DrawArrays() {
         state.BindDescriptors(cmdbuf, pipeline.layout, dld);
         state.BindVertexBuffers(cmdbuf, dld);
 
+        const u32 instance = gpu.state.current_instance;
+
         if (is_indexed) {
             state.BindIndexBuffer(cmdbuf, dld);
-            cmdbuf.drawIndexed(regs.index_array.count, 1, 0, regs.vb_element_base, 0, dld);
+            cmdbuf.drawIndexed(regs.index_array.count, 1, 0, regs.vb_element_base, instance, dld);
         } else {
-            cmdbuf.draw(regs.vertex_buffer.count, 1, regs.vertex_buffer.first, 0, dld);
+            cmdbuf.draw(regs.vertex_buffer.count, 1, regs.vertex_buffer.first, instance, dld);
         }
     }
     cmdbuf.endRenderPass(dld);

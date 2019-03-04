@@ -177,10 +177,14 @@ void CachedSurface::LoadBuffer() {
     }
 
     for (u32 level = 0; level < params.num_levels; ++level) {
+        // Convert ASTC just when the format is not supported
+        const bool convert_astc = VideoCore::Surface::IsPixelFormatASTC(params.pixel_format) &&
+                                  GetFormat() == vk::Format::eA8B8G8R8UnormPack32;
+
         Tegra::Texture::ConvertFromGuestToHost(vk_buffer + params.GetHostMipmapLevelOffset(level),
                                                params.pixel_format, params.GetMipWidth(level),
                                                params.GetMipHeight(level),
-                                               params.GetMipDepth(level), false, true);
+                                               params.GetMipDepth(level), convert_astc, true);
     }
 }
 

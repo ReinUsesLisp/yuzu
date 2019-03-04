@@ -18,6 +18,7 @@ constexpr std::array<vk::Format, 3> Depth24UnormS8Uint = {
     vk::Format::eD32SfloatS8Uint, vk::Format::eD16UnormS8Uint, {}};
 constexpr std::array<vk::Format, 3> Depth16UnormS8Uint = {
     vk::Format::eD24UnormS8Uint, vk::Format::eD32SfloatS8Uint, {}};
+constexpr std::array<vk::Format, 2> Astc = {vk::Format::eA8B8G8R8UnormPack32, {}};
 
 } // namespace Alternatives
 
@@ -27,6 +28,16 @@ constexpr const vk::Format* GetFormatAlternatives(vk::Format format) {
         return Alternatives::Depth24UnormS8Uint.data();
     case vk::Format::eD16UnormS8Uint:
         return Alternatives::Depth16UnormS8Uint.data();
+    case vk::Format::eAstc4x4UnormBlock:
+    case vk::Format::eAstc4x4SrgbBlock:
+    case vk::Format::eAstc8x8SrgbBlock:
+    case vk::Format::eAstc8x6SrgbBlock:
+    case vk::Format::eAstc5x4SrgbBlock:
+    case vk::Format::eAstc5x5UnormBlock:
+    case vk::Format::eAstc5x5SrgbBlock:
+    case vk::Format::eAstc10x8UnormBlock:
+    case vk::Format::eAstc10x8SrgbBlock:
+        return Alternatives::Astc.data();
     default:
         return nullptr;
     }
@@ -92,7 +103,7 @@ vk::Format VKDevice::GetSupportedFormat(vk::Format wanted_format,
         LOG_CRITICAL(Render_Vulkan,
                      "Format={} with usage={} and type={} has no defined alternatives and host "
                      "hardware does not support it",
-                     static_cast<u32>(wanted_format), static_cast<u32>(wanted_usage),
+                     vk::to_string(wanted_format), vk::to_string(wanted_usage),
                      static_cast<u32>(format_type));
         UNREACHABLE();
         return wanted_format;

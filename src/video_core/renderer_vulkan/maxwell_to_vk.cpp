@@ -179,7 +179,7 @@ std::pair<vk::Format, bool> SurfaceFormat(const VKDevice& device, FormatType for
                                           PixelFormat pixel_format, ComponentType component_type) {
     ASSERT(static_cast<std::size_t>(pixel_format) < tex_format_tuples.size());
 
-    const auto tuple = tex_format_tuples[static_cast<u32>(pixel_format)];
+    const auto tuple = tex_format_tuples[static_cast<std::size_t>(pixel_format)];
     UNIMPLEMENTED_IF_MSG(tuple.format == vk::Format::eUndefined,
                          "Unimplemented texture format with pixel format={} and component type={}",
                          static_cast<u32>(pixel_format), static_cast<u32>(component_type));
