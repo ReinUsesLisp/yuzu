@@ -179,6 +179,11 @@ void RasterizerVulkan::DrawArrays() {
     const auto& dld = device.GetDispatchLoader();
     auto exctx = scheduler.GetExecutionContext();
 
+    FramebufferInfo fb_info;
+    std::tie(fb_info, exctx) = ConfigureFramebuffers(exctx, renderpass);
+    const View color_view = fb_info.color_views[0];
+    const View zeta_view = fb_info.zeta_view;
+
     for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
         const auto stage_enum = static_cast<Maxwell::ShaderStage>(stage);
         const Shader& shader = pipeline.shaders[stage];
@@ -191,11 +196,6 @@ void RasterizerVulkan::DrawArrays() {
         exctx = SetupTextures(exctx, shader, stage_enum, descriptor_set);
         state.AssignDescriptorSet(static_cast<u32>(stage), descriptor_set);
     }
-
-    FramebufferInfo fb_info;
-    std::tie(fb_info, exctx) = ConfigureFramebuffers(exctx, renderpass);
-    const View color_view = fb_info.color_views[0];
-    const View zeta_view = fb_info.zeta_view;
 
     state.UpdateDescriptorSets(device);
 
@@ -535,26 +535,36 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
     const auto& entries = shader->GetEntries().samplers;
     const u32 base_binding = shader->GetEntries().samplers_base_binding;
 
-    for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {
+    std::array<View, Maxwell::NumTextureSamplers> views;
+
+    for (std::size_t bindpoint = 0; bindpoint < entries.size(); ++bindpoint) {
         const auto& entry = entries[bindpoint];
         const auto texture = gpu.GetStageTexture(stage, entry.GetOffset());
-        const u32 current_binding = base_binding + bindpoint;
 
         View view;
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture);
         UNIMPLEMENTED_IF(view == nullptr);
+        views[bindpoint] = view;
+
         const vk::ImageView image_view =
             view->GetHandle(entry.GetType(), texture.tic.x_source, texture.tic.y_source,
                             texture.tic.z_source, texture.tic.w_source, entry.IsArray());
 
-        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
-                         pipeline_stage, vk::AccessFlagBits::eShaderRead);
-
+        const u32 current_binding = base_binding + static_cast<u32>(bindpoint);
         state.AddDescriptor(descriptor_set, current_binding,
                             vk::DescriptorType::eCombinedImageSampler,
                             sampler_cache->GetSampler(texture.tsc), image_view,
                             vk::ImageLayout::eShaderReadOnlyOptimal);
+    }
+
+    // Transition after all the views have been gathered.
+    for (std::size_t bindpoint = 0; bindpoint < entries.size(); ++bindpoint) {
+        const auto& view = views[bindpoint];
+        ASSERT(view != nullptr);
+
+        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
+        view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
+                         pipeline_stage, vk::AccessFlagBits::eShaderRead);
     }
     return exctx;
 }

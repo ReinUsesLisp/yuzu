@@ -2,8 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <unordered_map>
 #include <optional>
+#include <unordered_map>
 
 #include <boost/functional/hash.hpp>
 
