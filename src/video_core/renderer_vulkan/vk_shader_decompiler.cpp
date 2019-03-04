@@ -1041,10 +1041,15 @@ private:
     Id Exit(Operation operation) {
         switch (stage) {
         case ShaderStage::Vertex: {
-            // TODO(Rodrigo): Flip Y axis
             const Id host_position = AccessElement(t_out_float4, per_vertex, host_position_index);
             const Id guest_value = Emit(OpLoad(t_float4, guest_position));
             Emit(OpStore(host_position, guest_value));
+
+            // Hack for devices not supporting VK_EXT_depth_range_unrestricted
+            Id depth = Emit(OpLoad(t_float, AccessElement(t_out_float, host_position, 2)));
+            depth = Emit(OpFAdd(t_float, depth, Constant(t_float, 1.0f)));
+            depth = Emit(OpFMul(t_float, depth, Constant(t_float, 0.5f)));
+            Emit(OpStore(AccessElement(t_out_float, host_position, 2), depth));
             break;
         }
         case ShaderStage::Fragment: {
