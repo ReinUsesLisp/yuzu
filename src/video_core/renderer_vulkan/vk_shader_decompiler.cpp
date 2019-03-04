@@ -275,8 +275,9 @@ private:
         }
 
         frag_coord = OpVariable(t_in_float4, spv::StorageClass::Input);
-        AddGlobalVariable(Name(frag_coord, "frag_color"));
+        AddGlobalVariable(Name(frag_coord, "frag_coord"));
         Decorate(frag_coord, spv::Decoration::BuiltIn, {static_cast<u32>(spv::BuiltIn::FragCoord)});
+        interfaces.push_back(frag_coord);
     }
 
     Id DeclareBuiltIn(spv::BuiltIn builtin, spv::StorageClass storage, Id type,
