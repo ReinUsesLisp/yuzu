@@ -232,41 +232,38 @@ std::vector<vk::DeviceQueueCreateInfo> VKDevice::GetDeviceQueueCreateInfos() con
 
 std::map<vk::Format, vk::FormatProperties> VKDevice::GetFormatProperties(
     const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical) {
+    static constexpr std::array<vk::Format, 28> formats = {vk::Format::eA8B8G8R8UnormPack32,
+                                                           vk::Format::eB5G6R5UnormPack16,
+                                                           vk::Format::eA2B10G10R10UnormPack32,
+                                                           vk::Format::eR8G8B8A8Srgb,
+                                                           vk::Format::eR8Unorm,
+                                                           vk::Format::eB10G11R11UfloatPack32,
+                                                           vk::Format::eR16Sfloat,
+                                                           vk::Format::eR16G16B16A16Sfloat,
+                                                           vk::Format::eD32Sfloat,
+                                                           vk::Format::eD16Unorm,
+                                                           vk::Format::eD16UnormS8Uint,
+                                                           vk::Format::eD24UnormS8Uint,
+                                                           vk::Format::eD32SfloatS8Uint,
+                                                           vk::Format::eBc1RgbaUnormBlock,
+                                                           vk::Format::eBc2UnormBlock,
+                                                           vk::Format::eBc3UnormBlock,
+                                                           vk::Format::eBc4UnormBlock,
+                                                           vk::Format::eBc5UnormBlock,
+                                                           vk::Format::eBc7UnormBlock,
+                                                           vk::Format::eAstc4x4UnormBlock,
+                                                           vk::Format::eAstc4x4SrgbBlock,
+                                                           vk::Format::eAstc8x8SrgbBlock,
+                                                           vk::Format::eAstc8x6SrgbBlock,
+                                                           vk::Format::eAstc5x4SrgbBlock,
+                                                           vk::Format::eAstc5x5UnormBlock,
+                                                           vk::Format::eAstc5x5SrgbBlock,
+                                                           vk::Format::eAstc10x8UnormBlock,
+                                                           vk::Format::eAstc10x8SrgbBlock};
     std::map<vk::Format, vk::FormatProperties> format_properties;
-
-    const auto AddFormatQuery = [&format_properties, &dldi, physical](vk::Format format) {
+    for (const auto format : formats) {
         format_properties.emplace(format, physical.getFormatProperties(format, dldi));
-    };
-
-    AddFormatQuery(vk::Format::eA8B8G8R8UnormPack32);
-    AddFormatQuery(vk::Format::eB5G6R5UnormPack16);
-    AddFormatQuery(vk::Format::eA2B10G10R10UnormPack32);
-    AddFormatQuery(vk::Format::eR8G8B8A8Srgb);
-    AddFormatQuery(vk::Format::eR8Unorm);
-    AddFormatQuery(vk::Format::eB10G11R11UfloatPack32);
-    AddFormatQuery(vk::Format::eR16Sfloat);
-    AddFormatQuery(vk::Format::eR16G16B16A16Sfloat);
-    AddFormatQuery(vk::Format::eD32Sfloat);
-    AddFormatQuery(vk::Format::eD16Unorm);
-    AddFormatQuery(vk::Format::eD16UnormS8Uint);
-    AddFormatQuery(vk::Format::eD24UnormS8Uint);
-    AddFormatQuery(vk::Format::eD32SfloatS8Uint);
-    AddFormatQuery(vk::Format::eBc1RgbaUnormBlock);
-    AddFormatQuery(vk::Format::eBc2UnormBlock);
-    AddFormatQuery(vk::Format::eBc3UnormBlock);
-    AddFormatQuery(vk::Format::eBc4UnormBlock);
-    AddFormatQuery(vk::Format::eBc5UnormBlock);
-    AddFormatQuery(vk::Format::eBc7UnormBlock);
-    AddFormatQuery(vk::Format::eAstc4x4UnormBlock);
-    AddFormatQuery(vk::Format::eAstc4x4SrgbBlock);
-    AddFormatQuery(vk::Format::eAstc8x8SrgbBlock);
-    AddFormatQuery(vk::Format::eAstc8x6SrgbBlock);
-    AddFormatQuery(vk::Format::eAstc5x4SrgbBlock);
-    AddFormatQuery(vk::Format::eAstc5x5UnormBlock);
-    AddFormatQuery(vk::Format::eAstc5x5SrgbBlock);
-    AddFormatQuery(vk::Format::eAstc10x8UnormBlock);
-    AddFormatQuery(vk::Format::eAstc10x8SrgbBlock);
-
+    }
     return format_properties;
 }
 
