@@ -108,7 +108,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // A1B5G5R5U
     {vk::Format::eR8Unorm, ComponentType::UNorm, true},                // R8U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // R8UI
-    {vk::Format::eUndefined, ComponentType::Invalid, false},           // RGBA16F
+    {vk::Format::eR16G16B16A16Sfloat, ComponentType::Float, true},     // RGBA16F
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RGBA16U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RGBA16UI
     {vk::Format::eB10G11R11UfloatPack32, ComponentType::Float, true},  // R11FG11FB10F
@@ -117,9 +117,9 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eBc2UnormBlock, ComponentType::UNorm, false},         // DXT23
     {vk::Format::eBc3UnormBlock, ComponentType::UNorm, false},         // DXT45
     {vk::Format::eBc4UnormBlock, ComponentType::UNorm, false},         // DXN1
-    {vk::Format::eUndefined, ComponentType::Invalid, false},           // DXN2UNORM
+    {vk::Format::eBc5UnormBlock, ComponentType::UNorm, false},         // DXN2UNORM
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // DXN2SNORM
-    {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC7U
+    {vk::Format::eBc7UnormBlock, ComponentType::UNorm, false},         // BC7U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC6H_UF16
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC6H_SF16
     {vk::Format::eAstc4x4UnormBlock, ComponentType::UNorm, false},     // ASTC_2D_4X4
