@@ -77,6 +77,8 @@ namespace Vulkan {
 
 class PipelineState {
 public:
+    PipelineState();
+
     void Reset();
 
     void AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set);

@@ -40,6 +40,12 @@ struct FramebufferInfo {
     u32 height;
 };
 
+PipelineState::PipelineState() {
+    // Hack, use Template extension
+    buffer_infos.reserve(64);
+    image_infos.reserve(64);
+}
+
 void PipelineState::Reset() {
     vertex_bindings.clear();
     descriptor_bindings.clear();
