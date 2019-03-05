@@ -1046,7 +1046,8 @@ private:
             const Id guest_value = Emit(OpLoad(t_float4, guest_position));
             Emit(OpStore(host_position, guest_value));
 
-            // Hack for devices not supporting VK_EXT_depth_range_unrestricted
+            // TODO(Rodrigo): We should use VK_EXT_depth_range_unrestricted instead, but it doesn't
+            // seem to be working on Nvidia's drivers and Intel (mesa or blob) doesn't support it.
             Id depth = Emit(OpLoad(t_float, AccessElement(t_out_float, host_position, 2)));
             depth = Emit(OpFAdd(t_float, depth, Constant(t_float, 1.0f)));
             depth = Emit(OpFMul(t_float, depth, Constant(t_float, 0.5f)));

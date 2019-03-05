@@ -648,8 +648,8 @@ void RasterizerVulkan::SyncDepthStencil(PipelineParams& params) {
 
     // TODO(Rodrigo): Read from registers, luckily this is core in Vulkan unlike OpenGL
     ds.depth_bounds_enable = false;
-    ds.depth_bounds_min = 0.f;
-    ds.depth_bounds_max = 0.f;
+    ds.depth_bounds_min = 0.0f;
+    ds.depth_bounds_max = 0.0f;
 }
 
 void RasterizerVulkan::SyncInputAssembly(PipelineParams& params) {
