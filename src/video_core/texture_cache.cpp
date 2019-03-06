@@ -357,27 +357,27 @@ std::size_t SurfaceParams::Hash() const {
 }
 
 bool SurfaceParams::operator==(const SurfaceParams& rhs) const {
-    return std::tie(is_tiled, block_width, block_height, block_depth, tile_width_spacing,
-                    pixel_format, component_type, type, target, width, height, depth, pitch,
-                    unaligned_height, num_levels) ==
+    return std::tie(is_tiled, block_width, block_height, block_depth, tile_width_spacing, width,
+                    height, depth, pitch, unaligned_height, num_levels, pixel_format,
+                    component_type, type, target) ==
            std::tie(rhs.is_tiled, rhs.block_width, rhs.block_height, rhs.block_depth,
-                    rhs.tile_width_spacing, rhs.pixel_format, rhs.component_type, rhs.type,
-                    rhs.target, rhs.width, rhs.height, rhs.depth, rhs.pitch, rhs.unaligned_height,
-                    rhs.num_levels);
+                    rhs.tile_width_spacing, rhs.width, rhs.height, rhs.depth, rhs.pitch,
+                    rhs.unaligned_height, rhs.num_levels, rhs.pixel_format, rhs.component_type,
+                    rhs.type, rhs.target);
 }
 
 std::size_t ViewKey::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, base_layer);
-    boost::hash_combine(hash, layers);
+    boost::hash_combine(hash, num_layers);
     boost::hash_combine(hash, base_level);
-    boost::hash_combine(hash, levels);
+    boost::hash_combine(hash, num_levels);
     return hash;
 }
 
 bool ViewKey::operator==(const ViewKey& rhs) const {
-    return std::tie(base_layer, layers, base_level, levels) ==
-           std::tie(rhs.base_layer, rhs.layers, rhs.base_level, rhs.levels);
+    return std::tie(base_layer, num_layers, base_level, num_levels) ==
+           std::tie(rhs.base_layer, rhs.num_layers, rhs.base_level, rhs.num_levels);
 }
 
 } // namespace VideoCommon

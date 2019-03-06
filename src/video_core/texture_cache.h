@@ -82,16 +82,16 @@ struct SurfaceParams {
     u32 block_height;
     u32 block_depth;
     u32 tile_width_spacing;
-    VideoCore::Surface::PixelFormat pixel_format;
-    VideoCore::Surface::ComponentType component_type;
-    VideoCore::Surface::SurfaceType type;
-    VideoCore::Surface::SurfaceTarget target;
     u32 width;
     u32 height;
     u32 depth;
     u32 pitch;
     u32 unaligned_height;
     u32 num_levels;
+    VideoCore::Surface::PixelFormat pixel_format;
+    VideoCore::Surface::ComponentType component_type;
+    VideoCore::Surface::SurfaceType type;
+    VideoCore::Surface::SurfaceTarget target;
 
     // Cached data
     std::size_t guest_size_in_bytes;
@@ -118,10 +118,10 @@ struct ViewKey {
 
     bool operator==(const ViewKey& rhs) const;
 
-    u32 base_layer;
-    u32 layers;
-    u32 base_level;
-    u32 levels;
+    u32 base_layer{};
+    u32 num_layers{};
+    u32 base_level{};
+    u32 num_levels{};
 };
 
 } // namespace VideoCommon
@@ -228,8 +228,8 @@ protected:
     const SurfaceParams params;
 
 private:
-    TView* GetView(u32 base_layer, u32 layers, u32 base_level, u32 levels) {
-        const ViewKey key{base_layer, layers, base_level, levels};
+    TView* GetView(u32 base_layer, u32 num_layers, u32 base_level, u32 num_levels) {
+        const ViewKey key{base_layer, num_layers, base_level, num_levels};
         const auto [entry, is_cache_miss] = views.try_emplace(key);
         auto& view = entry->second;
         if (is_cache_miss) {

@@ -149,6 +149,7 @@ void RasterizerVulkan::DrawArrays() {
 
     PipelineParams params;
     state.Reset();
+    used_views.clear();
 
     // Get renderpass parameters and get a draw renderpass from the cache
     const RenderPassParams renderpass_params = GetRenderPassParams();
@@ -202,6 +203,13 @@ void RasterizerVulkan::DrawArrays() {
     exctx = buffer_cache->Send(exctx);
 
     const auto cmdbuf = exctx.GetCommandBuffer();
+
+    for (const View view : used_views) {
+        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
+        view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
+                         pipeline_stage, vk::AccessFlagBits::eShaderRead);
+    }
+
     color_view->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
                            vk::PipelineStageFlagBits::eColorAttachmentOutput,
                            vk::AccessFlagBits::eColorAttachmentRead |
@@ -533,8 +541,6 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
     const auto& entries = shader->GetEntries().samplers;
     const u32 base_binding = shader->GetEntries().samplers_base_binding;
 
-    std::array<View, Maxwell::NumTextureSamplers> views;
-
     for (std::size_t bindpoint = 0; bindpoint < entries.size(); ++bindpoint) {
         const auto& entry = entries[bindpoint];
         const auto texture = gpu.GetStageTexture(stage, entry.GetOffset());
@@ -542,7 +548,7 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
         View view;
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture);
         UNIMPLEMENTED_IF(view == nullptr);
-        views[bindpoint] = view;
+        used_views.push_back(view);
 
         const vk::ImageView image_view =
             view->GetHandle(entry.GetType(), texture.tic.x_source, texture.tic.y_source,
@@ -553,16 +559,6 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
                             vk::DescriptorType::eCombinedImageSampler,
                             sampler_cache->GetSampler(texture.tsc), image_view,
                             vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
-
-    // Transition after all the views have been gathered.
-    for (std::size_t bindpoint = 0; bindpoint < entries.size(); ++bindpoint) {
-        const auto& view = views[bindpoint];
-        ASSERT(view != nullptr);
-
-        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
-                         pipeline_stage, vk::AccessFlagBits::eShaderRead);
     }
     return exctx;
 }

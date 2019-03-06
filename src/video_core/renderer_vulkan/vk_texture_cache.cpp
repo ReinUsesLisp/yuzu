@@ -257,8 +257,8 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
 CachedView::CachedView(const VKDevice& device, Surface surface, const ViewKey& key)
     : params{surface->GetSurfaceParams()}, image{surface->GetHandle()},
       aspect_mask{surface->GetAspectMask()}, device{device}, surface{surface},
-      base_layer{key.base_layer}, layers{key.layers},
-      base_level{key.base_level}, levels{key.levels} {};
+      base_layer{key.base_layer}, num_layers{key.num_layers},
+      base_level{key.base_level}, num_levels{key.num_levels} {};
 
 CachedView::~CachedView() = default;
 

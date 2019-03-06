@@ -128,12 +128,12 @@ public:
     }
 
     vk::ImageSubresourceRange GetImageSubresourceRange() const {
-        return {aspect_mask, base_level, levels, base_layer, layers};
+        return {aspect_mask, base_level, num_levels, base_layer, num_layers};
     }
 
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
                     vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access) const {
-        surface->Transition(cmdbuf, base_layer, layers, base_level, levels, new_stage_mask,
+        surface->Transition(cmdbuf, base_layer, num_layers, base_level, num_levels, new_stage_mask,
                             new_access, new_layout);
     }
 
@@ -166,9 +166,9 @@ private:
     const VKDevice& device;
     const Surface surface;
     const u32 base_layer;
-    const u32 layers;
+    const u32 num_layers;
     const u32 base_level;
-    const u32 levels;
+    const u32 num_levels;
     ViewCache image_view_1d;
     ViewCache image_view_1d_array;
     ViewCache image_view_2d;
