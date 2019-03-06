@@ -303,7 +303,7 @@ private:
     UniquePipelineLayout CreatePipelineLayout(const PipelineParams& params,
                                               const Pipeline& pipeline) const;
     UniquePipeline CreatePipeline(const PipelineParams& params, const Pipeline& pipeline,
-                                  vk::RenderPass renderpass) const;
+                                  vk::PipelineLayout layout, vk::RenderPass renderpass) const;
 
     std::unordered_map<PipelineCacheKey, std::unique_ptr<CacheEntry>> cache;
     UniqueDescriptorSetLayout empty_set_layout;

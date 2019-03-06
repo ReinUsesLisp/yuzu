@@ -21,6 +21,8 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 // How many sets are created per descriptor pool.
@@ -306,11 +308,10 @@ CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr a
 
     entries = program_result.entries;
 
-    const auto dev = device.GetLogical();
-    const auto& dld = device.GetDispatchLoader();
-
     const vk::ShaderModuleCreateInfo shader_module_ci(
         {}, program_result.code.size(), reinterpret_cast<const u32*>(program_result.code.data()));
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
     shader_module = dev.createShaderModuleUnique(shader_module_ci, nullptr, dld);
 
     CreateDescriptorSetLayout();
@@ -357,7 +358,6 @@ void CachedShader::CreateDescriptorPool() {
             pool_sizes.push_back({descriptor_type, static_cast<u32>(size * SETS_PER_POOL)});
         }
     };
-
     PushSize(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size());
     PushSize(vk::DescriptorType::eStorageBuffer, entries.global_buffers.size());
     PushSize(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size());
@@ -427,11 +427,8 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
 
     if (is_cache_miss) {
         entry = std::make_unique<CacheEntry>();
-
         entry->layout = CreatePipelineLayout(params, pipeline);
-        pipeline.layout = *entry->layout;
-
-        entry->pipeline = CreatePipeline(params, pipeline, renderpass);
+        entry->pipeline = CreatePipeline(params, pipeline, *entry->layout, renderpass);
     }
 
     pipeline.handle = *entry->pipeline;
@@ -468,7 +465,7 @@ UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(const PipelineParams&
     std::array<vk::DescriptorSetLayout, Maxwell::MaxShaderStage> set_layouts{};
     for (std::size_t i = 0; i < Maxwell::MaxShaderStage; ++i) {
         const auto& shader = pipeline.shaders[i];
-        set_layouts[i] = shader != nullptr ? shader->GetDescriptorSetLayout() : *empty_set_layout;
+        set_layouts[i] = shader ? shader->GetDescriptorSetLayout() : *empty_set_layout;
     }
 
     const auto dev = device.GetLogical();
@@ -478,7 +475,7 @@ UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(const PipelineParams&
 }
 
 UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
-                                               const Pipeline& pipeline,
+                                               const Pipeline& pipeline, vk::PipelineLayout layout,
                                                vk::RenderPass renderpass) const {
     const auto& vi = params.vertex_input;
     const auto& ia = params.input_assembly;
@@ -572,7 +569,7 @@ UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
     const vk::GraphicsPipelineCreateInfo create_info(
         {}, static_cast<u32>(shader_stages.Size()), shader_stages.Data(), &vertex_input_ci,
         &input_assembly_ci, nullptr, &viewport_state_ci, &rasterizer_ci, &multisampling_ci,
-        &depth_stencil_ci, &color_blending_ci, nullptr, pipeline.layout, renderpass, 0);
+        &depth_stencil_ci, &color_blending_ci, nullptr, layout, renderpass, 0);
 
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
