@@ -191,8 +191,8 @@ void RasterizerVulkan::DrawArrays() {
             continue;
 
         const auto descriptor_set = shader->CommitDescriptorSet(exctx.GetFence());
-        SetupConstBuffers(state, shader, stage_enum, descriptor_set);
-        SetupGlobalBuffers(state, shader, stage_enum, descriptor_set);
+        SetupConstBuffers(shader, stage_enum, descriptor_set);
+        SetupGlobalBuffers(shader, stage_enum, descriptor_set);
         exctx = SetupTextures(exctx, shader, stage_enum, descriptor_set);
         state.AssignDescriptorSet(static_cast<u32>(stage), descriptor_set);
     }
@@ -471,8 +471,7 @@ void RasterizerVulkan::SetupIndexBuffer() {
                           MaxwellToVK::IndexFormat(regs.index_array.format));
 }
 
-void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& shader,
-                                         Maxwell::ShaderStage stage,
+void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage,
                                          vk::DescriptorSet descriptor_set) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& shader_stage = gpu.state.shader_stages[static_cast<std::size_t>(stage)];
@@ -514,8 +513,7 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& sha
     }
 }
 
-void RasterizerVulkan::SetupGlobalBuffers(PipelineState& state, const Shader& shader,
-                                          Maxwell::ShaderStage stage,
+void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage,
                                           vk::DescriptorSet descriptor_set) {
     const auto& entries = shader->GetEntries().global_buffers;
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {

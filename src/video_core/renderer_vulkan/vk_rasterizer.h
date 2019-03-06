@@ -92,8 +92,8 @@ public:
                        std::size_t size);
 
     void AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
-                       vk::DescriptorType descriptor_type, vk::Sampler sampler, vk::ImageView image_view,
-                       vk::ImageLayout image_layout);
+                       vk::DescriptorType descriptor_type, vk::Sampler sampler,
+                       vk::ImageView image_view, vk::ImageLayout image_layout);
 
     void UpdateDescriptorSets(const VKDevice& device) const;
 
@@ -153,10 +153,10 @@ private:
 
     void SetupIndexBuffer();
 
-    void SetupConstBuffers(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
+    void SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);
 
-    void SetupGlobalBuffers(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
+    void SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage,
                             vk::DescriptorSet descriptor_set);
 
     VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
