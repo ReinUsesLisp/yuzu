@@ -161,7 +161,7 @@ void RasterizerVulkan::DrawArrays() {
     const View zeta_view = fb_info.zeta_view;
 
     const auto descriptor_set = pipeline.descriptor_set;
-    if (descriptor_set) {
+    if (descriptor_set && pipeline.descriptor_template) {
         for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
             const auto stage_enum = static_cast<Maxwell::ShaderStage>(stage);
             const Shader& shader = pipeline.shaders[stage];

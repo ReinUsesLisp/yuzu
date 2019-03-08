@@ -386,9 +386,10 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
     pipeline.handle = *entry->pipeline;
     pipeline.layout = *entry->pipeline_layout;
     if (entry->descriptor_pool) {
-        ASSERT(entry->descriptor_template);
         pipeline.descriptor_set = entry->descriptor_pool->Commit(fence);
-        pipeline.descriptor_template = *entry->descriptor_template;
+        if (entry->descriptor_template) {
+            pipeline.descriptor_template = *entry->descriptor_template;
+        }
     }
     return pipeline;
 }
@@ -451,7 +452,7 @@ std::unique_ptr<DescriptorPool> VKPipelineCache::CreateDescriptorPool(
         PushSize(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size());
         PushSize(vk::DescriptorType::eInputAttachment, entries.attributes.size());
     }
-    if (pool_sizes.size() == 0) {
+    if (pool_sizes.empty()) {
         // If the shader doesn't use descriptor sets, skip the pool creation.
         return {};
     }
@@ -493,6 +494,10 @@ UniqueDescriptorUpdateTemplate VKPipelineCache::CreateDescriptorUpdateTemplate(
                  entries.global_buffers.size());
         AddEntry(vk::DescriptorType::eCombinedImageSampler, entries.samplers_base_binding,
                  entries.samplers.size());
+    }
+    if (template_entries.empty()) {
+        // If the shader doesn't use descriptor sets, skip template creation.
+        return UniqueDescriptorUpdateTemplate{};
     }
 
     const vk::DescriptorUpdateTemplateCreateInfo template_ci(
