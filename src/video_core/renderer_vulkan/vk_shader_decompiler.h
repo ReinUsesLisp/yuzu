@@ -1,4 +1,4 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -25,6 +25,8 @@ namespace Vulkan::VKShader {
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 using SamplerEntry = VideoCommon::Shader::Sampler;
+
+constexpr u32 DESCRIPTOR_SET = 0;
 
 class ConstBufferEntry : public VideoCommon::Shader::ConstBuffer {
 public:

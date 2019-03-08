@@ -1,4 +1,4 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -37,6 +37,7 @@ using Operation = const OperationNode&;
 enum : u32 { POSITION_VARYING_LOCATION = 0, GENERIC_VARYING_START_LOCATION = 1 };
 // TODO(Rodrigo): Use rasterizer's value
 constexpr u32 MAX_CONSTBUFFER_ELEMENTS = 0x1000;
+constexpr u32 STAGE_BINDING_STRIDE = 0x100;
 
 enum class Type { Bool, Bool2, Float, Int, Uint, HalfFloat };
 
@@ -79,8 +80,7 @@ bool IsPrecise(Operation operand) {
 class SPIRVDecompiler : public Sirit::Module {
 public:
     explicit SPIRVDecompiler(const ShaderIR& ir, ShaderStage stage)
-        : Module(0x00010300), ir{ir}, stage{stage}, header{ir.GetHeader()},
-          descriptor_set{static_cast<u32>(stage)} {}
+        : Module(0x00010300), ir{ir}, stage{stage}, header{ir.GetHeader()} {}
 
     void Decompile() {
         AllocateBindings();
@@ -200,7 +200,9 @@ private:
     static constexpr u32 CBUF_STRIDE = 16;
 
     void AllocateBindings() {
-        u32 binding_iterator = 0;
+        const u32 binding_base = static_cast<u32>(stage) * STAGE_BINDING_STRIDE;
+        u32 binding_iterator = binding_base;
+
         const auto Allocate = [&binding_iterator](std::size_t count) {
             const u32 current_binding = binding_iterator;
             binding_iterator += static_cast<u32>(count);
@@ -209,6 +211,9 @@ private:
         const_buffers_base_binding = Allocate(ir.GetConstantBuffers().size());
         global_buffers_base_binding = Allocate(ir.GetGlobalMemoryBases().size());
         samplers_base_binding = Allocate(ir.GetSamplers().size());
+
+        ASSERT_MSG(binding_iterator - binding_base < STAGE_BINDING_STRIDE,
+                   "Stage binding stride is too small");
     }
 
     void AllocateLabels() {
@@ -463,7 +468,7 @@ private:
             AddGlobalVariable(Name(id, fmt::format("cbuf_{}", index)));
 
             Decorate(id, spv::Decoration::Binding, {binding++});
-            Decorate(id, spv::Decoration::DescriptorSet, {descriptor_set});
+            Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
             constant_buffers.insert({index, id});
         }
     }
@@ -476,7 +481,7 @@ private:
                 Name(id, fmt::format("gmem_{}_{}", entry.cbuf_index, entry.cbuf_offset)));
 
             Decorate(id, spv::Decoration::Binding, {binding++});
-            Decorate(id, spv::Decoration::DescriptorSet, {descriptor_set});
+            Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
             global_buffers.insert({entry, id});
         }
     }
@@ -500,7 +505,7 @@ private:
             samplers.insert({static_cast<u32>(sampler.GetIndex()), {sampled_image_type, id}});
 
             Decorate(id, spv::Decoration::Binding, {binding++});
-            Decorate(id, spv::Decoration::DescriptorSet, {descriptor_set});
+            Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
         }
     }
 
@@ -1264,7 +1269,6 @@ private:
     const ShaderIR& ir;
     const ShaderStage stage;
     const Tegra::Shader::Header header;
-    const u32 descriptor_set;
 
     const Id t_void = Name(OpTypeVoid(), "void");
     const Id t_uint = Name(OpTypeInt(32, false), "uint");

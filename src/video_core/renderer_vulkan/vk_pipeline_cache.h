@@ -1,4 +1,4 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -14,13 +14,14 @@
 #include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 #include "video_core/surface.h"
 
 namespace Core {
 class System;
-} // namespace Core
+}
 
 namespace Vulkan {
 
@@ -184,6 +185,7 @@ namespace Vulkan {
 struct Pipeline {
     vk::Pipeline handle;
     vk::PipelineLayout layout;
+    vk::DescriptorSet descriptor_set;
     std::array<Shader, Maxwell::MaxShaderStage> shaders;
 };
 
@@ -192,8 +194,7 @@ public:
     CachedShader(Core::System& system, const VKDevice& device, VAddr addr,
                  Maxwell::ShaderProgram program_type);
 
-    /// Gets a descriptor set from the internal pool.
-    vk::DescriptorSet CommitDescriptorSet(VKFence& fence);
+    void FillDescriptorLayout(std::vector<vk::DescriptorSetLayoutBinding>& bindings) const;
 
     VAddr GetAddr() const override {
         return addr;
@@ -211,22 +212,12 @@ public:
         return *shader_module;
     }
 
-    /// Gets the descriptor set layout of the shader.
-    vk::DescriptorSetLayout GetDescriptorSetLayout() const {
-        return *descriptor_set_layout;
-    }
-
     /// Gets the module entries for the shader.
     const VKShader::ShaderEntries& GetEntries() const {
         return entries;
     }
 
 private:
-    class DescriptorPool;
-
-    void CreateDescriptorSetLayout();
-    void CreateDescriptorPool();
-
     const VKDevice& device;
     const VAddr addr;
     const Maxwell::ShaderProgram program_type;
@@ -235,9 +226,6 @@ private:
     VKShader::ShaderEntries entries;
 
     UniqueShaderModule shader_module;
-
-    UniqueDescriptorSetLayout descriptor_set_layout;
-    std::unique_ptr<DescriptorPool> descriptor_pool;
 };
 
 struct PipelineCacheKey {
@@ -275,6 +263,28 @@ struct hash<Vulkan::PipelineCacheKey> {
 
 namespace Vulkan {
 
+class DescriptorPool final : public VKFencedPool {
+public:
+    explicit DescriptorPool(const VKDevice& device,
+                            const std::vector<vk::DescriptorPoolSize>& pool_sizes,
+                            const vk::DescriptorSetLayout layout);
+    ~DescriptorPool();
+
+    vk::DescriptorSet Commit(VKFence& fence);
+
+protected:
+    void Allocate(std::size_t begin, std::size_t end) override;
+
+private:
+    const VKDevice& device;
+    const std::vector<vk::DescriptorPoolSize> stored_pool_sizes;
+    const vk::DescriptorPoolCreateInfo pool_ci;
+    const vk::DescriptorSetLayout layout;
+
+    std::vector<UniqueDescriptorPool> pools;
+    std::vector<std::vector<UniqueDescriptorSet>> allocations;
+};
+
 class VKPipelineCache final : public RasterizerCache<Shader> {
 public:
     explicit VKPipelineCache(Core::System& system, RasterizerVulkan& rasterizer,
@@ -284,7 +294,7 @@ public:
     // but this would require searching for the entry twice. Instead of doing that, pass the (draw)
     // renderpass that fulfills those params.
     Pipeline GetPipeline(const PipelineParams& params, const RenderPassParams& renderpass_params,
-                         vk::RenderPass renderpass);
+                         vk::RenderPass renderpass, VKFence& fence);
 
 protected:
     void ObjectInvalidated(const Shader& shader) override;
@@ -292,21 +302,30 @@ protected:
 private:
     struct CacheEntry {
         UniquePipeline pipeline;
-        UniquePipelineLayout layout;
+        UniquePipelineLayout pipeline_layout;
+        UniqueDescriptorSetLayout descriptor_set_layout;
         UniqueRenderPass renderpass;
+        std::unique_ptr<DescriptorPool> descriptor_pool;
     };
+
+    UniqueDescriptorSetLayout CreateDescriptorSetLayout(
+        const std::array<Shader, Maxwell::MaxShaderStage>& shaders) const;
+
+    std::unique_ptr<DescriptorPool> CreateDescriptorPool(
+        const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+        vk::DescriptorSetLayout descriptor_set_layout) const;
+
+    UniquePipelineLayout CreatePipelineLayout(vk::DescriptorSetLayout descriptor_set_layout) const;
+
+    UniquePipeline CreatePipeline(const PipelineParams& params, vk::PipelineLayout layout,
+                                  vk::RenderPass renderpass,
+                                  const std::array<Shader, Maxwell::MaxShaderStage>& shaders) const;
 
     Core::System& system;
     const VKDevice& device;
     VKScheduler& scheduler;
 
-    UniquePipelineLayout CreatePipelineLayout(const PipelineParams& params,
-                                              const Pipeline& pipeline) const;
-    UniquePipeline CreatePipeline(const PipelineParams& params, const Pipeline& pipeline,
-                                  vk::PipelineLayout layout, vk::RenderPass renderpass) const;
-
     std::unordered_map<PipelineCacheKey, std::unique_ptr<CacheEntry>> cache;
-    UniqueDescriptorSetLayout empty_set_layout;
 };
 
 } // namespace Vulkan

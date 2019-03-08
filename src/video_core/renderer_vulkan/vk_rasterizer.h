@@ -82,8 +82,6 @@ public:
 
     void Reset();
 
-    void AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set);
-
     void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset);
 
     void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type);
@@ -96,10 +94,7 @@ public:
                        vk::DescriptorType descriptor_type, vk::Sampler sampler,
                        vk::ImageView image_view, vk::ImageLayout image_layout);
 
-    void UpdateDescriptorSets(const VKDevice& device) const;
-
-    void BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout,
-                         const vk::DispatchLoaderDynamic& dld) const;
+    void UpdateDescriptorSet(const VKDevice& device) const;
 
     void BindVertexBuffers(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const;
 
@@ -111,8 +106,6 @@ private:
     vk::Buffer index_buffer{};
     vk::DeviceSize index_offset{};
     vk::IndexType index_type{};
-
-    std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets{};
 
     std::vector<vk::WriteDescriptorSet> descriptor_bindings;
     std::vector<vk::DescriptorBufferInfo> buffer_infos;

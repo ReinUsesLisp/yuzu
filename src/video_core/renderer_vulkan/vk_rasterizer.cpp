@@ -53,13 +53,6 @@ void PipelineState::Reset() {
     image_infos.clear();
 }
 
-void PipelineState::AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set) {
-    // A null descriptor set means that the stage is not using descriptors, it must be skipped.
-    if (descriptor_set) {
-        descriptor_sets[stage] = descriptor_set;
-    }
-}
-
 void PipelineState::AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
     vertex_bindings.emplace_back(buffer, offset);
 }
@@ -86,21 +79,11 @@ void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_
                                      nullptr, nullptr);
 }
 
-void PipelineState::UpdateDescriptorSets(const VKDevice& device) const {
+void PipelineState::UpdateDescriptorSet(const VKDevice& device) const {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     dev.updateDescriptorSets(static_cast<u32>(descriptor_bindings.size()),
                              descriptor_bindings.data(), 0, nullptr, dld);
-}
-
-void PipelineState::BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout,
-                                    const vk::DispatchLoaderDynamic& dld) const {
-    for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
-        if (const auto descriptor_set = descriptor_sets[stage]; descriptor_set) {
-            cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout,
-                                      static_cast<u32>(stage), 1, &descriptor_set, 0, nullptr, dld);
-        }
-    }
 }
 
 void PipelineState::BindVertexBuffers(vk::CommandBuffer cmdbuf,
@@ -152,8 +135,8 @@ void RasterizerVulkan::DrawArrays() {
     used_views.clear();
 
     // Get renderpass parameters and get a draw renderpass from the cache
-    const RenderPassParams renderpass_params = GetRenderPassParams();
-    const vk::RenderPass renderpass = renderpass_cache->GetDrawRenderPass(renderpass_params);
+    const auto renderpass_params = GetRenderPassParams();
+    const auto renderpass = renderpass_cache->GetDrawRenderPass(renderpass_params);
 
     SyncDepthStencil(params);
     SyncInputAssembly(params);
@@ -175,30 +158,32 @@ void RasterizerVulkan::DrawArrays() {
         SetupIndexBuffer();
     }
 
-    const Pipeline pipeline = pipeline_cache->GetPipeline(params, renderpass_params, renderpass);
-
     const auto& dld = device.GetDispatchLoader();
     auto exctx = scheduler.GetExecutionContext();
+
+    const Pipeline pipeline =
+        pipeline_cache->GetPipeline(params, renderpass_params, renderpass, exctx.GetFence());
 
     FramebufferInfo fb_info;
     std::tie(fb_info, exctx) = ConfigureFramebuffers(exctx, renderpass);
     const View color_view = fb_info.color_views[0];
     const View zeta_view = fb_info.zeta_view;
 
-    for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
-        const auto stage_enum = static_cast<Maxwell::ShaderStage>(stage);
-        const Shader& shader = pipeline.shaders[stage];
-        if (!shader)
-            continue;
+    const auto descriptor_set = pipeline.descriptor_set;
+    if (descriptor_set) {
+        for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
+            const auto stage_enum = static_cast<Maxwell::ShaderStage>(stage);
+            const Shader& shader = pipeline.shaders[stage];
+            if (!shader)
+                continue;
 
-        const auto descriptor_set = shader->CommitDescriptorSet(exctx.GetFence());
-        SetupConstBuffers(shader, stage_enum, descriptor_set);
-        SetupGlobalBuffers(shader, stage_enum, descriptor_set);
-        exctx = SetupTextures(exctx, shader, stage_enum, descriptor_set);
-        state.AssignDescriptorSet(static_cast<u32>(stage), descriptor_set);
+            SetupConstBuffers(shader, stage_enum, descriptor_set);
+            SetupGlobalBuffers(shader, stage_enum, descriptor_set);
+            exctx = SetupTextures(exctx, shader, stage_enum, descriptor_set);
+        }
+
+        state.UpdateDescriptorSet(device);
     }
-
-    state.UpdateDescriptorSets(device);
 
     exctx = buffer_cache->Send(exctx);
 
@@ -227,11 +212,12 @@ void RasterizerVulkan::DrawArrays() {
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline, dld);
     {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle, dld);
-        state.BindDescriptors(cmdbuf, pipeline.layout, dld);
+        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.layout,
+                                  VKShader::DESCRIPTOR_SET, 1, &descriptor_set, 0, nullptr, dld);
+
         state.BindVertexBuffers(cmdbuf, dld);
 
         const u32 instance = gpu.state.current_instance;
-
         if (is_indexed) {
             state.BindIndexBuffer(cmdbuf, dld);
             cmdbuf.drawIndexed(regs.index_array.count, 1, 0, regs.vb_element_base, instance, dld);
@@ -496,16 +482,11 @@ void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderSt
         if (used_buffer.IsIndirect()) {
             // Buffer is accessed indirectly, so upload the entire thing
             size = buffer.size;
-
-            if (size > MaxConstbufferSize) {
-                LOG_CRITICAL(HW_GPU, "indirect constbuffer size {} exceeds maximum {}", size,
-                             MaxConstbufferSize);
-                size = MaxConstbufferSize;
-            }
         } else {
             // Buffer is accessed directly, upload just what we use
             size = used_buffer.GetSize() * sizeof(float);
         }
+        ASSERT(size <= MaxConstbufferSize);
 
         // Align the actual size so it ends up being a multiple of vec4 to meet the OpenGL
         // std140 UBO alignment requirements.

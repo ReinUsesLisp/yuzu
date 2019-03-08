@@ -1,4 +1,4 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -20,8 +20,6 @@
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
-
-#pragma optimize("", off)
 
 namespace Vulkan {
 
@@ -238,52 +236,40 @@ bool PipelineParams::operator==(const PipelineParams& rhs) const {
                     /*rhs.multisampling,*/ rhs.depth_stencil, rhs.color_blending);
 }
 
-class CachedShader::DescriptorPool final : public VKFencedPool {
-public:
-    explicit DescriptorPool(const VKDevice& device,
-                            const std::vector<vk::DescriptorPoolSize>& pool_sizes,
-                            const vk::DescriptorSetLayout layout)
-        : VKFencedPool(SETS_PER_POOL),
-          pool_ci(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, SETS_PER_POOL,
-                  static_cast<u32>(stored_pool_sizes.size()), stored_pool_sizes.data()),
-          stored_pool_sizes{pool_sizes}, layout{layout}, device{device} {}
+DescriptorPool::DescriptorPool(const VKDevice& device,
+                               const std::vector<vk::DescriptorPoolSize>& pool_sizes,
+                               const vk::DescriptorSetLayout layout)
+    : VKFencedPool{SETS_PER_POOL}, pool_ci{vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+                                           SETS_PER_POOL,
+                                           static_cast<u32>(stored_pool_sizes.size()),
+                                           stored_pool_sizes.data()},
+      stored_pool_sizes{pool_sizes}, layout{layout}, device{device} {}
 
-    ~DescriptorPool() = default;
+DescriptorPool::~DescriptorPool() = default;
 
-    vk::DescriptorSet Commit(VKFence& fence) {
-        const std::size_t index = CommitResource(fence);
-        const std::size_t pool_index = index / SETS_PER_POOL;
-        const std::size_t set_index = index % SETS_PER_POOL;
-        return allocations[pool_index][set_index].get();
-    }
+vk::DescriptorSet DescriptorPool::Commit(VKFence& fence) {
+    const std::size_t index = CommitResource(fence);
+    const std::size_t pool_index = index / SETS_PER_POOL;
+    const std::size_t set_index = index % SETS_PER_POOL;
+    return allocations[pool_index][set_index].get();
+}
 
-protected:
-    void Allocate(std::size_t begin, std::size_t end) override {
-        ASSERT_MSG(begin % SETS_PER_POOL == 0 && end % SETS_PER_POOL == 0, "Not aligned.");
+void DescriptorPool::Allocate(std::size_t begin, std::size_t end) {
+    ASSERT_MSG(begin % SETS_PER_POOL == 0 && end % SETS_PER_POOL == 0, "Not aligned.");
 
-        const auto dev = device.GetLogical();
-        const auto& dld = device.GetDispatchLoader();
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
 
-        auto pool = dev.createDescriptorPoolUnique(pool_ci, nullptr, dld);
-        const std::vector<vk::DescriptorSetLayout> layout_clones(SETS_PER_POOL, layout);
-        const vk::DescriptorSetAllocateInfo descriptor_set_ai(*pool, SETS_PER_POOL,
-                                                              layout_clones.data());
+    auto pool = dev.createDescriptorPoolUnique(pool_ci, nullptr, dld);
+    const std::vector<vk::DescriptorSetLayout> layout_clones(SETS_PER_POOL, layout);
+    const vk::DescriptorSetAllocateInfo descriptor_set_ai(*pool, SETS_PER_POOL,
+                                                          layout_clones.data());
 
-        pools.push_back(std::move(pool));
+    pools.push_back(std::move(pool));
 
-        allocations.push_back(dev.allocateDescriptorSetsUnique<std::allocator<UniqueDescriptorSet>>(
-            descriptor_set_ai, dld));
-    }
-
-private:
-    const VKDevice& device;
-    const std::vector<vk::DescriptorPoolSize> stored_pool_sizes;
-    const vk::DescriptorPoolCreateInfo pool_ci;
-    const vk::DescriptorSetLayout layout;
-
-    std::vector<UniqueDescriptorPool> pools;
-    std::vector<std::vector<UniqueDescriptorSet>> allocations;
-};
+    allocations.push_back(dev.allocateDescriptorSetsUnique<std::allocator<UniqueDescriptorSet>>(
+        descriptor_set_ai, dld));
+}
 
 CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr addr,
                            Maxwell::ShaderProgram program_type)
@@ -313,29 +299,18 @@ CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr a
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     shader_module = dev.createShaderModuleUnique(shader_module_ci, nullptr, dld);
-
-    CreateDescriptorSetLayout();
-    CreateDescriptorPool();
 }
 
-vk::DescriptorSet CachedShader::CommitDescriptorSet(VKFence& fence) {
-    if (descriptor_pool == nullptr) {
-        // If the descriptor pool has not been initialized, it means that the shader doesn't used
-        // descriptors. Return a null descriptor set.
-        return nullptr;
-    }
-    return descriptor_pool->Commit(fence);
-}
+void CachedShader::FillDescriptorLayout(
+    std::vector<vk::DescriptorSetLayoutBinding>& bindings) const {
+    const Maxwell::ShaderStage stage = GetStageFromProgram(program_type);
+    const vk::ShaderStageFlags stage_flags = MaxwellToVK::ShaderStage(stage);
 
-void CachedShader::CreateDescriptorSetLayout() {
-    const vk::ShaderStageFlags stage = MaxwellToVK::ShaderStage(GetStageFromProgram(program_type));
-
-    std::vector<vk::DescriptorSetLayoutBinding> bindings;
-    const auto AddBindings = [&bindings, stage](vk::DescriptorType descriptor_type,
-                                                std::size_t num_entries, u32 base_binding) {
+    const auto AddBindings = [&](vk::DescriptorType descriptor_type, std::size_t num_entries,
+                                 u32 base_binding) {
         for (u32 bindpoint = 0; bindpoint < static_cast<u32>(num_entries); ++bindpoint) {
             const u32 current_binding = base_binding + bindpoint;
-            bindings.emplace_back(current_binding, descriptor_type, 1, stage, nullptr);
+            bindings.emplace_back(current_binding, descriptor_type, 1, stage_flags, nullptr);
         }
     };
     AddBindings(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size(),
@@ -344,44 +319,15 @@ void CachedShader::CreateDescriptorSetLayout() {
                 entries.global_buffers_base_binding);
     AddBindings(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size(),
                 entries.samplers_base_binding);
-
-    const auto dev = device.GetLogical();
-    const auto& dld = device.GetDispatchLoader();
-    descriptor_set_layout = dev.createDescriptorSetLayoutUnique(
-        {{}, static_cast<u32>(bindings.size()), bindings.data()}, nullptr, dld);
-}
-
-void CachedShader::CreateDescriptorPool() {
-    std::vector<vk::DescriptorPoolSize> pool_sizes;
-    const auto PushSize = [&](vk::DescriptorType descriptor_type, std::size_t size) {
-        if (size > 0) {
-            pool_sizes.push_back({descriptor_type, static_cast<u32>(size * SETS_PER_POOL)});
-        }
-    };
-    PushSize(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size());
-    PushSize(vk::DescriptorType::eStorageBuffer, entries.global_buffers.size());
-    PushSize(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size());
-    PushSize(vk::DescriptorType::eInputAttachment, entries.attributes.size());
-
-    if (pool_sizes.size() == 0) {
-        // If the shader doesn't use descriptor sets, skip the pool creation.
-        return;
-    }
-
-    descriptor_pool = std::make_unique<DescriptorPool>(device, pool_sizes, *descriptor_set_layout);
 }
 
 VKPipelineCache::VKPipelineCache(Core::System& system, RasterizerVulkan& rasterizer,
                                  const VKDevice& device, VKScheduler& scheduler)
-    : RasterizerCache{rasterizer}, system{system}, device{device}, scheduler{scheduler} {
-    const auto dev = device.GetLogical();
-    const auto& dld = device.GetDispatchLoader();
-    empty_set_layout = dev.createDescriptorSetLayoutUnique({{}, 0, nullptr}, nullptr, dld);
-}
+    : RasterizerCache{rasterizer}, system{system}, device{device}, scheduler{scheduler} {}
 
 Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
                                       const RenderPassParams& renderpass_params,
-                                      vk::RenderPass renderpass) {
+                                      vk::RenderPass renderpass, VKFence& fence) {
     const auto& gpu = system.GPU().Maxwell3D();
     Pipeline pipeline;
     PipelineCacheShaders shaders{};
@@ -427,12 +373,19 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
 
     if (is_cache_miss) {
         entry = std::make_unique<CacheEntry>();
-        entry->layout = CreatePipelineLayout(params, pipeline);
-        entry->pipeline = CreatePipeline(params, pipeline, *entry->layout, renderpass);
+        entry->descriptor_set_layout = CreateDescriptorSetLayout(pipeline.shaders);
+        entry->descriptor_pool =
+            CreateDescriptorPool(pipeline.shaders, *entry->descriptor_set_layout);
+        entry->pipeline_layout = CreatePipelineLayout(*entry->descriptor_set_layout);
+        entry->pipeline =
+            CreatePipeline(params, *entry->pipeline_layout, renderpass, pipeline.shaders);
     }
 
     pipeline.handle = *entry->pipeline;
-    pipeline.layout = *entry->layout;
+    pipeline.layout = *entry->pipeline_layout;
+    if (entry->descriptor_pool) {
+        pipeline.descriptor_set = entry->descriptor_pool->Commit(fence);
+    }
     return pipeline;
 }
 
@@ -460,23 +413,60 @@ void VKPipelineCache::ObjectInvalidated(const Shader& shader) {
     }
 }
 
-UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(const PipelineParams& params,
-                                                           const Pipeline& pipeline) const {
-    std::array<vk::DescriptorSetLayout, Maxwell::MaxShaderStage> set_layouts{};
-    for (std::size_t i = 0; i < Maxwell::MaxShaderStage; ++i) {
-        const auto& shader = pipeline.shaders[i];
-        set_layouts[i] = shader ? shader->GetDescriptorSetLayout() : *empty_set_layout;
+UniqueDescriptorSetLayout VKPipelineCache::CreateDescriptorSetLayout(
+    const std::array<Shader, Maxwell::MaxShaderStage>& shaders) const {
+    std::vector<vk::DescriptorSetLayoutBinding> bindings;
+    for (const auto& shader : shaders) {
+        if (shader)
+            shader->FillDescriptorLayout(bindings);
     }
+    const vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_ci(
+        {}, static_cast<u32>(bindings.size()), bindings.data());
 
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
-    return dev.createPipelineLayoutUnique(
-        {{}, static_cast<u32>(set_layouts.size()), set_layouts.data(), 0, nullptr}, nullptr, dld);
+    return dev.createDescriptorSetLayoutUnique(descriptor_set_layout_ci, nullptr, dld);
 }
 
-UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
-                                               const Pipeline& pipeline, vk::PipelineLayout layout,
-                                               vk::RenderPass renderpass) const {
+std::unique_ptr<DescriptorPool> VKPipelineCache::CreateDescriptorPool(
+    const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+    vk::DescriptorSetLayout descriptor_set_layout) const {
+    std::vector<vk::DescriptorPoolSize> pool_sizes;
+    for (const auto& shader : shaders) {
+        if (!shader) {
+            continue;
+        }
+        const auto PushSize = [&](vk::DescriptorType descriptor_type, std::size_t size) {
+            if (size > 0) {
+                pool_sizes.emplace_back(descriptor_type, static_cast<u32>(size * SETS_PER_POOL));
+            }
+        };
+        const auto& entries = shader->GetEntries();
+        PushSize(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size());
+        PushSize(vk::DescriptorType::eStorageBuffer, entries.global_buffers.size());
+        PushSize(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size());
+        PushSize(vk::DescriptorType::eInputAttachment, entries.attributes.size());
+    }
+    if (pool_sizes.size() == 0) {
+        // If the shader doesn't use descriptor sets, skip the pool creation.
+        return {};
+    }
+
+    return std::make_unique<DescriptorPool>(device, pool_sizes, descriptor_set_layout);
+}
+
+UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(
+    vk::DescriptorSetLayout descriptor_set_layout) const {
+    const vk::PipelineLayoutCreateInfo pipeline_layout_ci({}, 1, &descriptor_set_layout, 0,
+                                                          nullptr);
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
+    return dev.createPipelineLayoutUnique(pipeline_layout_ci, nullptr, dld);
+}
+
+UniquePipeline VKPipelineCache::CreatePipeline(
+    const PipelineParams& params, vk::PipelineLayout layout, vk::RenderPass renderpass,
+    const std::array<Shader, Maxwell::MaxShaderStage>& shaders) const {
     const auto& vi = params.vertex_input;
     const auto& ia = params.input_assembly;
     const auto& ds = params.depth_stencil;
@@ -557,8 +547,8 @@ UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
 
     StaticVector<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> shader_stages;
     for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
-        const auto& shader = pipeline.shaders[stage];
-        if (shader == nullptr)
+        const auto& shader = shaders[stage];
+        if (!shader)
             continue;
 
         shader_stages.Push(vk::PipelineShaderStageCreateInfo(
