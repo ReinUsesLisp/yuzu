@@ -1,9 +1,10 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
 #include <array>
 #include <memory>
+#include <vector>
 
 #include <boost/functional/hash.hpp>
 
@@ -155,10 +156,8 @@ void RasterizerVulkan::DrawArrays() {
     const Pipeline pipeline =
         pipeline_cache->GetPipeline(params, renderpass_params, renderpass, exctx.GetFence());
 
-    FramebufferInfo fb_info;
-    std::tie(fb_info, exctx) = ConfigureFramebuffers(exctx, renderpass);
-    const View color_view = fb_info.color_views[0];
-    const View zeta_view = fb_info.zeta_view;
+    FramebufferInfo fbinfo;
+    std::tie(fbinfo, exctx) = ConfigureFramebuffers(exctx, renderpass);
 
     const auto descriptor_set = pipeline.descriptor_set;
     if (descriptor_set && pipeline.descriptor_template) {
@@ -186,12 +185,16 @@ void RasterizerVulkan::DrawArrays() {
                          pipeline_stage, vk::AccessFlagBits::eShaderRead);
     }
 
-    color_view->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
-                           vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                           vk::AccessFlagBits::eColorAttachmentRead |
-                               vk::AccessFlagBits::eColorAttachmentWrite);
+    for (const View color_view : fbinfo.color_views) {
+        if (color_view == nullptr)
+            continue;
+        color_view->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
+                               vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                               vk::AccessFlagBits::eColorAttachmentRead |
+                                   vk::AccessFlagBits::eColorAttachmentWrite);
+    }
 
-    if (zeta_view != nullptr) {
+    if (const View zeta_view = fbinfo.zeta_view; zeta_view != nullptr) {
         zeta_view->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
                               vk::PipelineStageFlagBits::eLateFragmentTests,
                               vk::AccessFlagBits::eDepthStencilAttachmentRead |
@@ -199,7 +202,7 @@ void RasterizerVulkan::DrawArrays() {
     }
 
     const vk::RenderPassBeginInfo renderpass_bi(
-        renderpass, fb_info.framebuffer, {{0, 0}, {fb_info.width, fb_info.height}}, 0, nullptr);
+        renderpass, fbinfo.framebuffer, {{0, 0}, {fbinfo.width, fbinfo.height}}, 0, nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline, dld);
     {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle, dld);
@@ -225,7 +228,6 @@ void RasterizerVulkan::Clear() {
                            regs.clear_buffers.A;
     const bool use_depth = regs.clear_buffers.Z;
     const bool use_stencil = regs.clear_buffers.S;
-
     if (!use_color && !use_depth && !use_stencil) {
         return;
     }
@@ -348,36 +350,35 @@ void RasterizerVulkan::UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, in
 }
 
 std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFramebuffers(
-    VKExecutionContext exctx, vk::RenderPass renderpass, bool using_color_fb, bool using_zeta_fb,
-    bool preserve_contents) {
+    VKExecutionContext exctx, vk::RenderPass renderpass) {
     const auto& regs = system.GPU().Maxwell3D().regs;
-
-    View color_view{}, zeta_view{};
-    if (using_color_fb) {
-        std::tie(color_view, exctx) =
-            texture_cache->GetColorBufferSurface(exctx, 0, preserve_contents);
-    }
-    if (using_zeta_fb) {
-        std::tie(zeta_view, exctx) = texture_cache->GetDepthBufferSurface(exctx, preserve_contents);
-    }
 
     FramebufferCacheKey fbkey;
     fbkey.renderpass = renderpass;
     fbkey.width = std::numeric_limits<u32>::max();
     fbkey.height = std::numeric_limits<u32>::max();
 
-    if (color_view != nullptr) {
-        color_view->MarkAsModified(true);
-        fbkey.views.Push(color_view->GetHandle());
-        fbkey.width = std::min(fbkey.width, color_view->GetWidth());
-        fbkey.height = std::min(fbkey.height, color_view->GetHeight());
+    const auto MarkAsModifiedAndPush = [&fbkey](View view) {
+        if (view == nullptr) {
+            return;
+        }
+        view->MarkAsModified(true);
+        fbkey.views.Push(view->GetHandle());
+        fbkey.width = std::min(fbkey.width, view->GetWidth());
+        fbkey.height = std::min(fbkey.height, view->GetHeight());
+    };
+
+    std::array<View, Maxwell::NumRenderTargets> color_views;
+    for (std::size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
+        View color_view;
+        std::tie(color_view, exctx) = texture_cache->GetColorBufferSurface(exctx, rt, true);
+        color_views[rt] = color_view;
+        MarkAsModifiedAndPush(color_view);
     }
-    if (zeta_view != nullptr) {
-        zeta_view->MarkAsModified(true);
-        fbkey.views.Push(zeta_view->GetHandle());
-        fbkey.width = std::min(fbkey.width, zeta_view->GetWidth());
-        fbkey.height = std::min(fbkey.height, zeta_view->GetHeight());
-    }
+
+    View zeta_view{};
+    std::tie(zeta_view, exctx) = texture_cache->GetDepthBufferSurface(exctx, true);
+    MarkAsModifiedAndPush(zeta_view);
 
     const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
     auto& framebuffer = fbentry->second;
@@ -392,7 +393,7 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
 
     FramebufferInfo info;
     info.framebuffer = *framebuffer;
-    info.color_views[0] = color_view;
+    info.color_views = color_views;
     info.zeta_view = zeta_view;
     info.width = fbkey.width;
     info.height = fbkey.height;
@@ -560,24 +561,25 @@ std::size_t RasterizerVulkan::CalculateIndexBufferSize() const {
 }
 
 RenderPassParams RasterizerVulkan::GetRenderPassParams() const {
+    using namespace VideoCore::Surface;
     const auto& regs = system.GPU().Maxwell3D().regs;
 
     RenderPassParams renderpass_params;
     if ((renderpass_params.has_zeta = regs.zeta_enable)) {
-        renderpass_params.zeta_component_type =
-            VideoCore::Surface::ComponentTypeFromDepthFormat(regs.zeta.format);
-        renderpass_params.zeta_pixel_format =
-            VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
+        renderpass_params.zeta_component_type = ComponentTypeFromDepthFormat(regs.zeta.format);
+        renderpass_params.zeta_pixel_format = PixelFormatFromDepthFormat(regs.zeta.format);
     }
 
-    // TODO(Rodrigo): Support multiple attachments
-    RenderPassParams::ColorAttachment attachment;
-    attachment.index = 0;
-    attachment.pixel_format =
-        VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[0].format);
-    attachment.component_type =
-        VideoCore::Surface::ComponentTypeFromRenderTarget(regs.rt[0].format);
-    renderpass_params.color_map.Push(attachment);
+    for (std::size_t rt = 0; rt < static_cast<std::size_t>(regs.rt_control.count); ++rt) {
+        const auto& rendertarget = regs.rt[rt];
+        if (rendertarget.Address() == 0 || rendertarget.format == Tegra::RenderTargetFormat::NONE)
+            continue;
+        RenderPassParams::ColorAttachment attachment;
+        attachment.index = static_cast<u32>(rt);
+        attachment.pixel_format = PixelFormatFromRenderTargetFormat(rendertarget.format);
+        attachment.component_type = ComponentTypeFromRenderTarget(rendertarget.format);
+        renderpass_params.color_map.Push(attachment);
+    }
 
     return renderpass_params;
 }
@@ -632,14 +634,28 @@ void RasterizerVulkan::SyncColorBlending(PipelineParams& params) {
 
     cd.blend_constants = {regs.blend_color.r, regs.blend_color.g, regs.blend_color.b,
                           regs.blend_color.a};
-    cd.independent_blend = regs.independent_blend_enable == 1;
+    cd.attachments_count = regs.rt_control.count;
 
-    if (!cd.independent_blend) {
-        auto& blend = cd.attachments[0];
-        const auto& src = regs.blend;
-
-        blend.enable = src.enable[0] != 0;
-        if (blend.enable) {
+    for (std::size_t rt = 0; rt < regs.rt_control.count; ++rt) {
+        auto& blend = cd.attachments[rt];
+        if (regs.independent_blend_enable != 0) {
+            blend.enable = regs.blend.enable[rt] != 0;
+            if (!blend.enable)
+                continue;
+            const auto& src = regs.independent_blend[rt];
+            blend.rgb_equation = src.equation_rgb;
+            blend.src_rgb_func = src.factor_source_rgb;
+            blend.dst_rgb_func = src.factor_dest_rgb;
+            blend.a_equation = src.equation_a;
+            blend.src_a_func = src.factor_source_a;
+            blend.dst_a_func = src.factor_dest_a;
+            // TODO(Rodrigo): Read from registers
+            blend.components = {true, true, true, true};
+        } else {
+            const auto& src = regs.blend;
+            blend.enable = src.enable[rt] != 0;
+            if (!blend.enable)
+                continue;
             blend.rgb_equation = src.equation_rgb;
             blend.src_rgb_func = src.factor_source_rgb;
             blend.dst_rgb_func = src.factor_dest_rgb;
@@ -649,24 +665,6 @@ void RasterizerVulkan::SyncColorBlending(PipelineParams& params) {
             // TODO(Rodrigo): Read from registers
             blend.components = {true, true, true, true};
         }
-        return;
-    }
-
-    for (std::size_t i = 0; i < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets; i++) {
-        auto& blend = cd.attachments[i];
-        const auto& src = regs.independent_blend[i];
-
-        blend.enable = regs.blend.enable[i] != 0;
-        if (!blend.enable)
-            continue;
-        blend.rgb_equation = src.equation_rgb;
-        blend.src_rgb_func = src.factor_source_rgb;
-        blend.dst_rgb_func = src.factor_dest_rgb;
-        blend.a_equation = src.equation_a;
-        blend.src_a_func = src.factor_source_a;
-        blend.dst_a_func = src.factor_dest_a;
-        // TODO(Rodrigo): Read from registers
-        blend.components = {true, true, true, true};
     }
 }
 

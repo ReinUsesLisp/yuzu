@@ -152,8 +152,9 @@ struct PipelineParams {
 
     struct ColorBlending {
         std::array<float, 4> blend_constants{};
+
+        u32 attachments_count{};
         std::array<BlendingAttachment, Maxwell::NumRenderTargets> attachments;
-        bool independent_blend = false;
 
         std::size_t Hash() const;
         bool operator==(const ColorBlending& rhs) const;

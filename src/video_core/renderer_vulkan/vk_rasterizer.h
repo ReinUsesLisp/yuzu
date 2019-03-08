@@ -1,11 +1,13 @@
-// Copyright 2018 yuzu Emulator Project
+// Copyright 2019 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
 #pragma once
 
+#include <array>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include <boost/icl/interval.hpp>
 
@@ -139,8 +141,7 @@ private:
     static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
 
     [[nodiscard]] std::tuple<FramebufferInfo, VKExecutionContext> ConfigureFramebuffers(
-        VKExecutionContext exctx, vk::RenderPass renderpass, bool using_color_fb = true,
-        bool use_zeta_fb = true, bool preserve_contents = true);
+        VKExecutionContext exctx, vk::RenderPass renderpass);
 
     void SetupVertexArrays(PipelineParams& params);
 

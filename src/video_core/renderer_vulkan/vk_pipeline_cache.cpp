@@ -203,15 +203,15 @@ bool PipelineParams::DepthStencil::operator==(const DepthStencil& rhs) const {
 std::size_t PipelineParams::ColorBlending::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, blend_constants);
-    for (const auto& attachment : attachments)
-        boost::hash_combine(hash, attachment.Hash());
-    boost::hash_combine(hash, independent_blend);
+    boost::hash_combine(hash, attachments_count);
+    for (std::size_t rt = 0; rt < static_cast<std::size_t>(attachments_count); ++rt)
+        boost::hash_combine(hash, attachments[rt].Hash());
     return hash;
 }
 
 bool PipelineParams::ColorBlending::operator==(const ColorBlending& rhs) const {
-    return std::tie(blend_constants, attachments, independent_blend) ==
-           std::tie(rhs.blend_constants, rhs.attachments, rhs.independent_blend);
+    return std::tie(blend_constants, attachments_count, attachments) ==
+           std::tie(rhs.blend_constants, rhs.attachments_count, rhs.attachments);
 }
 
 void PipelineParams::CalculateHash() {
@@ -565,10 +565,7 @@ UniquePipeline VKPipelineCache::CreatePipeline(
         GetStencilFaceState(ds.back_stencil), ds.depth_bounds_min, ds.depth_bounds_max);
 
     std::array<vk::PipelineColorBlendAttachmentState, Maxwell::NumRenderTargets> cb_attachments;
-    // TODO(Rodrigo): Change this when multiple color attachments are supported
-    // cd.independent_blend ? cb_attachments.size() : 1
-    const std::size_t blend_attachment_count = 1;
-    for (std::size_t i = 0; i < blend_attachment_count; ++i) {
+    for (std::size_t i = 0; i < cd.attachments_count; ++i) {
         constexpr std::array<vk::ColorComponentFlagBits, 4> component_table = {
             vk::ColorComponentFlagBits::eR, vk::ColorComponentFlagBits::eG,
             vk::ColorComponentFlagBits::eB, vk::ColorComponentFlagBits::eA};
@@ -588,8 +585,8 @@ UniquePipeline VKPipelineCache::CreatePipeline(
             MaxwellToVK::BlendEquation(blend.a_equation), color_components);
     }
     const vk::PipelineColorBlendStateCreateInfo color_blending_ci(
-        {}, false, vk::LogicOp::eCopy, static_cast<u32>(blend_attachment_count),
-        cb_attachments.data(), cd.blend_constants);
+        {}, false, vk::LogicOp::eCopy, cd.attachments_count, cb_attachments.data(),
+        cd.blend_constants);
 
     StaticVector<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> shader_stages;
     for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
