@@ -6,7 +6,9 @@
 
 #include <memory>
 #include <utility>
+
 #include <boost/icl/interval.hpp>
+
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
@@ -78,8 +80,6 @@ namespace Vulkan {
 
 class PipelineState {
 public:
-    PipelineState();
-
     void Reset();
 
     void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset);
@@ -94,7 +94,8 @@ public:
                        vk::DescriptorType descriptor_type, vk::Sampler sampler,
                        vk::ImageView image_view, vk::ImageLayout image_layout);
 
-    void UpdateDescriptorSet(const VKDevice& device) const;
+    void UpdateDescriptorSet(const VKDevice& device, vk::DescriptorSet descriptor_set,
+                             vk::DescriptorUpdateTemplate descriptor_update_template) const;
 
     void BindVertexBuffers(vk::CommandBuffer cmdbuf, const vk::DispatchLoaderDynamic& dld) const;
 
@@ -107,9 +108,7 @@ private:
     vk::DeviceSize index_offset{};
     vk::IndexType index_type{};
 
-    std::vector<vk::WriteDescriptorSet> descriptor_bindings;
-    std::vector<vk::DescriptorBufferInfo> buffer_infos;
-    std::vector<vk::DescriptorImageInfo> image_infos;
+    std::vector<DescriptorUpdateEntry> update_entries;
 };
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {

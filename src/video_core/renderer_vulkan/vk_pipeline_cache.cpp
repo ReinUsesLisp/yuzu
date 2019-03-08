@@ -377,6 +377,8 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
         entry->descriptor_pool =
             CreateDescriptorPool(pipeline.shaders, *entry->descriptor_set_layout);
         entry->pipeline_layout = CreatePipelineLayout(*entry->descriptor_set_layout);
+        entry->descriptor_template = CreateDescriptorUpdateTemplate(
+            pipeline.shaders, *entry->descriptor_set_layout, *entry->pipeline_layout);
         entry->pipeline =
             CreatePipeline(params, *entry->pipeline_layout, renderpass, pipeline.shaders);
     }
@@ -384,7 +386,9 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
     pipeline.handle = *entry->pipeline;
     pipeline.layout = *entry->pipeline_layout;
     if (entry->descriptor_pool) {
+        ASSERT(entry->descriptor_template);
         pipeline.descriptor_set = entry->descriptor_pool->Commit(fence);
+        pipeline.descriptor_template = *entry->descriptor_template;
     }
     return pipeline;
 }
@@ -462,6 +466,43 @@ UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     return dev.createPipelineLayoutUnique(pipeline_layout_ci, nullptr, dld);
+}
+
+UniqueDescriptorUpdateTemplate VKPipelineCache::CreateDescriptorUpdateTemplate(
+    const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+    vk::DescriptorSetLayout descriptor_set_layout, vk::PipelineLayout pipeline_layout) const {
+    std::vector<vk::DescriptorUpdateTemplateEntry> template_entries;
+    u32 offset = 0;
+    for (const auto& shader : shaders) {
+        if (!shader)
+            continue;
+        const auto AddEntry = [&](vk::DescriptorType descriptor_type, u32 base_binding,
+                                  std::size_t count_) {
+            constexpr auto entry_size = static_cast<u32>(sizeof(DescriptorUpdateEntry));
+            const auto count = static_cast<u32>(count_);
+            if (count == 0)
+                return;
+            template_entries.emplace_back(base_binding, 0, count, descriptor_type, offset,
+                                          entry_size);
+            offset += count * entry_size;
+        };
+        const auto& entries = shader->GetEntries();
+        AddEntry(vk::DescriptorType::eUniformBuffer, entries.const_buffers_base_binding,
+                 entries.const_buffers.size());
+        AddEntry(vk::DescriptorType::eStorageBuffer, entries.global_buffers_base_binding,
+                 entries.global_buffers.size());
+        AddEntry(vk::DescriptorType::eCombinedImageSampler, entries.samplers_base_binding,
+                 entries.samplers.size());
+    }
+
+    const vk::DescriptorUpdateTemplateCreateInfo template_ci(
+        {}, static_cast<u32>(template_entries.size()), template_entries.data(),
+        vk::DescriptorUpdateTemplateType::eDescriptorSet, descriptor_set_layout,
+        vk::PipelineBindPoint::eGraphics, pipeline_layout, VKShader::DESCRIPTOR_SET);
+
+    const auto dev = device.GetLogical();
+    const auto& dld = device.GetDispatchLoader();
+    return dev.createDescriptorUpdateTemplateUnique(template_ci, nullptr, dld);
 }
 
 UniquePipeline VKPipelineCache::CreatePipeline(

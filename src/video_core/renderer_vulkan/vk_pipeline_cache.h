@@ -186,6 +186,7 @@ struct Pipeline {
     vk::Pipeline handle;
     vk::PipelineLayout layout;
     vk::DescriptorSet descriptor_set;
+    vk::DescriptorUpdateTemplate descriptor_template;
     std::array<Shader, Maxwell::MaxShaderStage> shaders;
 };
 
@@ -285,6 +286,14 @@ private:
     std::vector<std::vector<UniqueDescriptorSet>> allocations;
 };
 
+union DescriptorUpdateEntry {
+    DescriptorUpdateEntry(vk::DescriptorImageInfo&& image) : image{image} {}
+    DescriptorUpdateEntry(vk::DescriptorBufferInfo&& buffer) : buffer{buffer} {}
+
+    vk::DescriptorImageInfo image;
+    vk::DescriptorBufferInfo buffer;
+};
+
 class VKPipelineCache final : public RasterizerCache<Shader> {
 public:
     explicit VKPipelineCache(Core::System& system, RasterizerVulkan& rasterizer,
@@ -304,6 +313,7 @@ private:
         UniquePipeline pipeline;
         UniquePipelineLayout pipeline_layout;
         UniqueDescriptorSetLayout descriptor_set_layout;
+        UniqueDescriptorUpdateTemplate descriptor_template;
         UniqueRenderPass renderpass;
         std::unique_ptr<DescriptorPool> descriptor_pool;
     };
@@ -316,6 +326,10 @@ private:
         vk::DescriptorSetLayout descriptor_set_layout) const;
 
     UniquePipelineLayout CreatePipelineLayout(vk::DescriptorSetLayout descriptor_set_layout) const;
+
+    UniqueDescriptorUpdateTemplate CreateDescriptorUpdateTemplate(
+        const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+        vk::DescriptorSetLayout descriptor_set_layout, vk::PipelineLayout pipeline_layout) const;
 
     UniquePipeline CreatePipeline(const PipelineParams& params, vk::PipelineLayout layout,
                                   vk::RenderPass renderpass,

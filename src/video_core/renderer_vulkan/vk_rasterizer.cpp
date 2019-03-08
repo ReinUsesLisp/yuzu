@@ -40,17 +40,9 @@ struct FramebufferInfo {
     u32 height;
 };
 
-PipelineState::PipelineState() {
-    // Hack, use Template extension
-    buffer_infos.reserve(64);
-    image_infos.reserve(64);
-}
-
 void PipelineState::Reset() {
     vertex_bindings.clear();
-    descriptor_bindings.clear();
-    buffer_infos.clear();
-    image_infos.clear();
+    update_entries.clear();
 }
 
 void PipelineState::AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
@@ -66,24 +58,23 @@ void PipelineState::SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk
 void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
                                   vk::DescriptorType descriptor_type, vk::Buffer buffer, u64 offset,
                                   std::size_t size) {
-    auto& info = buffer_infos.emplace_back(buffer, offset, static_cast<vk::DeviceSize>(size));
-    descriptor_bindings.emplace_back(descriptor_set, current_binding, 0, 1, descriptor_type,
-                                     nullptr, &info, nullptr);
+    update_entries.emplace_back(
+        vk::DescriptorBufferInfo(buffer, offset, static_cast<vk::DeviceSize>(size)));
 }
 
 void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
                                   vk::DescriptorType descriptor_type, vk::Sampler sampler,
                                   vk::ImageView image_view, vk::ImageLayout image_layout) {
-    auto& info = image_infos.emplace_back(sampler, image_view, image_layout);
-    descriptor_bindings.emplace_back(descriptor_set, current_binding, 0, 1, descriptor_type, &info,
-                                     nullptr, nullptr);
+    update_entries.emplace_back(vk::DescriptorImageInfo(sampler, image_view, image_layout));
 }
 
-void PipelineState::UpdateDescriptorSet(const VKDevice& device) const {
+void PipelineState::UpdateDescriptorSet(
+    const VKDevice& device, vk::DescriptorSet descriptor_set,
+    vk::DescriptorUpdateTemplate descriptor_update_template) const {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
-    dev.updateDescriptorSets(static_cast<u32>(descriptor_bindings.size()),
-                             descriptor_bindings.data(), 0, nullptr, dld);
+    dev.updateDescriptorSetWithTemplate(descriptor_set, descriptor_update_template,
+                                        update_entries.data(), dld);
 }
 
 void PipelineState::BindVertexBuffers(vk::CommandBuffer cmdbuf,
@@ -182,7 +173,7 @@ void RasterizerVulkan::DrawArrays() {
             exctx = SetupTextures(exctx, shader, stage_enum, descriptor_set);
         }
 
-        state.UpdateDescriptorSet(device);
+        state.UpdateDescriptorSet(device, descriptor_set, pipeline.descriptor_template);
     }
 
     exctx = buffer_cache->Send(exctx);
