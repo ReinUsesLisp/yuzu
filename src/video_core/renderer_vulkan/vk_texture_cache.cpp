@@ -257,8 +257,8 @@ vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
 CachedView::CachedView(const VKDevice& device, Surface surface, const ViewKey& key)
     : params{surface->GetSurfaceParams()}, image{surface->GetHandle()},
       aspect_mask{surface->GetAspectMask()}, device{device}, surface{surface},
-      base_layer{key.base_layer}, num_layers{key.num_layers},
-      base_level{key.base_level}, num_levels{key.num_levels} {};
+      base_layer{key.base_layer}, num_layers{key.num_layers}, base_level{key.base_level},
+      num_levels{key.num_levels} {};
 
 CachedView::~CachedView() = default;
 
@@ -267,6 +267,11 @@ vk::ImageView CachedView::GetHandle(Tegra::Shader::TextureType texture_type, Swi
                                     SwizzleSource w_source, bool is_array) {
     const auto [view_cache, image_view_type] = GetTargetCache(texture_type, is_array);
     return GetOrCreateView(view_cache, image_view_type, x_source, y_source, z_source, w_source);
+}
+
+bool CachedView::IsOverlapping(const CachedView* rhs) const {
+    // TODO(Rodrigo): Also test for layer and mip level overlaps.
+    return surface == rhs->surface;
 }
 
 std::pair<std::reference_wrapper<CachedView::ViewCache>, vk::ImageViewType>

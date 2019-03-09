@@ -109,6 +109,8 @@ public:
                             Tegra::Texture::SwizzleSource z_source,
                             Tegra::Texture::SwizzleSource w_source, bool is_array);
 
+    bool IsOverlapping(const CachedView* rhs) const;
+
     vk::ImageView GetHandle() {
         return GetHandle(Tegra::Shader::TextureType::Texture2D, Tegra::Texture::SwizzleSource::R,
                          Tegra::Texture::SwizzleSource::G, Tegra::Texture::SwizzleSource::B,

@@ -124,7 +124,7 @@ void RasterizerVulkan::DrawArrays() {
 
     PipelineParams params;
     state.Reset();
-    used_views.clear();
+    sampled_views.clear();
 
     // Get renderpass parameters and get a draw renderpass from the cache
     const auto renderpass_params = GetRenderPassParams();
@@ -179,19 +179,25 @@ void RasterizerVulkan::DrawArrays() {
 
     const auto cmdbuf = exctx.GetCommandBuffer();
 
-    for (const View view : used_views) {
+    for (const View sampled_view : sampled_views) {
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
-                         pipeline_stage, vk::AccessFlagBits::eShaderRead);
+        sampled_view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
+                                 pipeline_stage, vk::AccessFlagBits::eShaderRead);
     }
 
     for (const View color_view : fbinfo.color_views) {
         if (color_view == nullptr)
             continue;
-        color_view->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
-                               vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                               vk::AccessFlagBits::eColorAttachmentRead |
-                                   vk::AccessFlagBits::eColorAttachmentWrite);
+        // TODO(Rodrigo): Optimize this in some way that's not O(n^2)
+        const bool texception = std::any_of(sampled_views.begin(), sampled_views.end(),
+                                            [color_view](const auto& sampled_view) {
+                                                return color_view->IsOverlapping(sampled_view);
+                                            });
+        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
+                                             : vk::ImageLayout::eColorAttachmentOptimal;
+        color_view->Transition(
+            cmdbuf, image_layout, vk::PipelineStageFlagBits::eColorAttachmentOutput,
+            vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite);
     }
 
     if (const View zeta_view = fbinfo.zeta_view; zeta_view != nullptr) {
@@ -521,7 +527,7 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
         View view;
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture);
         UNIMPLEMENTED_IF(view == nullptr);
-        used_views.push_back(view);
+        sampled_views.push_back(view);
 
         const vk::ImageView image_view =
             view->GetHandle(entry.GetType(), texture.tic.x_source, texture.tic.y_source,

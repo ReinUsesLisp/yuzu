@@ -186,7 +186,7 @@ private:
     std::unique_ptr<VKSamplerCache> sampler_cache;
 
     PipelineState state;
-    std::vector<CachedView*> used_views;
+    std::vector<CachedView*> sampled_views;
 
     // TODO(Rodrigo): Invalidate on image destruction
     std::unordered_map<FramebufferCacheKey, UniqueFramebuffer> framebuffer_cache;
