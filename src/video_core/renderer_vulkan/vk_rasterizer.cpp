@@ -128,7 +128,7 @@ void RasterizerVulkan::DrawArrays() {
 
     // Get renderpass parameters and get a draw renderpass from the cache
     const auto renderpass_params = GetRenderPassParams();
-    const auto renderpass = renderpass_cache->GetDrawRenderPass(renderpass_params);
+    const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
 
     SyncDepthStencil(params);
     SyncInputAssembly(params);

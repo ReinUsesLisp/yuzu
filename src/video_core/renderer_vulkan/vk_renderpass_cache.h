@@ -84,20 +84,13 @@ public:
     explicit VKRenderPassCache(const VKDevice& device);
     ~VKRenderPassCache();
 
-    vk::RenderPass GetDrawRenderPass(const RenderPassParams& params);
-
-    vk::RenderPass GetClearRenderPass(const RenderPassParams& params);
+    vk::RenderPass GetRenderPass(const RenderPassParams& params);
 
 private:
-    struct CacheEntry {
-        UniqueRenderPass draw;
-        UniqueRenderPass clear;
-    };
-
-    UniqueRenderPass CreateRenderPass(const RenderPassParams& params, bool is_draw);
+    UniqueRenderPass CreateRenderPass(const RenderPassParams& params) const;
 
     const VKDevice& device;
-    std::unordered_map<RenderPassParams, std::unique_ptr<CacheEntry>> cache;
+    std::unordered_map<RenderPassParams, UniqueRenderPass> cache;
 };
 
 } // namespace Vulkan

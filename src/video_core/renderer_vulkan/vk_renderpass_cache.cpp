@@ -19,33 +19,17 @@ VKRenderPassCache::VKRenderPassCache(const VKDevice& device) : device{device} {}
 
 VKRenderPassCache::~VKRenderPassCache() = default;
 
-vk::RenderPass VKRenderPassCache::GetDrawRenderPass(const RenderPassParams& params) {
+vk::RenderPass VKRenderPassCache::GetRenderPass(const RenderPassParams& params) {
     const auto [pair, is_cache_miss] = cache.try_emplace(params);
     auto& entry = pair->second;
     if (is_cache_miss) {
-        entry = std::make_unique<CacheEntry>();
+        entry = CreateRenderPass(params);
     }
-    if (!entry->draw) {
-        entry->draw = CreateRenderPass(params, true);
-    }
-    return *entry->draw;
+    return *entry;
 }
 
-vk::RenderPass VKRenderPassCache::GetClearRenderPass(const RenderPassParams& params) {
-    const auto [pair, is_cache_miss] = cache.try_emplace(params);
-    auto& entry = pair->second;
-    if (is_cache_miss) {
-        entry = std::make_unique<CacheEntry>();
-    }
-    if (!entry->clear) {
-        entry->clear = CreateRenderPass(params, false);
-    }
-    return *entry->clear;
-}
-
-UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& params, bool is_draw) {
-    const vk::AttachmentLoadOp load_op =
-        is_draw ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
+UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& params) const {
+    constexpr vk::AttachmentLoadOp load_op = vk::AttachmentLoadOp::eLoad;
     std::vector<vk::AttachmentDescription> descriptors;
 
     for (const auto& map : params.color_map) {
@@ -84,17 +68,17 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
         {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, color_map_count, color_references.data(),
         nullptr, has_zeta ? &zeta_attachment_ref : nullptr, 0, nullptr);
 
-    vk::AccessFlags access{};
-    vk::PipelineStageFlags stage{};
-    if (is_draw)
-        access |= vk::AccessFlagBits::eColorAttachmentRead;
-    access |= vk::AccessFlagBits::eColorAttachmentWrite;
-    stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::AccessFlags access;
+    vk::PipelineStageFlags stage;
+    if (color_map_count > 0) {
+        access |=
+            vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite;
+        stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    }
 
     if (has_zeta) {
-        if (is_draw)
-            access |= vk::AccessFlagBits::eDepthStencilAttachmentRead;
-        access |= vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        access |= vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                  vk::AccessFlagBits::eDepthStencilAttachmentWrite;
         stage |= vk::PipelineStageFlagBits::eLateFragmentTests;
     }
 
