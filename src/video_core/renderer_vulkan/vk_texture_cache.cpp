@@ -85,10 +85,10 @@ static vk::ImageCreateInfo GenerateImageCreateInfo(const VKDevice& device,
     case SurfaceTarget::Texture1DArray:
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
-        extent = {params.width, params.height, 1};
+        extent = vk::Extent3D(params.width, params.height, 1);
         break;
     case SurfaceTarget::Texture3D:
-        extent = {params.width, params.height, params.depth};
+        extent = vk::Extent3D(params.width, params.height, params.depth);
         break;
     default:
         UNREACHABLE_MSG("Unknown surface target={}", static_cast<u32>(params.target));

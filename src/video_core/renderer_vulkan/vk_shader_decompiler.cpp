@@ -80,7 +80,11 @@ bool IsPrecise(Operation operand) {
 class SPIRVDecompiler : public Sirit::Module {
 public:
     explicit SPIRVDecompiler(const ShaderIR& ir, ShaderStage stage)
-        : Module(0x00010300), ir{ir}, stage{stage}, header{ir.GetHeader()} {}
+        : Module(0x00010300), ir{ir}, stage{stage}, header{ir.GetHeader()} {
+            AddCapability(spv::Capability::Shader);
+            AddExtension("SPV_KHR_storage_buffer_storage_class");
+            AddExtension("SPV_KHR_variable_pointers");
+        }
 
     void Decompile() {
         AllocateBindings();
