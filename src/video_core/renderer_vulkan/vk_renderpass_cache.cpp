@@ -37,13 +37,15 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
         ASSERT_MSG(color_attachable, "Trying to attach a non-attacheable format with format {}",
                    static_cast<u32>(attachment.pixel_format));
 
+        // TODO(Rodrigo): Add eMayAlias when it's needed.
         const auto color_layout = attachment.is_texception
                                       ? vk::ImageLayout::eSharedPresentKHR
                                       : vk::ImageLayout::eColorAttachmentOptimal;
         descriptors.push_back(vk::AttachmentDescription(
-            {}, color_format, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
-            vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
-            vk::AttachmentStoreOp::eDontCare, color_layout, color_layout));
+            vk::AttachmentDescriptionFlagBits::eMayAlias, color_format, vk::SampleCountFlagBits::e1,
+            vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore,
+            vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, color_layout,
+            color_layout));
         color_references.emplace_back(static_cast<u32>(rt), color_layout);
     }
 
