@@ -52,15 +52,15 @@ static VKShader::ProgramCode GetShaderCode(VAddr addr) {
     return program_code;
 }
 
-static vk::StencilOpState GetStencilFaceState(const PipelineParams::StencilFace& state) {
-    return vk::StencilOpState(MaxwellToVK::StencilOp(state.action_stencil_fail),
-                              MaxwellToVK::StencilOp(state.action_depth_pass),
-                              MaxwellToVK::StencilOp(state.action_depth_fail),
-                              MaxwellToVK::ComparisonOp(state.test_func), state.test_mask,
-                              state.write_mask, state.test_ref);
+static vk::StencilOpState GetStencilFaceState(const FixedPipelineState::StencilFace& face) {
+    return vk::StencilOpState(MaxwellToVK::StencilOp(face.action_stencil_fail),
+                              MaxwellToVK::StencilOp(face.action_depth_pass),
+                              MaxwellToVK::StencilOp(face.action_depth_fail),
+                              MaxwellToVK::ComparisonOp(face.test_func), face.test_mask,
+                              face.write_mask, face.test_ref);
 }
 
-std::size_t PipelineParams::VertexBinding::Hash() const {
+std::size_t FixedPipelineState::VertexBinding::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, index);
     boost::hash_combine(hash, stride);
@@ -68,11 +68,11 @@ std::size_t PipelineParams::VertexBinding::Hash() const {
     return hash;
 }
 
-bool PipelineParams::VertexBinding::operator==(const VertexBinding& rhs) const {
+bool FixedPipelineState::VertexBinding::operator==(const VertexBinding& rhs) const {
     return std::tie(index, stride, divisor) == std::tie(rhs.index, rhs.stride, rhs.divisor);
 }
 
-std::size_t PipelineParams::VertexAttribute::Hash() const {
+std::size_t FixedPipelineState::VertexAttribute::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, index);
     boost::hash_combine(hash, buffer);
@@ -82,12 +82,12 @@ std::size_t PipelineParams::VertexAttribute::Hash() const {
     return hash;
 }
 
-bool PipelineParams::VertexAttribute::operator==(const VertexAttribute& rhs) const {
+bool FixedPipelineState::VertexAttribute::operator==(const VertexAttribute& rhs) const {
     return std::tie(index, buffer, type, size, offset) ==
            std::tie(rhs.index, rhs.buffer, rhs.type, rhs.size, rhs.offset);
 }
 
-std::size_t PipelineParams::StencilFace::Hash() const {
+std::size_t FixedPipelineState::StencilFace::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, action_stencil_fail);
     boost::hash_combine(hash, action_depth_fail);
@@ -99,14 +99,14 @@ std::size_t PipelineParams::StencilFace::Hash() const {
     return hash;
 }
 
-bool PipelineParams::StencilFace::operator==(const StencilFace& rhs) const {
+bool FixedPipelineState::StencilFace::operator==(const StencilFace& rhs) const {
     return std::tie(action_stencil_fail, action_depth_fail, action_depth_pass, test_func, test_ref,
                     test_mask, write_mask) ==
            std::tie(rhs.action_stencil_fail, rhs.action_depth_fail, rhs.action_depth_pass,
                     rhs.test_func, rhs.test_ref, rhs.test_mask, rhs.write_mask);
 }
 
-std::size_t PipelineParams::BlendingAttachment::Hash() const {
+std::size_t FixedPipelineState::BlendingAttachment::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, enable);
     boost::hash_combine(hash, rgb_equation);
@@ -119,14 +119,14 @@ std::size_t PipelineParams::BlendingAttachment::Hash() const {
     return hash;
 }
 
-bool PipelineParams::BlendingAttachment::operator==(const BlendingAttachment& rhs) const {
+bool FixedPipelineState::BlendingAttachment::operator==(const BlendingAttachment& rhs) const {
     return std::tie(enable, rgb_equation, src_rgb_func, dst_rgb_func, a_equation, src_a_func,
                     dst_a_func, components) ==
            std::tie(rhs.enable, rhs.rgb_equation, rhs.src_rgb_func, rhs.dst_rgb_func,
                     rhs.a_equation, rhs.src_a_func, rhs.dst_a_func, rhs.components);
 }
 
-std::size_t PipelineParams::VertexInput::Hash() const {
+std::size_t FixedPipelineState::VertexInput::Hash() const {
     std::size_t hash = 0;
     for (const auto& binding : bindings)
         boost::hash_combine(hash, binding.Hash());
@@ -135,23 +135,23 @@ std::size_t PipelineParams::VertexInput::Hash() const {
     return hash;
 }
 
-bool PipelineParams::VertexInput::operator==(const VertexInput& rhs) const {
+bool FixedPipelineState::VertexInput::operator==(const VertexInput& rhs) const {
     return std::tie(bindings, attributes) == std::tie(rhs.bindings, rhs.attributes);
 }
 
-std::size_t PipelineParams::InputAssembly::Hash() const {
+std::size_t FixedPipelineState::InputAssembly::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, topology);
     boost::hash_combine(hash, primitive_restart_enable);
     return hash;
 }
 
-bool PipelineParams::InputAssembly::operator==(const InputAssembly& rhs) const {
+bool FixedPipelineState::InputAssembly::operator==(const InputAssembly& rhs) const {
     return std::tie(topology, primitive_restart_enable) ==
            std::tie(rhs.topology, rhs.primitive_restart_enable);
 }
 
-std::size_t PipelineParams::ViewportState::Hash() const {
+std::size_t FixedPipelineState::ViewportState::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, x);
     boost::hash_combine(hash, y);
@@ -160,11 +160,11 @@ std::size_t PipelineParams::ViewportState::Hash() const {
     return hash;
 }
 
-bool PipelineParams::ViewportState::operator==(const ViewportState& rhs) const {
+bool FixedPipelineState::ViewportState::operator==(const ViewportState& rhs) const {
     return std::tie(x, y, width, height) == std::tie(rhs.x, rhs.y, rhs.width, rhs.height);
 }
 
-std::size_t PipelineParams::Rasterizer::Hash() const {
+std::size_t FixedPipelineState::Rasterizer::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, cull_enable);
     boost::hash_combine(hash, cull_face);
@@ -172,12 +172,12 @@ std::size_t PipelineParams::Rasterizer::Hash() const {
     return hash;
 }
 
-bool PipelineParams::Rasterizer::operator==(const Rasterizer& rhs) const {
+bool FixedPipelineState::Rasterizer::operator==(const Rasterizer& rhs) const {
     return std::tie(cull_enable, cull_face, front_face) ==
            std::tie(rhs.cull_enable, rhs.cull_face, rhs.front_face);
 }
 
-std::size_t PipelineParams::DepthStencil::Hash() const {
+std::size_t FixedPipelineState::DepthStencil::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, depth_test_enable);
     boost::hash_combine(hash, depth_write_enable);
@@ -191,7 +191,7 @@ std::size_t PipelineParams::DepthStencil::Hash() const {
     return hash;
 }
 
-bool PipelineParams::DepthStencil::operator==(const DepthStencil& rhs) const {
+bool FixedPipelineState::DepthStencil::operator==(const DepthStencil& rhs) const {
     return std::tie(depth_test_enable, depth_write_enable, depth_bounds_enable, depth_test_function,
                     stencil_enable, front_stencil, back_stencil, depth_bounds_min,
                     depth_bounds_max) ==
@@ -200,7 +200,7 @@ bool PipelineParams::DepthStencil::operator==(const DepthStencil& rhs) const {
                     rhs.back_stencil, rhs.depth_bounds_min, rhs.depth_bounds_max);
 }
 
-std::size_t PipelineParams::ColorBlending::Hash() const {
+std::size_t FixedPipelineState::ColorBlending::Hash() const {
     std::size_t hash = 0;
     boost::hash_combine(hash, blend_constants);
     boost::hash_combine(hash, attachments_count);
@@ -209,12 +209,12 @@ std::size_t PipelineParams::ColorBlending::Hash() const {
     return hash;
 }
 
-bool PipelineParams::ColorBlending::operator==(const ColorBlending& rhs) const {
+bool FixedPipelineState::ColorBlending::operator==(const ColorBlending& rhs) const {
     return std::tie(blend_constants, attachments_count, attachments) ==
            std::tie(rhs.blend_constants, rhs.attachments_count, rhs.attachments);
 }
 
-void PipelineParams::CalculateHash() {
+void FixedPipelineState::CalculateHash() {
     hash = 0;
     boost::hash_combine(hash, vertex_input.Hash());
     boost::hash_combine(hash, input_assembly.Hash());
@@ -225,11 +225,11 @@ void PipelineParams::CalculateHash() {
     boost::hash_combine(hash, color_blending.Hash());
 }
 
-std::size_t PipelineParams::Hash() const {
+std::size_t FixedPipelineState::Hash() const {
     return hash;
 }
 
-bool PipelineParams::operator==(const PipelineParams& rhs) const {
+bool FixedPipelineState::operator==(const FixedPipelineState& rhs) const {
     return std::tie(vertex_input, input_assembly, viewport_state, rasterizer, /*multisampling,*/
                     depth_stencil, color_blending) ==
            std::tie(rhs.vertex_input, rhs.input_assembly, rhs.viewport_state, rhs.rasterizer,
@@ -367,14 +367,14 @@ VKPipelineCache::GetShaders() {
     return {shaders, shader_addresses};
 }
 
-Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
+Pipeline VKPipelineCache::GetPipeline(const FixedPipelineState& fixed_state,
                                       const RenderPassParams& renderpass_params,
                                       const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
                                       const PipelineCacheShaders& shader_addresses,
                                       vk::RenderPass renderpass, VKFence& fence) {
     Pipeline pipeline;
-    PipelineCacheKey key{shader_addresses, renderpass_params, params};
-    key.pipeline.CalculateHash();
+    PipelineCacheKey key{shader_addresses, renderpass_params, fixed_state};
+    key.fixed_state.CalculateHash();
     const auto [pair, is_cache_miss] = cache.try_emplace(key);
     auto& entry = pair->second;
 
@@ -385,7 +385,7 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
         entry->pipeline_layout = CreatePipelineLayout(*entry->descriptor_set_layout);
         entry->descriptor_template = CreateDescriptorUpdateTemplate(
             shaders, *entry->descriptor_set_layout, *entry->pipeline_layout);
-        entry->pipeline = CreatePipeline(params, *entry->pipeline_layout, renderpass, shaders);
+        entry->pipeline = CreatePipeline(fixed_state, *entry->pipeline_layout, renderpass, shaders);
     }
 
     pipeline.handle = *entry->pipeline;
@@ -516,14 +516,14 @@ UniqueDescriptorUpdateTemplate VKPipelineCache::CreateDescriptorUpdateTemplate(
 }
 
 UniquePipeline VKPipelineCache::CreatePipeline(
-    const PipelineParams& params, vk::PipelineLayout layout, vk::RenderPass renderpass,
+    const FixedPipelineState& fixed_state, vk::PipelineLayout layout, vk::RenderPass renderpass,
     const std::array<Shader, Maxwell::MaxShaderStage>& shaders) const {
-    const auto& vi = params.vertex_input;
-    const auto& ia = params.input_assembly;
-    const auto& ds = params.depth_stencil;
-    const auto& cd = params.color_blending;
-    const auto& vs = params.viewport_state;
-    const auto& rs = params.rasterizer;
+    const auto& vi = fixed_state.vertex_input;
+    const auto& ia = fixed_state.input_assembly;
+    const auto& ds = fixed_state.depth_stencil;
+    const auto& cd = fixed_state.color_blending;
+    const auto& vs = fixed_state.viewport_state;
+    const auto& rs = fixed_state.rasterizer;
 
     StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
     for (const auto& binding : vi.bindings) {

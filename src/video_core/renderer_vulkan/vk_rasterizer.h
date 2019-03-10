@@ -142,7 +142,7 @@ private:
 
     void PrepareDraw();
 
-    void SyncFixedPipeline(PipelineParams& params);
+    void SyncFixedPipeline(FixedPipelineState& fixed_state);
 
     [[nodiscard]] std::tuple<std::array<CachedView*, Maxwell::NumRenderTargets>, VKExecutionContext>
     GetColorAttachments(VKExecutionContext exctx);
@@ -156,7 +156,7 @@ private:
         const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
         CachedView* zeta_attachment, vk::RenderPass renderpass);
 
-    void SetupGeometry(PipelineParams& params);
+    void SetupGeometry(FixedPipelineState& fixed_state);
 
     [[nodiscard]] std::tuple<Texceptions, VKExecutionContext> SetupShaderDescriptors(
         VKExecutionContext exctx,
@@ -173,7 +173,7 @@ private:
                       vk::RenderPass renderpass, vk::Framebuffer framebuffer,
                       vk::Extent2D render_area);
 
-    void SetupVertexArrays(PipelineParams& params);
+    void SetupVertexArrays(FixedPipelineState& params);
 
     void SetupIndexBuffer();
 
@@ -192,11 +192,11 @@ private:
 
     RenderPassParams GetRenderPassParams(Texceptions texceptions) const;
 
-    void SyncDepthStencil(PipelineParams& params);
-    void SyncInputAssembly(PipelineParams& params);
-    void SyncColorBlending(PipelineParams& params);
-    void SyncViewportState(PipelineParams& params);
-    void SyncRasterizerState(PipelineParams& params);
+    void SyncDepthStencil(FixedPipelineState& fixed_state);
+    void SyncInputAssembly(FixedPipelineState& fixed_state);
+    void SyncColorBlending(FixedPipelineState& fixed_state);
+    void SyncViewportState(FixedPipelineState& fixed_state);
+    void SyncRasterizerState(FixedPipelineState& fixed_state);
 
     Core::System& system;
     Core::Frontend::EmuWindow& render_window;

@@ -37,7 +37,7 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 using PipelineCacheShaders = std::array<VAddr, Maxwell::MaxShaderProgram>;
 
-struct PipelineParams {
+struct FixedPipelineState {
     using ComponentType = VideoCore::Surface::ComponentType;
     using PixelFormat = VideoCore::Surface::PixelFormat;
 
@@ -166,7 +166,7 @@ struct PipelineParams {
     void CalculateHash();
 
     std::size_t Hash() const;
-    bool operator==(const PipelineParams& rhs) const;
+    bool operator==(const FixedPipelineState& rhs) const;
 };
 
 } // namespace Vulkan
@@ -174,8 +174,8 @@ struct PipelineParams {
 namespace std {
 
 template <>
-struct hash<Vulkan::PipelineParams> {
-    std::size_t operator()(const Vulkan::PipelineParams& k) const {
+struct hash<Vulkan::FixedPipelineState> {
+    std::size_t operator()(const Vulkan::FixedPipelineState& k) const {
         return k.Hash();
     }
 };
@@ -233,20 +233,20 @@ private:
 struct PipelineCacheKey {
     PipelineCacheShaders shaders;
     RenderPassParams renderpass;
-    PipelineParams pipeline;
+    FixedPipelineState fixed_state;
 
     std::size_t Hash() const {
         std::size_t hash = 0;
         for (const auto& shader : shaders)
             boost::hash_combine(hash, shader);
         boost::hash_combine(hash, renderpass.Hash());
-        boost::hash_combine(hash, pipeline.Hash());
+        boost::hash_combine(hash, fixed_state.Hash());
         return hash;
     }
 
     bool operator==(const PipelineCacheKey& rhs) const {
-        return std::tie(shaders, renderpass, pipeline) ==
-               std::tie(rhs.shaders, rhs.renderpass, rhs.pipeline);
+        return std::tie(shaders, renderpass, fixed_state) ==
+               std::tie(rhs.shaders, rhs.renderpass, rhs.fixed_state);
     }
 };
 
@@ -306,10 +306,8 @@ public:
 
     std::pair<std::array<Shader, Maxwell::MaxShaderStage>, PipelineCacheShaders> GetShaders();
 
-    // Passing a renderpass object is not really needed (since it could be found from rp_params),
-    // but this would require searching for the entry twice. Instead of doing that, pass the (draw)
-    // renderpass that fulfills those params.
-    Pipeline GetPipeline(const PipelineParams& params, const RenderPassParams& renderpass_params,
+    Pipeline GetPipeline(const FixedPipelineState& fixed_state,
+                         const RenderPassParams& renderpass_params,
                          const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
                          const PipelineCacheShaders& shader_addresses, vk::RenderPass renderpass,
                          VKFence& fence);
@@ -340,7 +338,7 @@ private:
         const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
         vk::DescriptorSetLayout descriptor_set_layout, vk::PipelineLayout pipeline_layout) const;
 
-    UniquePipeline CreatePipeline(const PipelineParams& params, vk::PipelineLayout layout,
+    UniquePipeline CreatePipeline(const FixedPipelineState& fixed_state, vk::PipelineLayout layout,
                                   vk::RenderPass renderpass,
                                   const std::array<Shader, Maxwell::MaxShaderStage>& shaders) const;
 
