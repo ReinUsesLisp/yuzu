@@ -975,17 +975,23 @@ private:
 
     Id TextureGather(Operation operation) {
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        Id component_id;
+        const auto coords = GetTextureCoordinates(operation);
+
+        Id texture;
         if (meta->sampler.IsShadow()) {
-            component_id = Visit(meta->component);
+            texture = Emit(OpImageDrefGather(t_float4, GetTextureSampler(operation), coords,
+                                             Visit(meta->component)));
         } else {
-            const auto component = std::get_if<ImmediateNode>(meta->component);
-            ASSERT_MSG(component, "Component is not an immediate value");
-            component_id = Constant(t_uint, component->GetValue());
+            u32 component_value = 0;
+            if (meta->component) {
+                const auto component = std::get_if<ImmediateNode>(meta->component);
+                ASSERT_MSG(component, "Component is not an immediate value");
+                component_value = component->GetValue();
+            }
+            texture = Emit(OpImageGather(t_float4, GetTextureSampler(operation), coords,
+                                         Constant(t_uint, component_value)));
         }
 
-        const Id texture = Emit(OpImageGather(t_float4, GetTextureSampler(operation),
-                                              GetTextureCoordinates(operation), component_id));
         return GetTextureElement(operation, texture);
     }
 
