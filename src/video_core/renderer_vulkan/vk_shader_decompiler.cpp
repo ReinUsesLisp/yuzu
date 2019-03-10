@@ -41,6 +41,12 @@ constexpr u32 STAGE_BINDING_STRIDE = 0x100;
 
 enum class Type { Bool, Bool2, Float, Int, Uint, HalfFloat };
 
+struct SamplerImage {
+    Id image_type;
+    Id sampled_image_type;
+    Id sampler;
+};
+
 namespace {
 spv::Dim GetSamplerDim(const Sampler& sampler) {
     switch (sampler.GetType()) {
@@ -506,7 +512,9 @@ private:
                 OpTypePointer(spv::StorageClass::UniformConstant, sampled_image_type);
             const Id id = OpVariable(pointer_type, spv::StorageClass::UniformConstant);
             AddGlobalVariable(Name(id, fmt::format("sampler_{}", sampler.GetIndex())));
-            samplers.insert({static_cast<u32>(sampler.GetIndex()), {sampled_image_type, id}});
+
+            sampler_images.insert(
+                {static_cast<u32>(sampler.GetIndex()), {image_type, sampled_image_type, id}});
 
             Decorate(id, spv::Decoration::Binding, {binding++});
             Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
@@ -915,16 +923,18 @@ private:
 
     Id GetTextureSampler(Operation operation) {
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        ASSERT(meta);
+        const auto entry = sampler_images.at(static_cast<u32>(meta->sampler.GetIndex()));
+        return Emit(OpLoad(entry.sampled_image_type, entry.sampler));
+    }
 
-        const auto [type, sampler] = samplers.at(static_cast<u32>(meta->sampler.GetIndex()));
-        return Emit(OpLoad(type, sampler));
+    Id GetTextureImage(Operation operation) {
+        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
+        const auto entry = sampler_images.at(static_cast<u32>(meta->sampler.GetIndex()));
+        return Emit(OpImage(entry.image_type, GetTextureSampler(operation)));
     }
 
     Id GetTextureCoordinates(Operation operation) {
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        ASSERT(meta);
-
         std::vector<Id> coords;
         for (std::size_t i = 0; i < operation.GetOperandsCount(); ++i) {
             coords.push_back(Visit(operation[i]));
@@ -934,7 +944,7 @@ private:
             coords.push_back(Emit(OpConvertSToF(t_float, array_integer)));
         }
         if (meta->sampler.IsShadow()) {
-            coords.push_back(Emit(Visit(meta->depth_compare)));
+            coords.push_back(Visit(meta->depth_compare));
         }
 
         const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
@@ -981,10 +991,11 @@ private:
 
     Id TextureQueryDimensions(Operation operation) {
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        const auto sampler_id = GetTextureSampler(operation);
+        const auto image_id = GetTextureImage(operation);
+        AddCapability(spv::Capability::ImageQuery);
 
         if (meta->element == 3) {
-            return OpBitcast(t_float, Emit(OpImageQueryLevels(t_int, sampler_id)));
+            return OpBitcast(t_float, Emit(OpImageQueryLevels(t_int, image_id)));
         }
 
         const Id lod = VisitOperand<Type::Uint>(operation, 0);
@@ -1008,7 +1019,7 @@ private:
         }
 
         const std::array<Id, 3> types = {t_int, t_int2, t_int3};
-        const Id sizes = Emit(OpImageQuerySizeLod(types.at(coords_count - 1), sampler_id, lod));
+        const Id sizes = Emit(OpImageQuerySizeLod(types.at(coords_count - 1), image_id, lod));
         const Id size = Emit(OpCompositeExtract(t_int, sizes, {meta->element}));
         return Emit(OpBitcast(t_float, size));
     }
@@ -1345,7 +1356,7 @@ private:
     std::map<Attribute::Index, Id> output_attributes;
     std::map<u32, Id> constant_buffers;
     std::map<GlobalMemoryBase, Id> global_buffers;
-    std::map<u32, std::pair<Id, Id>> samplers;
+    std::map<u32, SamplerImage> sampler_images;
 
     Id instance_index{};
     Id vertex_index{};
