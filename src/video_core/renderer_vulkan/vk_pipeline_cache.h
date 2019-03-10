@@ -7,6 +7,7 @@
 #include <memory>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 
 #include "common/common_types.h"
 #include "common/static_vector.h"
@@ -188,7 +189,6 @@ struct Pipeline {
     vk::PipelineLayout layout;
     vk::DescriptorSet descriptor_set;
     vk::DescriptorUpdateTemplate descriptor_template;
-    std::array<Shader, Maxwell::MaxShaderStage> shaders;
 };
 
 class CachedShader final : public RasterizerCacheObject {
@@ -287,12 +287,16 @@ private:
     std::vector<std::vector<UniqueDescriptorSet>> allocations;
 };
 
-union DescriptorUpdateEntry {
+class DescriptorUpdateEntry {
+public:
     DescriptorUpdateEntry(vk::DescriptorImageInfo&& image) : image{image} {}
     DescriptorUpdateEntry(vk::DescriptorBufferInfo&& buffer) : buffer{buffer} {}
 
-    vk::DescriptorImageInfo image;
-    vk::DescriptorBufferInfo buffer;
+private:
+    union {
+        vk::DescriptorImageInfo image;
+        vk::DescriptorBufferInfo buffer;
+    };
 };
 
 class VKPipelineCache final : public RasterizerCache<Shader> {
@@ -300,11 +304,15 @@ public:
     explicit VKPipelineCache(Core::System& system, RasterizerVulkan& rasterizer,
                              const VKDevice& device, VKScheduler& scheduler);
 
+    std::pair<std::array<Shader, Maxwell::MaxShaderStage>, PipelineCacheShaders> GetShaders();
+
     // Passing a renderpass object is not really needed (since it could be found from rp_params),
     // but this would require searching for the entry twice. Instead of doing that, pass the (draw)
     // renderpass that fulfills those params.
     Pipeline GetPipeline(const PipelineParams& params, const RenderPassParams& renderpass_params,
-                         vk::RenderPass renderpass, VKFence& fence);
+                         const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+                         const PipelineCacheShaders& shader_addresses, vk::RenderPass renderpass,
+                         VKFence& fence);
 
 protected:
     void ObjectInvalidated(const Shader& shader) override;

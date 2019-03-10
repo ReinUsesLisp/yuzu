@@ -325,12 +325,12 @@ VKPipelineCache::VKPipelineCache(Core::System& system, RasterizerVulkan& rasteri
                                  const VKDevice& device, VKScheduler& scheduler)
     : RasterizerCache{rasterizer}, system{system}, device{device}, scheduler{scheduler} {}
 
-Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
-                                      const RenderPassParams& renderpass_params,
-                                      vk::RenderPass renderpass, VKFence& fence) {
+std::pair<std::array<Shader, Maxwell::MaxShaderStage>, PipelineCacheShaders>
+VKPipelineCache::GetShaders() {
     const auto& gpu = system.GPU().Maxwell3D();
-    Pipeline pipeline;
-    PipelineCacheShaders shaders{};
+
+    std::array<Shader, Maxwell::MaxShaderStage> shaders;
+    PipelineCacheShaders shader_addresses;
 
     for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
         const auto& shader_config = gpu.regs.shader_config[index];
@@ -338,11 +338,12 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
 
         // Skip stages that are not enabled
         if (!gpu.regs.IsShaderConfigEnabled(index)) {
+            shader_addresses[index] = 0;
             continue;
         }
 
         const VAddr program_addr{GetShaderAddress(system, program)};
-        shaders[index] = program_addr;
+        shader_addresses[index] = program_addr;
 
         // Look up shader in the cache based on address
         Shader shader{TryGet(program_addr)};
@@ -354,33 +355,37 @@ Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
         }
 
         const std::size_t stage = index == 0 ? 0 : index - 1;
-        pipeline.shaders[stage] = std::move(shader);
+        shaders[stage] = std::move(shader);
 
         // When VertexA is enabled, we have dual vertex shaders
         if (program == Maxwell::ShaderProgram::VertexA) {
             // VertexB was combined with VertexA, so we skip the VertexB iteration
-            index++;
+            ++index;
         }
     }
 
-    PipelineCacheKey key;
-    key.shaders = shaders;
-    key.renderpass = renderpass_params;
-    key.pipeline = params;
+    return {shaders, shader_addresses};
+}
+
+Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
+                                      const RenderPassParams& renderpass_params,
+                                      const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+                                      const PipelineCacheShaders& shader_addresses,
+                                      vk::RenderPass renderpass, VKFence& fence) {
+    Pipeline pipeline;
+    PipelineCacheKey key{shader_addresses, renderpass_params, params};
     key.pipeline.CalculateHash();
     const auto [pair, is_cache_miss] = cache.try_emplace(key);
     auto& entry = pair->second;
 
     if (is_cache_miss) {
         entry = std::make_unique<CacheEntry>();
-        entry->descriptor_set_layout = CreateDescriptorSetLayout(pipeline.shaders);
-        entry->descriptor_pool =
-            CreateDescriptorPool(pipeline.shaders, *entry->descriptor_set_layout);
+        entry->descriptor_set_layout = CreateDescriptorSetLayout(shaders);
+        entry->descriptor_pool = CreateDescriptorPool(shaders, *entry->descriptor_set_layout);
         entry->pipeline_layout = CreatePipelineLayout(*entry->descriptor_set_layout);
         entry->descriptor_template = CreateDescriptorUpdateTemplate(
-            pipeline.shaders, *entry->descriptor_set_layout, *entry->pipeline_layout);
-        entry->pipeline =
-            CreatePipeline(params, *entry->pipeline_layout, renderpass, pipeline.shaders);
+            shaders, *entry->descriptor_set_layout, *entry->pipeline_layout);
+        entry->pipeline = CreatePipeline(params, *entry->pipeline_layout, renderpass, shaders);
     }
 
     pipeline.handle = *entry->pipeline;

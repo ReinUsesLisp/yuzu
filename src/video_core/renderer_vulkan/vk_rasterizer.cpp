@@ -130,10 +130,12 @@ void RasterizerVulkan::DrawArrays() {
 
     SetupGeometry(params);
 
-    const Pipeline pipeline =
-        pipeline_cache->GetPipeline(params, renderpass_params, renderpass, exctx.GetFence());
+    const auto [shaders, shader_addresses] = pipeline_cache->GetShaders();
 
-    exctx = SetupShaderDescriptors(exctx, pipeline.shaders, pipeline.descriptor_set,
+    const Pipeline pipeline = pipeline_cache->GetPipeline(
+        params, renderpass_params, shaders, shader_addresses, renderpass, exctx.GetFence());
+
+    exctx = SetupShaderDescriptors(exctx, shaders, pipeline.descriptor_set,
                                    pipeline.descriptor_template);
 
     exctx = buffer_cache->Send(exctx);
@@ -147,7 +149,6 @@ void RasterizerVulkan::DrawArrays() {
                                  pipeline_stage, vk::AccessFlagBits::eShaderRead);
     }
 
-    const auto cmdbuf = exctx.GetCommandBuffer();
     for (const View color_view : color_attachments) {
         if (color_view == nullptr)
             continue;
@@ -158,13 +159,15 @@ void RasterizerVulkan::DrawArrays() {
                                             });
         const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
                                              : vk::ImageLayout::eColorAttachmentOptimal;
-        color_view->Transition(
-            cmdbuf, image_layout, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-            vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite);
+        color_view->Transition(exctx.GetCommandBuffer(), image_layout,
+                               vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                               vk::AccessFlagBits::eColorAttachmentRead |
+                                   vk::AccessFlagBits::eColorAttachmentWrite);
     }
 
     if (const View zeta_view = fbinfo.zeta_view; zeta_view != nullptr) {
-        zeta_view->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
+        zeta_view->Transition(exctx.GetCommandBuffer(),
+                              vk::ImageLayout::eDepthStencilAttachmentOptimal,
                               vk::PipelineStageFlagBits::eLateFragmentTests,
                               vk::AccessFlagBits::eDepthStencilAttachmentRead |
                                   vk::AccessFlagBits::eDepthStencilAttachmentWrite);
