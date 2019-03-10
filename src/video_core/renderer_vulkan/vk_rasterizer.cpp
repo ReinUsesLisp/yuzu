@@ -114,18 +114,13 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
 RasterizerVulkan::~RasterizerVulkan() = default;
 
 void RasterizerVulkan::DrawArrays() {
-    PipelineParams params;
-    state.Reset();
-    sampled_views.clear();
-
-    // Synchronize fixed pipeline state
-    SyncDepthStencil(params);
-    SyncInputAssembly(params);
-    SyncColorBlending(params);
-    SyncViewportState(params);
-    SyncRasterizerState(params);
-
     auto exctx = scheduler.GetExecutionContext();
+
+    PipelineParams params;
+    PrepareDraw();
+
+    SyncFixedPipeline(params);
+
     std::array<View, Maxwell::NumRenderTargets> color_attachments;
     std::tie(color_attachments, exctx) = GetColorAttachments(exctx);
 
@@ -304,6 +299,19 @@ void RasterizerVulkan::UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, in
 
     if (delta < 0)
         cached_pages.add({pages_interval, delta});
+}
+
+void RasterizerVulkan::PrepareDraw() {
+    state.Reset();
+    sampled_views.clear();
+}
+
+void RasterizerVulkan::SyncFixedPipeline(PipelineParams& params) {
+    SyncDepthStencil(params);
+    SyncInputAssembly(params);
+    SyncColorBlending(params);
+    SyncViewportState(params);
+    SyncRasterizerState(params);
 }
 
 std::tuple<std::array<View, Maxwell::NumRenderTargets>, VKExecutionContext>

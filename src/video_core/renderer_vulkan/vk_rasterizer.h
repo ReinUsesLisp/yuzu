@@ -140,6 +140,10 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
 
+    void PrepareDraw();
+
+    void SyncFixedPipeline(PipelineParams& params);
+
     [[nodiscard]] std::tuple<std::array<CachedView*, Maxwell::NumRenderTargets>, VKExecutionContext>
     GetColorAttachments(VKExecutionContext exctx);
 
