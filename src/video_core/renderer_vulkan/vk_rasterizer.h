@@ -156,8 +156,7 @@ private:
     void SetupGeometry(PipelineParams& params);
 
     [[nodiscard]] VKExecutionContext SetupShaderDescriptors(
-        VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
-        vk::DescriptorSet descriptor_set, vk::DescriptorUpdateTemplate descriptor_template);
+        VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders);
 
     void DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
                       vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
@@ -172,8 +171,8 @@ private:
 
     void SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage);
 
-    VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
-                                     Maxwell::ShaderStage stage);
+    [[nodiscard]] VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
+                                                   Maxwell::ShaderStage stage);
 
     std::size_t CalculateVertexArraysSize() const;
 

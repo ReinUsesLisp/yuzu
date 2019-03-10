@@ -129,13 +129,16 @@ void RasterizerVulkan::DrawArrays() {
 
     const auto [shaders, shader_addresses] = pipeline_cache->GetShaders();
 
+    exctx = SetupShaderDescriptors(exctx, shaders);
+
     const Pipeline pipeline = pipeline_cache->GetPipeline(
         params, renderpass_params, shaders, shader_addresses, renderpass, exctx.GetFence());
 
-    exctx = SetupShaderDescriptors(exctx, shaders, pipeline.descriptor_set,
-                                   pipeline.descriptor_template);
-
     exctx = buffer_cache->Send(exctx);
+
+    if (pipeline.descriptor_set && pipeline.descriptor_template) {
+        state.UpdateDescriptorSet(device, pipeline.descriptor_set, pipeline.descriptor_template);
+    }
 
     vk::Framebuffer framebuffer;
     vk::Extent2D render_area;
@@ -386,12 +389,7 @@ void RasterizerVulkan::SetupGeometry(PipelineParams& params) {
 }
 
 VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
-    VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
-    vk::DescriptorSet descriptor_set, vk::DescriptorUpdateTemplate descriptor_template) {
-    if (!descriptor_set || !descriptor_template) {
-        return exctx;
-    }
-
+    VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders) {
     for (std::size_t index = 0; index < std::size(shaders); ++index) {
         const Shader& shader = shaders[index];
         if (!shader)
@@ -403,7 +401,6 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
         exctx = SetupTextures(exctx, shader, stage);
     }
 
-    state.UpdateDescriptorSet(device, descriptor_set, descriptor_template);
     return exctx;
 }
 
