@@ -13,8 +13,6 @@
 
 namespace Vulkan {
 
-using Maxwell = Tegra::Engines::Maxwell3D::Regs;
-
 VKRenderPassCache::VKRenderPassCache(const VKDevice& device) : device{device} {}
 
 VKRenderPassCache::~VKRenderPassCache() = default;
@@ -32,18 +30,21 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
     std::vector<vk::AttachmentDescription> descriptors;
     std::vector<vk::AttachmentReference> color_references;
 
-    for (const auto& map : params.color_map) {
+    for (std::size_t rt = 0; rt < params.color_map.Size(); ++rt) {
+        const auto attachment = params.color_map[rt];
         const auto [color_format, color_attachable] = MaxwellToVK::SurfaceFormat(
-            device, FormatType::Optimal, map.pixel_format, map.component_type);
+            device, FormatType::Optimal, attachment.pixel_format, attachment.component_type);
         ASSERT_MSG(color_attachable, "Trying to attach a non-attacheable format with format {}",
-                   static_cast<u32>(map.pixel_format));
+                   static_cast<u32>(attachment.pixel_format));
 
-        const auto color_layout = map.is_texception ? vk::ImageLayout::eSharedPresentKHR
-                                                    : vk::ImageLayout::eColorAttachmentOptimal;
+        const auto color_layout = attachment.is_texception
+                                      ? vk::ImageLayout::eSharedPresentKHR
+                                      : vk::ImageLayout::eColorAttachmentOptimal;
         descriptors.push_back(vk::AttachmentDescription(
             {}, color_format, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
             vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
             vk::AttachmentStoreOp::eDontCare, color_layout, color_layout));
+        color_references.emplace_back(static_cast<u32>(rt), color_layout);
     }
 
     const bool has_zeta = params.has_zeta;
@@ -59,23 +60,16 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
             vk::ImageLayout::eDepthStencilAttachmentOptimal));
     }
 
-    const auto color_map_count = static_cast<u32>(params.color_map.Size());
-    for (u32 i = 0; i < color_map_count; ++i) {
-        const auto color_layout = params.color_map[i].is_texception
-                                      ? vk::ImageLayout::eSharedPresentKHR
-                                      : vk::ImageLayout::eColorAttachmentOptimal;
-        color_references.emplace_back(i, color_layout);
-    }
     const vk::AttachmentReference zeta_attachment_ref(
-        color_map_count, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+        static_cast<u32>(params.color_map.Size()), vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
     const vk::SubpassDescription subpass_description(
-        {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, color_map_count, color_references.data(),
-        nullptr, has_zeta ? &zeta_attachment_ref : nullptr, 0, nullptr);
+        {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, static_cast<u32>(color_references.size()),
+        color_references.data(), nullptr, has_zeta ? &zeta_attachment_ref : nullptr, 0, nullptr);
 
     vk::AccessFlags access;
     vk::PipelineStageFlags stage;
-    if (color_map_count > 0) {
+    if (!color_references.empty()) {
         access |=
             vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite;
         stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
