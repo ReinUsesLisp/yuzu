@@ -39,7 +39,6 @@ class VKSamplerCache;
 class VKGlobalCache;
 
 class CachedView;
-struct FramebufferInfo;
 
 using ImageViewsPack = StaticVector<vk::ImageView, Maxwell::NumRenderTargets + 1>;
 
@@ -147,10 +146,14 @@ private:
     [[nodiscard]] std::tuple<std::array<CachedView*, Maxwell::NumRenderTargets>, VKExecutionContext>
     GetColorAttachments(VKExecutionContext exctx);
 
-    [[nodiscard]] std::tuple<FramebufferInfo, VKExecutionContext> ConfigureFramebuffers(
+    [[nodiscard]] std::tuple<CachedView*, VKExecutionContext> GetZetaAttachment(
+        VKExecutionContext exctx);
+
+    [[nodiscard]] std::tuple<vk::Framebuffer, vk::Extent2D, VKExecutionContext>
+    ConfigureFramebuffers(
         VKExecutionContext exctx,
         const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
-        vk::RenderPass renderpass);
+        CachedView* zeta_attachment, vk::RenderPass renderpass);
 
     void SetupGeometry(PipelineParams& params);
 
@@ -160,8 +163,8 @@ private:
 
     void DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
                       vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
-                      vk::RenderPass renderpass, vk::Framebuffer framebuffer, u32 render_width,
-                      u32 render_height);
+                      vk::RenderPass renderpass, vk::Framebuffer framebuffer,
+                      vk::Extent2D render_area);
 
     void SetupVertexArrays(PipelineParams& params);
 

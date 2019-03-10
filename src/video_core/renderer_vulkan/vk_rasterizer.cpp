@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <vector>
@@ -32,13 +33,6 @@
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
-
-struct FramebufferInfo {
-    vk::Framebuffer framebuffer;
-    View zeta_view;
-    u32 width;
-    u32 height;
-};
 
 void PipelineState::Reset() {
     vertex_bindings.clear();
@@ -117,12 +111,16 @@ void RasterizerVulkan::DrawArrays() {
     auto exctx = scheduler.GetExecutionContext();
 
     PipelineParams params;
+
     PrepareDraw();
 
     SyncFixedPipeline(params);
 
     std::array<View, Maxwell::NumRenderTargets> color_attachments;
     std::tie(color_attachments, exctx) = GetColorAttachments(exctx);
+
+    View zeta_attachment;
+    std::tie(zeta_attachment, exctx) = GetZetaAttachment(exctx);
 
     // Get renderpass parameters and get a renderpass from the cache.
     const auto renderpass_params = GetRenderPassParams();
@@ -140,8 +138,10 @@ void RasterizerVulkan::DrawArrays() {
 
     exctx = buffer_cache->Send(exctx);
 
-    FramebufferInfo fbinfo;
-    std::tie(fbinfo, exctx) = ConfigureFramebuffers(exctx, color_attachments, renderpass);
+    vk::Framebuffer framebuffer;
+    vk::Extent2D render_area;
+    std::tie(framebuffer, render_area, exctx) =
+        ConfigureFramebuffers(exctx, color_attachments, zeta_attachment, renderpass);
 
     for (const View sampled_view : sampled_views) {
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
@@ -165,16 +165,16 @@ void RasterizerVulkan::DrawArrays() {
                                    vk::AccessFlagBits::eColorAttachmentWrite);
     }
 
-    if (const View zeta_view = fbinfo.zeta_view; zeta_view != nullptr) {
-        zeta_view->Transition(exctx.GetCommandBuffer(),
-                              vk::ImageLayout::eDepthStencilAttachmentOptimal,
-                              vk::PipelineStageFlagBits::eLateFragmentTests,
-                              vk::AccessFlagBits::eDepthStencilAttachmentRead |
-                                  vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+    if (zeta_attachment != nullptr) {
+        zeta_attachment->Transition(exctx.GetCommandBuffer(),
+                                    vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                                    vk::PipelineStageFlagBits::eLateFragmentTests,
+                                    vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                                        vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
     DispatchDraw(exctx, pipeline.layout, pipeline.descriptor_set, pipeline.handle, renderpass,
-                 fbinfo.framebuffer, fbinfo.width, fbinfo.height);
+                 framebuffer, render_area);
 }
 
 void RasterizerVulkan::Clear() {
@@ -328,11 +328,15 @@ RasterizerVulkan::GetColorAttachments(VKExecutionContext exctx) {
     return {color_attachments, exctx};
 }
 
-std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFramebuffers(
-    VKExecutionContext exctx, const std::array<View, Maxwell::NumRenderTargets>& color_attachments,
-    vk::RenderPass renderpass) {
-    const auto& regs = system.GPU().Maxwell3D().regs;
+std::tuple<CachedView*, VKExecutionContext> RasterizerVulkan::GetZetaAttachment(
+    VKExecutionContext exctx) {
+    return texture_cache->GetDepthBufferSurface(exctx, true);
+}
 
+std::tuple<vk::Framebuffer, vk::Extent2D, VKExecutionContext>
+RasterizerVulkan::ConfigureFramebuffers(
+    VKExecutionContext exctx, const std::array<View, Maxwell::NumRenderTargets>& color_attachments,
+    CachedView* zeta_attachment, vk::RenderPass renderpass) {
     FramebufferCacheKey fbkey;
     fbkey.renderpass = renderpass;
     fbkey.width = std::numeric_limits<u32>::max();
@@ -351,10 +355,7 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
     for (const auto color_attachment : color_attachments) {
         MarkAsModifiedAndPush(color_attachment);
     }
-
-    View zeta_view{};
-    std::tie(zeta_view, exctx) = texture_cache->GetDepthBufferSurface(exctx, true);
-    MarkAsModifiedAndPush(zeta_view);
+    MarkAsModifiedAndPush(zeta_attachment);
 
     const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
     auto& framebuffer = fbentry->second;
@@ -367,12 +368,7 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
         framebuffer = dev.createFramebufferUnique(framebuffer_ci, nullptr, dld);
     }
 
-    FramebufferInfo info;
-    info.framebuffer = *framebuffer;
-    info.zeta_view = zeta_view;
-    info.width = fbkey.width;
-    info.height = fbkey.height;
-    return {info, exctx};
+    return {*framebuffer, vk::Extent2D{fbkey.width, fbkey.height}, exctx};
 }
 
 void RasterizerVulkan::SetupGeometry(PipelineParams& params) {
@@ -415,15 +411,15 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
 void RasterizerVulkan::DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
                                     vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
                                     vk::RenderPass renderpass, vk::Framebuffer framebuffer,
-                                    u32 render_width, u32 render_height) {
+                                    vk::Extent2D render_area) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& regs = gpu.regs;
 
     const auto& dld = device.GetDispatchLoader();
     const auto cmdbuf = exctx.GetCommandBuffer();
 
-    const vk::RenderPassBeginInfo renderpass_bi(
-        renderpass, framebuffer, {{0, 0}, {render_width, render_height}}, 0, nullptr);
+    const vk::RenderPassBeginInfo renderpass_bi(renderpass, framebuffer, {{0, 0}, render_area}, 0,
+                                                nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline, dld);
     {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline, dld);
