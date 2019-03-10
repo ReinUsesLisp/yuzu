@@ -525,22 +525,22 @@ UniquePipeline VKPipelineCache::CreatePipeline(
     const auto& vs = fixed_state.viewport_state;
     const auto& rs = fixed_state.rasterizer;
 
-    StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
+    std::vector<vk::VertexInputBindingDescription> vertex_bindings;
     for (const auto& binding : vi.bindings) {
         ASSERT(binding.divisor == 0);
-        vertex_bindings.Push(vk::VertexInputBindingDescription(binding.index, binding.stride));
+        vertex_bindings.emplace_back(binding.index, binding.stride);
     }
 
-    StaticVector<vk::VertexInputAttributeDescription, Maxwell::NumVertexArrays> vertex_attributes;
+    std::vector<vk::VertexInputAttributeDescription> vertex_attributes;
     for (const auto& attribute : vi.attributes) {
-        vertex_attributes.Push(vk::VertexInputAttributeDescription(
-            attribute.index, attribute.buffer,
-            MaxwellToVK::VertexFormat(attribute.type, attribute.size), attribute.offset));
+        vertex_attributes.emplace_back(attribute.index, attribute.buffer,
+                                       MaxwellToVK::VertexFormat(attribute.type, attribute.size),
+                                       attribute.offset);
     }
 
     const vk::PipelineVertexInputStateCreateInfo vertex_input_ci(
-        {}, static_cast<u32>(vertex_bindings.Size()), vertex_bindings.Data(),
-        static_cast<u32>(vertex_attributes.Size()), vertex_attributes.Data());
+        {}, static_cast<u32>(vertex_bindings.size()), vertex_bindings.data(),
+        static_cast<u32>(vertex_attributes.size()), vertex_attributes.data());
 
     const vk::PrimitiveTopology primitive_topology = MaxwellToVK::PrimitiveTopology(ia.topology);
     const vk::PipelineInputAssemblyStateCreateInfo input_assembly_ci({}, primitive_topology,
@@ -593,19 +593,20 @@ UniquePipeline VKPipelineCache::CreatePipeline(
         {}, false, vk::LogicOp::eCopy, cd.attachments_count, cb_attachments.data(),
         cd.blend_constants);
 
-    StaticVector<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> shader_stages;
+    std::vector<vk::PipelineShaderStageCreateInfo> shader_stages;
     for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
         const auto& shader = shaders[stage];
         if (!shader)
             continue;
 
-        shader_stages.Push(vk::PipelineShaderStageCreateInfo(
-            {}, MaxwellToVK::ShaderStage(static_cast<Maxwell::ShaderStage>(stage)),
-            shader->GetHandle(primitive_topology), "main", nullptr));
+        shader_stages.emplace_back(
+            vk::PipelineShaderStageCreateFlags{},
+            MaxwellToVK::ShaderStage(static_cast<Maxwell::ShaderStage>(stage)),
+            shader->GetHandle(primitive_topology), "main", nullptr);
     }
 
     const vk::GraphicsPipelineCreateInfo create_info(
-        {}, static_cast<u32>(shader_stages.Size()), shader_stages.Data(), &vertex_input_ci,
+        {}, static_cast<u32>(shader_stages.size()), shader_stages.data(), &vertex_input_ci,
         &input_assembly_ci, nullptr, &viewport_state_ci, &rasterizer_ci, &multisampling_ci,
         &depth_stencil_ci, &color_blending_ci, nullptr, layout, renderpass, 0);
 
