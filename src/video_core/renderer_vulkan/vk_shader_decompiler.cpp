@@ -81,10 +81,10 @@ class SPIRVDecompiler : public Sirit::Module {
 public:
     explicit SPIRVDecompiler(const ShaderIR& ir, ShaderStage stage)
         : Module(0x00010300), ir{ir}, stage{stage}, header{ir.GetHeader()} {
-            AddCapability(spv::Capability::Shader);
-            AddExtension("SPV_KHR_storage_buffer_storage_class");
-            AddExtension("SPV_KHR_variable_pointers");
-        }
+        AddCapability(spv::Capability::Shader);
+        AddExtension("SPV_KHR_storage_buffer_storage_class");
+        AddExtension("SPV_KHR_variable_pointers");
+    }
 
     void Decompile() {
         AllocateBindings();
@@ -913,84 +913,53 @@ private:
         return {};
     }
 
-    Id GenerateTexture(Operation operation,
-                       void (*SPIRVDecompiler::*method)(Id, Id, const std::vector<Id>&)) {
-        const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
+    Id GetTextureSampler(Operation operation) {
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        const bool has_array = meta->array != nullptr;
+        ASSERT(meta);
 
         const auto [type, sampler] = samplers.at(static_cast<u32>(meta->sampler.GetIndex()));
-        const Id sampler_id = Emit(OpLoad(type, sampler));
+        return Emit(OpLoad(type, sampler));
+    }
+
+    Id GetTextureCoordinates(Operation operation) {
+        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
+        ASSERT(meta);
 
         std::vector<Id> coords;
         for (std::size_t i = 0; i < operation.GetOperandsCount(); ++i) {
             coords.push_back(Visit(operation[i]));
         }
-        if (has_array) {
+        if (meta->sampler.IsArray()) {
             const Id array_integer = Emit(OpBitcast(t_int, Visit(meta->array)));
             coords.push_back(Emit(OpConvertSToF(t_float, array_integer)));
         }
+        if (meta->sampler.IsShadow()) {
+            coords.push_back(Emit(Visit(meta->depth_compare)));
+        }
 
-        const std::size_t coords_count = operation.GetOperandsCount() + (has_array ? 1 : 0);
-        UNIMPLEMENTED_IF(coords_count == 1);
+        const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
+        return coords.size() == 1
+                   ? coords[0]
+                   : Emit(OpCompositeConstruct(t_float_lut.at(coords.size() - 1), coords));
+    }
 
-        const Id coords_vector =
-            Emit(OpCompositeConstruct(t_float_lut.at(coords_count - 1), coords));
-        const Id texture = Emit(OpImageSampleImplicitLod(t_float4, sampler_id, coords_vector));
-        return Emit(OpCompositeExtract(t_float, texture, {meta->element}));
+    Id GetTextureElement(Operation operation, Id sample_value) {
+        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
+        ASSERT(meta);
+        return Emit(OpCompositeExtract(t_float, sample_value, {meta->element}));
     }
 
     Id Texture(Operation operation) {
-        const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
-        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        const bool has_array = meta->array != nullptr;
-
-        const auto [type, sampler] = samplers.at(static_cast<u32>(meta->sampler.GetIndex()));
-        const Id sampler_id = Emit(OpLoad(type, sampler));
-
-        std::vector<Id> coords;
-        for (std::size_t i = 0; i < operation.GetOperandsCount(); ++i) {
-            coords.push_back(Visit(operation[i]));
-        }
-        if (has_array) {
-            const Id array_integer = Emit(OpBitcast(t_int, Visit(meta->array)));
-            coords.push_back(Emit(OpConvertSToF(t_float, array_integer)));
-        }
-
-        const std::size_t coords_count = operation.GetOperandsCount() + (has_array ? 1 : 0);
-        UNIMPLEMENTED_IF(coords_count == 1);
-
-        const Id coords_vector =
-            Emit(OpCompositeConstruct(t_float_lut.at(coords_count - 1), coords));
-        const Id texture = Emit(OpImageSampleImplicitLod(t_float4, sampler_id, coords_vector));
-        return Emit(OpCompositeExtract(t_float, texture, {meta->element}));
+        const Id texture = Emit(OpImageSampleImplicitLod(t_float4, GetTextureSampler(operation),
+                                                         GetTextureCoordinates(operation)));
+        return GetTextureElement(operation, texture);
     }
 
     Id TextureLod(Operation operation) {
-        const std::array<Id, 4> t_float_lut = {nullptr, t_float2, t_float3, t_float4};
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
-        const bool has_array = meta->array != nullptr;
-
-        const auto [type, sampler] = samplers.at(static_cast<u32>(meta->sampler.GetIndex()));
-        const Id sampler_id = Emit(OpLoad(type, sampler));
-
-        std::vector<Id> coords;
-        for (std::size_t i = 0; i < operation.GetOperandsCount(); ++i) {
-            coords.push_back(Visit(operation[i]));
-        }
-        if (has_array) {
-            const Id array_integer = Emit(OpBitcast(t_int, Visit(meta->array)));
-            coords.push_back(Emit(OpConvertSToF(t_float, array_integer)));
-        }
-
-        const std::size_t coords_count = operation.GetOperandsCount() + (has_array ? 1 : 0);
-        UNIMPLEMENTED_IF(coords_count == 1);
-
-        const Id coords_vector =
-            Emit(OpCompositeConstruct(t_float_lut.at(coords_count - 1), coords));
-        const Id texture =
-            Emit(OpImageSampleExplicitLod(t_float4, sampler_id, coords_vector,
-                                          spv::ImageOperandsMask::Lod, Visit(meta->extras[0])));
+        const Id texture = Emit(OpImageSampleExplicitLod(
+            t_float4, GetTextureSampler(operation), GetTextureCoordinates(operation),
+            spv::ImageOperandsMask::Lod, Visit(meta->lod)));
         return Emit(OpCompositeExtract(t_float, texture, {meta->element}));
     }
 
