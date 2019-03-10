@@ -114,9 +114,6 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
 RasterizerVulkan::~RasterizerVulkan() = default;
 
 void RasterizerVulkan::DrawArrays() {
-    if (accelerate_draw == AccelDraw::Disabled)
-        return;
-
     PipelineParams params;
     state.Reset();
     sampled_views.clear();
@@ -268,8 +265,8 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     return true;
 }
 
-bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
-    accelerate_draw = is_indexed ? AccelDraw::Indexed : AccelDraw::Arrays;
+bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed_) {
+    is_indexed = is_indexed_;
     DrawArrays();
     return true;
 }
@@ -368,7 +365,6 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
 }
 
 void RasterizerVulkan::SetupGeometry(PipelineParams& params) {
-    const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
     std::size_t buffer_size = CalculateVertexArraysSize();
     if (is_indexed) {
         buffer_size = Common::AlignUp<std::size_t>(buffer_size, 4) + CalculateIndexBufferSize();
@@ -426,7 +422,7 @@ void RasterizerVulkan::DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout
         state.BindVertexBuffers(cmdbuf, dld);
 
         const u32 instance = gpu.state.current_instance;
-        if (accelerate_draw == AccelDraw::Indexed) {
+        if (is_indexed) {
             state.BindIndexBuffer(cmdbuf, dld);
             cmdbuf.drawIndexed(regs.index_array.count, 1, 0, regs.vb_element_base, instance, dld);
         } else {

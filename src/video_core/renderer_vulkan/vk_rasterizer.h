@@ -129,7 +129,7 @@ public:
     void FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) override;
     bool AccelerateDisplay(const Tegra::FramebufferConfig& config, VAddr framebuffer_addr,
                            u32 pixel_stride) override;
-    bool AccelerateDrawBatch(bool is_indexed) override;
+    bool AccelerateDrawBatch(bool is_indexed_) override;
     void UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) override;
 
     /// Maximum supported size that a constbuffer can have in bytes.
@@ -203,12 +203,10 @@ private:
 
     PipelineState state;
     std::vector<CachedView*> sampled_views;
+    bool is_indexed{};
 
     // TODO(Rodrigo): Invalidate on image destruction
     std::unordered_map<FramebufferCacheKey, UniqueFramebuffer> framebuffer_cache;
-
-    enum class AccelDraw { Disabled, Arrays, Indexed };
-    AccelDraw accelerate_draw = AccelDraw::Disabled;
 
     using CachedPageMap = boost::icl::interval_map<u64, int>;
     CachedPageMap cached_pages;
