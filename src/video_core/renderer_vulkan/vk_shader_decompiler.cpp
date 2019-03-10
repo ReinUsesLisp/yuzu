@@ -979,9 +979,38 @@ private:
         return GetTextureElement(operation, texture);
     }
 
-    Id TextureQueryDimensions(Operation) {
-        UNREACHABLE();
-        return {};
+    Id TextureQueryDimensions(Operation operation) {
+        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
+        const auto sampler_id = GetTextureSampler(operation);
+
+        if (meta->element == 3) {
+            return OpBitcast(t_float, Emit(OpImageQueryLevels(t_int, sampler_id)));
+        }
+
+        const Id lod = VisitOperand<Type::Uint>(operation, 0);
+        const std::size_t coords_count = [&]() {
+            switch (const auto type = meta->sampler.GetType(); type) {
+            case Tegra::Shader::TextureType::Texture1D:
+                return 1;
+            case Tegra::Shader::TextureType::Texture2D:
+            case Tegra::Shader::TextureType::TextureCube:
+                return 2;
+            case Tegra::Shader::TextureType::Texture3D:
+                return 3;
+            default:
+                UNREACHABLE_MSG("Invalid texture type={}", static_cast<u32>(type));
+                return 2;
+            }
+        }();
+
+        if (meta->element >= coords_count) {
+            return Emit(OpBitcast(t_float, Constant(t_int, 0)));
+        }
+
+        const std::array<Id, 3> types = {t_int, t_int2, t_int3};
+        const Id sizes = Emit(OpImageQuerySizeLod(types.at(coords_count - 1), sampler_id, lod));
+        const Id size = Emit(OpCompositeExtract(t_int, sizes, {meta->element}));
+        return Emit(OpBitcast(t_float, size));
     }
 
     Id TextureQueryLod(Operation) {
@@ -1255,11 +1284,19 @@ private:
     const Tegra::Shader::Header header;
 
     const Id t_void = Name(OpTypeVoid(), "void");
-    const Id t_uint = Name(OpTypeInt(32, false), "uint");
-    const Id t_int = Name(OpTypeInt(32, true), "int");
 
     const Id t_bool = Name(OpTypeBool(), "bool");
     const Id t_bool2 = Name(OpTypeVector(t_bool, 2), "bool2");
+
+    const Id t_int = Name(OpTypeInt(32, true), "int");
+    const Id t_int2 = Name(OpTypeVector(t_int, 2), "int2");
+    const Id t_int3 = Name(OpTypeVector(t_int, 3), "int3");
+    const Id t_int4 = Name(OpTypeVector(t_int, 4), "int4");
+
+    const Id t_uint = Name(OpTypeInt(32, false), "uint");
+    const Id t_uint2 = Name(OpTypeVector(t_uint, 2), "uint2");
+    const Id t_uint3 = Name(OpTypeVector(t_uint, 3), "uint3");
+    const Id t_uint4 = Name(OpTypeVector(t_uint, 4), "uint4");
 
     const Id t_float = Name(OpTypeFloat(32), "float");
     const Id t_float2 = Name(OpTypeVector(t_float, 2), "float2");
