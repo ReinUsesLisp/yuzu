@@ -960,12 +960,23 @@ private:
         const Id texture = Emit(OpImageSampleExplicitLod(
             t_float4, GetTextureSampler(operation), GetTextureCoordinates(operation),
             spv::ImageOperandsMask::Lod, Visit(meta->lod)));
-        return Emit(OpCompositeExtract(t_float, texture, {meta->element}));
+        return GetTextureElement(operation, texture);
     }
 
-    Id TextureGather(Operation) {
-        UNREACHABLE();
-        return {};
+    Id TextureGather(Operation operation) {
+        const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
+        Id component_id;
+        if (meta->sampler.IsShadow()) {
+            component_id = Visit(meta->component);
+        } else {
+            const auto component = std::get_if<ImmediateNode>(meta->component);
+            ASSERT_MSG(component, "Component is not an immediate value");
+            component_id = Constant(t_uint, component->GetValue());
+        }
+
+        const Id texture = Emit(OpImageGather(t_float4, GetTextureSampler(operation),
+                                              GetTextureCoordinates(operation), component_id));
+        return GetTextureElement(operation, texture);
     }
 
     Id TextureQueryDimensions(Operation) {
