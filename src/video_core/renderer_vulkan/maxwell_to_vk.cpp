@@ -126,7 +126,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BGRA8
     {vk::Format::eR32G32B32A32Sfloat, ComponentType::Float, true},     // RGBA32F
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // RG32F
-    {vk::Format::eUndefined, ComponentType::Invalid, false},           // R32F
+    {vk::Format::eR32Sfloat, ComponentType::Float, true},              // R32F
     {vk::Format::eR16Sfloat, ComponentType::Float, true},              // R16F
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // R16U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // R16S

@@ -232,7 +232,7 @@ std::vector<vk::DeviceQueueCreateInfo> VKDevice::GetDeviceQueueCreateInfos() con
 
 std::map<vk::Format, vk::FormatProperties> VKDevice::GetFormatProperties(
     const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical) {
-    static constexpr std::array<vk::Format, 30> formats = {vk::Format::eA8B8G8R8UnormPack32,
+    static constexpr std::array<vk::Format, 31> formats = {vk::Format::eA8B8G8R8UnormPack32,
                                                            vk::Format::eB5G6R5UnormPack16,
                                                            vk::Format::eA2B10G10R10UnormPack32,
                                                            vk::Format::eR32G32B32A32Sfloat,
@@ -240,6 +240,7 @@ std::map<vk::Format, vk::FormatProperties> VKDevice::GetFormatProperties(
                                                            vk::Format::eR8G8B8A8Srgb,
                                                            vk::Format::eR8Unorm,
                                                            vk::Format::eB10G11R11UfloatPack32,
+                                                           vk::Format::eR32Sfloat,
                                                            vk::Format::eR16Sfloat,
                                                            vk::Format::eR16G16B16A16Sfloat,
                                                            vk::Format::eD32Sfloat,
