@@ -154,6 +154,11 @@ private:
         VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
         vk::DescriptorSet descriptor_set, vk::DescriptorUpdateTemplate descriptor_template);
 
+    void DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
+                      vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
+                      vk::RenderPass renderpass, vk::Framebuffer framebuffer, u32 render_width,
+                      u32 render_height);
+
     void SetupVertexArrays(PipelineParams& params);
 
     void SetupIndexBuffer();

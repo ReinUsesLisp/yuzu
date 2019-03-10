@@ -117,10 +117,6 @@ void RasterizerVulkan::DrawArrays() {
     if (accelerate_draw == AccelDraw::Disabled)
         return;
 
-    const auto& gpu = system.GPU().Maxwell3D();
-    const auto& regs = gpu.regs;
-    const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
-
     PipelineParams params;
     state.Reset();
     sampled_views.clear();
@@ -182,27 +178,8 @@ void RasterizerVulkan::DrawArrays() {
                                   vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
-    const auto& dld = device.GetDispatchLoader();
-    const vk::RenderPassBeginInfo renderpass_bi(
-        renderpass, fbinfo.framebuffer, {{0, 0}, {fbinfo.width, fbinfo.height}}, 0, nullptr);
-    cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline, dld);
-    {
-        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle, dld);
-        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.layout,
-                                  VKShader::DESCRIPTOR_SET, 1, &pipeline.descriptor_set, 0, nullptr,
-                                  dld);
-
-        state.BindVertexBuffers(cmdbuf, dld);
-
-        const u32 instance = gpu.state.current_instance;
-        if (is_indexed) {
-            state.BindIndexBuffer(cmdbuf, dld);
-            cmdbuf.drawIndexed(regs.index_array.count, 1, 0, regs.vb_element_base, instance, dld);
-        } else {
-            cmdbuf.draw(regs.vertex_buffer.count, 1, regs.vertex_buffer.first, instance, dld);
-        }
-    }
-    cmdbuf.endRenderPass(dld);
+    DispatchDraw(exctx, pipeline.layout, pipeline.descriptor_set, pipeline.handle, renderpass,
+                 fbinfo.framebuffer, fbinfo.width, fbinfo.height);
 }
 
 void RasterizerVulkan::Clear() {
@@ -426,6 +403,37 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
 
     state.UpdateDescriptorSet(device, descriptor_set, descriptor_template);
     return exctx;
+}
+
+void RasterizerVulkan::DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
+                                    vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
+                                    vk::RenderPass renderpass, vk::Framebuffer framebuffer,
+                                    u32 render_width, u32 render_height) {
+    const auto& gpu = system.GPU().Maxwell3D();
+    const auto& regs = gpu.regs;
+
+    const auto& dld = device.GetDispatchLoader();
+    const auto cmdbuf = exctx.GetCommandBuffer();
+
+    const vk::RenderPassBeginInfo renderpass_bi(
+        renderpass, framebuffer, {{0, 0}, {render_width, render_height}}, 0, nullptr);
+    cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline, dld);
+    {
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline, dld);
+        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline_layout,
+                                  VKShader::DESCRIPTOR_SET, 1, &descriptor_set, 0, nullptr, dld);
+
+        state.BindVertexBuffers(cmdbuf, dld);
+
+        const u32 instance = gpu.state.current_instance;
+        if (accelerate_draw == AccelDraw::Indexed) {
+            state.BindIndexBuffer(cmdbuf, dld);
+            cmdbuf.drawIndexed(regs.index_array.count, 1, 0, regs.vb_element_base, instance, dld);
+        } else {
+            cmdbuf.draw(regs.vertex_buffer.count, 1, regs.vertex_buffer.first, instance, dld);
+        }
+    }
+    cmdbuf.endRenderPass(dld);
 }
 
 void RasterizerVulkan::SetupVertexArrays(PipelineParams& params) {
