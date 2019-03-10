@@ -30,6 +30,8 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
@@ -125,13 +127,13 @@ void RasterizerVulkan::DrawArrays() {
 
     const auto [shaders, shader_addresses] = pipeline_cache->GetShaders();
 
-    exctx = SetupShaderDescriptors(exctx, shaders);
+    Texceptions texceptions;
+    std::tie(texceptions, exctx) = SetupShaderDescriptors(exctx, color_attachments, shaders);
 
-    std::bitset<Maxwell::NumRenderTargets> texceptions;
-    std::tie(texceptions, exctx) = SetupImageTransitions(exctx, color_attachments, zeta_attachment);
+    exctx = SetupImageTransitions(exctx, texceptions, color_attachments, zeta_attachment);
 
     // Get renderpass parameters and get a renderpass from the cache.
-    const auto renderpass_params = GetRenderPassParams();
+    const auto renderpass_params = GetRenderPassParams(texceptions);
     const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
 
     const Pipeline pipeline = pipeline_cache->GetPipeline(
@@ -361,8 +363,12 @@ void RasterizerVulkan::SetupGeometry(PipelineParams& params) {
     }
 }
 
-VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
-    VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders) {
+std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext>
+RasterizerVulkan::SetupShaderDescriptors(
+    VKExecutionContext exctx,
+    const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+    const std::array<Shader, Maxwell::MaxShaderStage>& shaders) {
+    Texceptions texceptions{};
     for (std::size_t index = 0; index < std::size(shaders); ++index) {
         const Shader& shader = shaders[index];
         if (!shader)
@@ -371,39 +377,33 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
         const auto stage = static_cast<Maxwell::ShaderStage>(index);
         SetupConstBuffers(shader, stage);
         SetupGlobalBuffers(shader, stage);
-        exctx = SetupTextures(exctx, shader, stage);
+        std::tie(texceptions, exctx) =
+            SetupTextures(exctx, color_attachments, texceptions, shader, stage);
     }
 
-    return exctx;
+    return {texceptions, exctx};
 }
 
-std::tuple<std::bitset<Maxwell::NumRenderTargets>, VKExecutionContext>
-RasterizerVulkan::SetupImageTransitions(
-    VKExecutionContext exctx,
+VKExecutionContext RasterizerVulkan::SetupImageTransitions(
+    VKExecutionContext exctx, Texceptions texceptions,
     const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
     CachedView* zeta_attachment) {
-    for (const View sampled_view : sampled_views) {
+    for (const auto pair : sampled_views) {
+        const auto [sampled_view, texception] = pair;
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        sampled_view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
-                                 pipeline_stage, vk::AccessFlagBits::eShaderRead);
+        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
+                                             : vk::ImageLayout::eShaderReadOnlyOptimal;
+        sampled_view->Transition(exctx.GetCommandBuffer(), image_layout, pipeline_stage,
+                                 vk::AccessFlagBits::eShaderRead);
     }
 
-    std::bitset<Maxwell::NumRenderTargets> texceptions;
-    for (std::size_t index = 0; index < std::size(color_attachments); ++index) {
-        const auto color_attachment = color_attachments[index];
+    for (std::size_t rt = 0; rt < std::size(color_attachments); ++rt) {
+        const auto color_attachment = color_attachments[rt];
         if (color_attachment == nullptr)
             continue;
 
-        // TODO(Rodrigo): Optimize this in some way that's not O(n^2)
-        const bool texception =
-            std::any_of(sampled_views.begin(), sampled_views.end(),
-                        [color_attachment](const auto& sampled_view) {
-                            return color_attachment->IsOverlapping(sampled_view);
-                        });
-        texceptions[index] = texception;
-
-        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
-                                             : vk::ImageLayout::eColorAttachmentOptimal;
+        const auto image_layout = texceptions[rt] ? vk::ImageLayout::eSharedPresentKHR
+                                                  : vk::ImageLayout::eColorAttachmentOptimal;
         color_attachment->Transition(exctx.GetCommandBuffer(), image_layout,
                                      vk::PipelineStageFlagBits::eColorAttachmentOutput,
                                      vk::AccessFlagBits::eColorAttachmentRead |
@@ -417,8 +417,7 @@ RasterizerVulkan::SetupImageTransitions(
                                     vk::AccessFlagBits::eDepthStencilAttachmentRead |
                                         vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
-
-    return {texceptions, exctx};
+    return exctx;
 }
 
 void RasterizerVulkan::DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
@@ -556,8 +555,10 @@ void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderS
     }
 }
 
-VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, const Shader& shader,
-                                                   Maxwell::ShaderStage stage) {
+std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext> RasterizerVulkan::SetupTextures(
+    VKExecutionContext exctx,
+    const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+    Texceptions texceptions, const Shader& shader, Maxwell::ShaderStage stage) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& entries = shader->GetEntries().samplers;
     const u32 base_binding = shader->GetEntries().samplers_base_binding;
@@ -569,18 +570,28 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
         View view;
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture);
         UNIMPLEMENTED_IF(view == nullptr);
-        sampled_views.push_back(view);
+
+        bool texception = false;
+        for (std::size_t rt = 0; rt < std::size(color_attachments); ++rt) {
+            const auto color_attachment = color_attachments[rt];
+            if (color_attachment != nullptr && color_attachment->IsOverlapping(view)) {
+                texceptions.set(rt);
+                texception = true;
+            }
+        }
+        sampled_views.emplace_back(view, texception);
 
         const vk::ImageView image_view =
             view->GetHandle(entry.GetType(), texture.tic.x_source, texture.tic.y_source,
                             texture.tic.z_source, texture.tic.w_source, entry.IsArray());
 
         const u32 current_binding = base_binding + static_cast<u32>(bindpoint);
+        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
+                                             : vk::ImageLayout::eShaderReadOnlyOptimal;
         state.AddDescriptor(current_binding, vk::DescriptorType::eCombinedImageSampler,
-                            sampler_cache->GetSampler(texture.tsc), image_view,
-                            vk::ImageLayout::eShaderReadOnlyOptimal);
+                            sampler_cache->GetSampler(texture.tsc), image_view, image_layout);
     }
-    return exctx;
+    return {texceptions, exctx};
 }
 
 std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
@@ -607,10 +618,10 @@ std::size_t RasterizerVulkan::CalculateIndexBufferSize() const {
            static_cast<std::size_t>(regs.index_array.FormatSizeInBytes());
 }
 
-RenderPassParams RasterizerVulkan::GetRenderPassParams() const {
+RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) const {
     using namespace VideoCore::Surface;
-    const auto& regs = system.GPU().Maxwell3D().regs;
 
+    const auto& regs = system.GPU().Maxwell3D().regs;
     RenderPassParams renderpass_params;
     if ((renderpass_params.has_zeta = regs.zeta_enable)) {
         renderpass_params.zeta_component_type = ComponentTypeFromDepthFormat(regs.zeta.format);
@@ -625,6 +636,7 @@ RenderPassParams RasterizerVulkan::GetRenderPassParams() const {
         attachment.index = static_cast<u32>(rt);
         attachment.pixel_format = PixelFormatFromRenderTargetFormat(rendertarget.format);
         attachment.component_type = ComponentTypeFromRenderTarget(rendertarget.format);
+        attachment.is_texception = texceptions[rt];
         renderpass_params.color_map.Push(attachment);
     }
 

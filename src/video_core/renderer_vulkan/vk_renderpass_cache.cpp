@@ -30,6 +30,7 @@ vk::RenderPass VKRenderPassCache::GetRenderPass(const RenderPassParams& params) 
 
 UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& params) const {
     std::vector<vk::AttachmentDescription> descriptors;
+    std::vector<vk::AttachmentReference> color_references;
 
     for (const auto& map : params.color_map) {
         const auto [color_format, color_attachable] = MaxwellToVK::SurfaceFormat(
@@ -59,9 +60,11 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
     }
 
     const auto color_map_count = static_cast<u32>(params.color_map.Size());
-    std::vector<vk::AttachmentReference> color_references;
     for (u32 i = 0; i < color_map_count; ++i) {
-        color_references.emplace_back(i, vk::ImageLayout::eColorAttachmentOptimal);
+        const auto color_layout = params.color_map[i].is_texception
+                                      ? vk::ImageLayout::eSharedPresentKHR
+                                      : vk::ImageLayout::eColorAttachmentOptimal;
+        color_references.emplace_back(i, color_layout);
     }
     const vk::AttachmentReference zeta_attachment_ref(
         color_map_count, vk::ImageLayout::eDepthStencilAttachmentOptimal);

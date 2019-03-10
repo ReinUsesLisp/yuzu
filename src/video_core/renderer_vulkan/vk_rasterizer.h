@@ -136,6 +136,8 @@ public:
                   "The maximum size of a constbuffer must be a multiple of the size of GLvec4");
 
 private:
+    using Texceptions = std::bitset<Maxwell::NumRenderTargets>;
+
     static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
 
     void PrepareDraw();
@@ -156,12 +158,13 @@ private:
 
     void SetupGeometry(PipelineParams& params);
 
-    [[nodiscard]] VKExecutionContext SetupShaderDescriptors(
-        VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders);
-
-    [[nodiscard]] std::tuple<std::bitset<Maxwell::NumRenderTargets>, VKExecutionContext>
-    SetupImageTransitions(
+    [[nodiscard]] std::tuple<Texceptions, VKExecutionContext> SetupShaderDescriptors(
         VKExecutionContext exctx,
+        const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+        const std::array<Shader, Maxwell::MaxShaderStage>& shaders);
+
+    [[nodiscard]] VKExecutionContext SetupImageTransitions(
+        VKExecutionContext exctx, Texceptions texceptions,
         const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
         CachedView* zeta_attachment);
 
@@ -178,14 +181,16 @@ private:
 
     void SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage);
 
-    [[nodiscard]] VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
-                                                   Maxwell::ShaderStage stage);
+    [[nodiscard]] std::tuple<Texceptions, VKExecutionContext> SetupTextures(
+        VKExecutionContext exctx,
+        const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+        Texceptions texceptions, const Shader& shader, Maxwell::ShaderStage stage);
 
     std::size_t CalculateVertexArraysSize() const;
 
     std::size_t CalculateIndexBufferSize() const;
 
-    RenderPassParams GetRenderPassParams() const;
+    RenderPassParams GetRenderPassParams(Texceptions texceptions) const;
 
     void SyncDepthStencil(PipelineParams& params);
     void SyncInputAssembly(PipelineParams& params);
@@ -211,7 +216,7 @@ private:
     std::unique_ptr<VKSamplerCache> sampler_cache;
 
     PipelineState state;
-    std::vector<CachedView*> sampled_views;
+    std::vector<std::pair<CachedView*, bool>> sampled_views;
     bool is_indexed{};
 
     // TODO(Rodrigo): Invalidate on image destruction
