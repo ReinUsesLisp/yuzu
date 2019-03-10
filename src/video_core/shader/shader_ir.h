@@ -298,7 +298,9 @@ struct MetaTexture {
     const Sampler& sampler;
     Node array{};
     Node depth_compare{};
-    std::vector<Node> extras;
+    Node bias{};
+    Node lod{};
+    Node component{};
     u32 element{};
 };
 
@@ -622,6 +624,7 @@ private:
     u32 DecodeHfma2(NodeBlock& bb, u32 pc);
     u32 DecodeConversion(NodeBlock& bb, u32 pc);
     u32 DecodeMemory(NodeBlock& bb, u32 pc);
+    u32 DecodeTexture(NodeBlock& bb, u32 pc);
     u32 DecodeFloatSetPredicate(NodeBlock& bb, u32 pc);
     u32 DecodeIntegerSetPredicate(NodeBlock& bb, u32 pc);
     u32 DecodeHalfSetPredicate(NodeBlock& bb, u32 pc);
