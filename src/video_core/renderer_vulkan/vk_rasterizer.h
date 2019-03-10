@@ -150,6 +150,10 @@ private:
 
     void SetupGeometry(PipelineParams& params);
 
+    [[nodiscard]] VKExecutionContext SetupShaderDescriptors(
+        VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
+        vk::DescriptorSet descriptor_set, vk::DescriptorUpdateTemplate descriptor_template);
+
     void SetupVertexArrays(PipelineParams& params);
 
     void SetupIndexBuffer();
