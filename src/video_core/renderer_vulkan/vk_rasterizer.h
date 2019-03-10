@@ -87,12 +87,10 @@ public:
 
     void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type);
 
-    void AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
-                       vk::DescriptorType descriptor_type, vk::Buffer buffer, u64 offset,
-                       std::size_t size);
+    void AddDescriptor(u32 current_binding, vk::DescriptorType descriptor_type, vk::Buffer buffer,
+                       u64 offset, std::size_t size);
 
-    void AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
-                       vk::DescriptorType descriptor_type, vk::Sampler sampler,
+    void AddDescriptor(u32 current_binding, vk::DescriptorType descriptor_type, vk::Sampler sampler,
                        vk::ImageView image_view, vk::ImageLayout image_layout);
 
     void UpdateDescriptorSet(const VKDevice& device, vk::DescriptorSet descriptor_set,
@@ -170,14 +168,12 @@ private:
 
     void SetupIndexBuffer();
 
-    void SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage,
-                           vk::DescriptorSet descriptor_set);
+    void SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage);
 
-    void SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage,
-                            vk::DescriptorSet descriptor_set);
+    void SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage);
 
     VKExecutionContext SetupTextures(VKExecutionContext exctx, const Shader& shader,
-                                     Maxwell::ShaderStage stage, vk::DescriptorSet descriptor_set);
+                                     Maxwell::ShaderStage stage);
 
     std::size_t CalculateVertexArraysSize() const;
 

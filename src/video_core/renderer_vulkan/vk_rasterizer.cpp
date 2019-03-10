@@ -49,16 +49,15 @@ void PipelineState::SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk
     index_type = type;
 }
 
-void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
-                                  vk::DescriptorType descriptor_type, vk::Buffer buffer, u64 offset,
-                                  std::size_t size) {
+void PipelineState::AddDescriptor(u32 current_binding, vk::DescriptorType descriptor_type,
+                                  vk::Buffer buffer, u64 offset, std::size_t size) {
     update_entries.emplace_back(
         vk::DescriptorBufferInfo(buffer, offset, static_cast<vk::DeviceSize>(size)));
 }
 
-void PipelineState::AddDescriptor(vk::DescriptorSet descriptor_set, u32 current_binding,
-                                  vk::DescriptorType descriptor_type, vk::Sampler sampler,
-                                  vk::ImageView image_view, vk::ImageLayout image_layout) {
+void PipelineState::AddDescriptor(u32 current_binding, vk::DescriptorType descriptor_type,
+                                  vk::Sampler sampler, vk::ImageView image_view,
+                                  vk::ImageLayout image_layout) {
     update_entries.emplace_back(vk::DescriptorImageInfo(sampler, image_view, image_layout));
 }
 
@@ -399,9 +398,9 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
             continue;
 
         const auto stage = static_cast<Maxwell::ShaderStage>(index);
-        SetupConstBuffers(shader, stage, descriptor_set);
-        SetupGlobalBuffers(shader, stage, descriptor_set);
-        exctx = SetupTextures(exctx, shader, stage, descriptor_set);
+        SetupConstBuffers(shader, stage);
+        SetupGlobalBuffers(shader, stage);
+        exctx = SetupTextures(exctx, shader, stage);
     }
 
     state.UpdateDescriptorSet(device, descriptor_set, descriptor_template);
@@ -495,8 +494,7 @@ void RasterizerVulkan::SetupIndexBuffer() {
                           MaxwellToVK::IndexFormat(regs.index_array.format));
 }
 
-void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage,
-                                         vk::DescriptorSet descriptor_set) {
+void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& shader_stage = gpu.state.shader_stages[static_cast<std::size_t>(stage)];
     const auto& entries = shader->GetEntries().const_buffers;
@@ -527,27 +525,25 @@ void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderSt
         const auto offset =
             buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
 
-        state.AddDescriptor(descriptor_set, current_binding, vk::DescriptorType::eUniformBuffer,
+        state.AddDescriptor(current_binding, vk::DescriptorType::eUniformBuffer,
                             buffer_cache->GetBuffer(), offset, size);
     }
 }
 
-void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage,
-                                          vk::DescriptorSet descriptor_set) {
+void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage) {
     const auto& entries = shader->GetEntries().global_buffers;
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {
         const auto& entry = entries[bindpoint];
         const u32 current_bindpoint = shader->GetEntries().global_buffers_base_binding;
         const auto region = global_cache->GetGlobalRegion(entry, stage);
 
-        state.AddDescriptor(descriptor_set, current_bindpoint, vk::DescriptorType::eStorageBuffer,
+        state.AddDescriptor(current_bindpoint, vk::DescriptorType::eStorageBuffer,
                             region->GetBufferHandle(), 0, region->GetSizeInBytes());
     }
 }
 
 VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, const Shader& shader,
-                                                   Maxwell::ShaderStage stage,
-                                                   vk::DescriptorSet descriptor_set) {
+                                                   Maxwell::ShaderStage stage) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& entries = shader->GetEntries().samplers;
     const u32 base_binding = shader->GetEntries().samplers_base_binding;
@@ -566,8 +562,7 @@ VKExecutionContext RasterizerVulkan::SetupTextures(VKExecutionContext exctx, con
                             texture.tic.z_source, texture.tic.w_source, entry.IsArray());
 
         const u32 current_binding = base_binding + static_cast<u32>(bindpoint);
-        state.AddDescriptor(descriptor_set, current_binding,
-                            vk::DescriptorType::eCombinedImageSampler,
+        state.AddDescriptor(current_binding, vk::DescriptorType::eCombinedImageSampler,
                             sampler_cache->GetSampler(texture.tsc), image_view,
                             vk::ImageLayout::eShaderReadOnlyOptimal);
     }
