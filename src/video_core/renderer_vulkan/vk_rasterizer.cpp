@@ -115,21 +115,24 @@ void RasterizerVulkan::DrawArrays() {
 
     SyncFixedPipeline(params);
 
+    SetupGeometry(params);
+
     std::array<View, Maxwell::NumRenderTargets> color_attachments;
     std::tie(color_attachments, exctx) = GetColorAttachments(exctx);
 
     View zeta_attachment;
     std::tie(zeta_attachment, exctx) = GetZetaAttachment(exctx);
 
-    // Get renderpass parameters and get a renderpass from the cache.
-    const auto renderpass_params = GetRenderPassParams();
-    const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
-
-    SetupGeometry(params);
-
     const auto [shaders, shader_addresses] = pipeline_cache->GetShaders();
 
     exctx = SetupShaderDescriptors(exctx, shaders);
+
+    std::bitset<Maxwell::NumRenderTargets> texceptions;
+    std::tie(texceptions, exctx) = SetupImageTransitions(exctx, color_attachments, zeta_attachment);
+
+    // Get renderpass parameters and get a renderpass from the cache.
+    const auto renderpass_params = GetRenderPassParams();
+    const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
 
     const Pipeline pipeline = pipeline_cache->GetPipeline(
         params, renderpass_params, shaders, shader_addresses, renderpass, exctx.GetFence());
@@ -144,36 +147,6 @@ void RasterizerVulkan::DrawArrays() {
     vk::Extent2D render_area;
     std::tie(framebuffer, render_area, exctx) =
         ConfigureFramebuffers(exctx, color_attachments, zeta_attachment, renderpass);
-
-    for (const View sampled_view : sampled_views) {
-        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        sampled_view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
-                                 pipeline_stage, vk::AccessFlagBits::eShaderRead);
-    }
-
-    for (const View color_view : color_attachments) {
-        if (color_view == nullptr)
-            continue;
-        // TODO(Rodrigo): Optimize this in some way that's not O(n^2)
-        const bool texception = std::any_of(sampled_views.begin(), sampled_views.end(),
-                                            [color_view](const auto& sampled_view) {
-                                                return color_view->IsOverlapping(sampled_view);
-                                            });
-        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
-                                             : vk::ImageLayout::eColorAttachmentOptimal;
-        color_view->Transition(exctx.GetCommandBuffer(), image_layout,
-                               vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                               vk::AccessFlagBits::eColorAttachmentRead |
-                                   vk::AccessFlagBits::eColorAttachmentWrite);
-    }
-
-    if (zeta_attachment != nullptr) {
-        zeta_attachment->Transition(exctx.GetCommandBuffer(),
-                                    vk::ImageLayout::eDepthStencilAttachmentOptimal,
-                                    vk::PipelineStageFlagBits::eLateFragmentTests,
-                                    vk::AccessFlagBits::eDepthStencilAttachmentRead |
-                                        vk::AccessFlagBits::eDepthStencilAttachmentWrite);
-    }
 
     DispatchDraw(exctx, pipeline.layout, pipeline.descriptor_set, pipeline.handle, renderpass,
                  framebuffer, render_area);
@@ -402,6 +375,50 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
     }
 
     return exctx;
+}
+
+std::tuple<std::bitset<Maxwell::NumRenderTargets>, VKExecutionContext>
+RasterizerVulkan::SetupImageTransitions(
+    VKExecutionContext exctx,
+    const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+    CachedView* zeta_attachment) {
+    for (const View sampled_view : sampled_views) {
+        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
+        sampled_view->Transition(exctx.GetCommandBuffer(), vk::ImageLayout::eShaderReadOnlyOptimal,
+                                 pipeline_stage, vk::AccessFlagBits::eShaderRead);
+    }
+
+    std::bitset<Maxwell::NumRenderTargets> texceptions;
+    for (std::size_t index = 0; index < std::size(color_attachments); ++index) {
+        const auto color_attachment = color_attachments[index];
+        if (color_attachment == nullptr)
+            continue;
+
+        // TODO(Rodrigo): Optimize this in some way that's not O(n^2)
+        const bool texception =
+            std::any_of(sampled_views.begin(), sampled_views.end(),
+                        [color_attachment](const auto& sampled_view) {
+                            return color_attachment->IsOverlapping(sampled_view);
+                        });
+        texceptions[index] = texception;
+
+        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
+                                             : vk::ImageLayout::eColorAttachmentOptimal;
+        color_attachment->Transition(exctx.GetCommandBuffer(), image_layout,
+                                     vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                     vk::AccessFlagBits::eColorAttachmentRead |
+                                         vk::AccessFlagBits::eColorAttachmentWrite);
+    }
+
+    if (zeta_attachment != nullptr) {
+        zeta_attachment->Transition(exctx.GetCommandBuffer(),
+                                    vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                                    vk::PipelineStageFlagBits::eLateFragmentTests,
+                                    vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                                        vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+    }
+
+    return {texceptions, exctx};
 }
 
 void RasterizerVulkan::DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,

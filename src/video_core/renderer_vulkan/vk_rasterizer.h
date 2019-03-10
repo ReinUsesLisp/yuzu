@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -157,6 +158,12 @@ private:
 
     [[nodiscard]] VKExecutionContext SetupShaderDescriptors(
         VKExecutionContext exctx, const std::array<Shader, Maxwell::MaxShaderStage>& shaders);
+
+    [[nodiscard]] std::tuple<std::bitset<Maxwell::NumRenderTargets>, VKExecutionContext>
+    SetupImageTransitions(
+        VKExecutionContext exctx,
+        const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+        CachedView* zeta_attachment);
 
     void DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout pipeline_layout,
                       vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
