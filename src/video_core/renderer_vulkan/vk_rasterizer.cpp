@@ -630,7 +630,7 @@ RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) 
         attachment.pixel_format = PixelFormatFromRenderTargetFormat(rendertarget.format);
         attachment.component_type = ComponentTypeFromRenderTarget(rendertarget.format);
         attachment.is_texception = texceptions[rt];
-        renderpass_params.color_map.Push(attachment);
+        renderpass_params.color_attachments.Push(attachment);
     }
 
     return renderpass_params;

@@ -30,8 +30,8 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
     std::vector<vk::AttachmentDescription> descriptors;
     std::vector<vk::AttachmentReference> color_references;
 
-    for (std::size_t rt = 0; rt < params.color_map.Size(); ++rt) {
-        const auto attachment = params.color_map[rt];
+    for (std::size_t rt = 0; rt < params.color_attachments.Size(); ++rt) {
+        const auto attachment = params.color_attachments[rt];
         const auto [color_format, color_attachable] = MaxwellToVK::SurfaceFormat(
             device, FormatType::Optimal, attachment.pixel_format, attachment.component_type);
         ASSERT_MSG(color_attachable, "Trying to attach a non-attacheable format with format {}",
@@ -63,7 +63,8 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
     }
 
     const vk::AttachmentReference zeta_attachment_ref(
-        static_cast<u32>(params.color_map.Size()), vk::ImageLayout::eDepthStencilAttachmentOptimal);
+        static_cast<u32>(params.color_attachments.Size()),
+        vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
     const vk::SubpassDescription subpass_description(
         {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, static_cast<u32>(color_references.size()),

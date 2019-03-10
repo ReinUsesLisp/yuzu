@@ -42,7 +42,8 @@ struct RenderPassParams {
         }
     };
 
-    StaticVector<ColorAttachment, Tegra::Engines::Maxwell3D::Regs::NumRenderTargets> color_map = {};
+    StaticVector<ColorAttachment, Tegra::Engines::Maxwell3D::Regs::NumRenderTargets>
+        color_attachments = {};
     // TODO(Rodrigo): Unify has_zeta into zeta_pixel_format and zeta_component_type.
     VideoCore::Surface::PixelFormat zeta_pixel_format = VideoCore::Surface::PixelFormat::Invalid;
     VideoCore::Surface::ComponentType zeta_component_type =
@@ -51,7 +52,7 @@ struct RenderPassParams {
 
     std::size_t Hash() const {
         std::size_t hash = 0;
-        for (const auto& rt : color_map)
+        for (const auto& rt : color_attachments)
             boost::hash_combine(hash, rt.Hash());
         boost::hash_combine(hash, zeta_pixel_format);
         boost::hash_combine(hash, zeta_component_type);
@@ -60,8 +61,8 @@ struct RenderPassParams {
     }
 
     bool operator==(const RenderPassParams& rhs) const {
-        return std::tie(color_map, zeta_pixel_format, zeta_component_type, has_zeta) ==
-               std::tie(rhs.color_map, rhs.zeta_pixel_format, rhs.zeta_component_type,
+        return std::tie(color_attachments, zeta_pixel_format, zeta_component_type, has_zeta) ==
+               std::tie(rhs.color_attachments, rhs.zeta_pixel_format, rhs.zeta_component_type,
                         rhs.has_zeta);
     }
 };
