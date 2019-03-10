@@ -397,15 +397,15 @@ VKExecutionContext RasterizerVulkan::SetupShaderDescriptors(
         return exctx;
     }
 
-    for (std::size_t stage = 0; stage < std::size(shaders); ++stage) {
-        const auto stage_enum = static_cast<Maxwell::ShaderStage>(stage);
-        const Shader& shader = shaders[stage];
+    for (std::size_t index = 0; index < std::size(shaders); ++index) {
+        const Shader& shader = shaders[index];
         if (!shader)
             continue;
 
-        SetupConstBuffers(shader, stage_enum, descriptor_set);
-        SetupGlobalBuffers(shader, stage_enum, descriptor_set);
-        exctx = SetupTextures(exctx, shader, stage_enum, descriptor_set);
+        const auto stage = static_cast<Maxwell::ShaderStage>(index);
+        SetupConstBuffers(shader, stage, descriptor_set);
+        SetupGlobalBuffers(shader, stage, descriptor_set);
+        exctx = SetupTextures(exctx, shader, stage, descriptor_set);
     }
 
     state.UpdateDescriptorSet(device, descriptor_set, descriptor_template);
