@@ -25,18 +25,20 @@ struct RenderPassParams {
         VideoCore::Surface::PixelFormat pixel_format = VideoCore::Surface::PixelFormat::Invalid;
         VideoCore::Surface::ComponentType component_type =
             VideoCore::Surface::ComponentType::Invalid;
+        bool is_texception = false;
 
         std::size_t Hash() const {
             std::size_t hash = 0;
             boost::hash_combine(hash, index);
             boost::hash_combine(hash, pixel_format);
             boost::hash_combine(hash, component_type);
+            boost::hash_combine(hash, is_texception);
             return hash;
         }
 
         bool operator==(const ColorAttachment& rhs) const {
-            return std::tie(index, pixel_format, component_type) ==
-                   std::tie(rhs.index, rhs.pixel_format, rhs.component_type);
+            return std::tie(index, pixel_format, component_type, is_texception) ==
+                   std::tie(rhs.index, rhs.pixel_format, rhs.component_type, rhs.is_texception);
         }
     };
 

@@ -35,7 +35,6 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 struct FramebufferInfo {
     vk::Framebuffer framebuffer;
-    std::array<View, Maxwell::NumRenderTargets> color_views;
     View zeta_view;
     u32 width;
     u32 height;
@@ -126,38 +125,25 @@ void RasterizerVulkan::DrawArrays() {
     state.Reset();
     sampled_views.clear();
 
-    // Get renderpass parameters and get a draw renderpass from the cache
-    const auto renderpass_params = GetRenderPassParams();
-    const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
-
+    // Synchronize fixed pipeline state
     SyncDepthStencil(params);
     SyncInputAssembly(params);
     SyncColorBlending(params);
     SyncViewportState(params);
     SyncRasterizerState(params);
 
-    // Calculate buffer size.
-    std::size_t buffer_size = CalculateVertexArraysSize();
-    if (is_indexed) {
-        buffer_size = Common::AlignUp<std::size_t>(buffer_size, 4) + CalculateIndexBufferSize();
-    }
-    buffer_size += Maxwell::MaxConstBuffers * (MaxConstbufferSize + uniform_buffer_alignment);
-
-    buffer_cache->Reserve(buffer_size);
-
-    SetupVertexArrays(params);
-    if (is_indexed) {
-        SetupIndexBuffer();
-    }
-
-    const auto& dld = device.GetDispatchLoader();
     auto exctx = scheduler.GetExecutionContext();
+    std::array<View, Maxwell::NumRenderTargets> color_attachments;
+    std::tie(color_attachments, exctx) = GetColorAttachments(exctx);
+
+    // Get renderpass parameters and get a renderpass from the cache.
+    const auto renderpass_params = GetRenderPassParams();
+    const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
+
+    SetupGeometry(params);
 
     const Pipeline pipeline =
         pipeline_cache->GetPipeline(params, renderpass_params, renderpass, exctx.GetFence());
-
-    FramebufferInfo fbinfo;
-    std::tie(fbinfo, exctx) = ConfigureFramebuffers(exctx, renderpass);
 
     const auto descriptor_set = pipeline.descriptor_set;
     if (descriptor_set && pipeline.descriptor_template) {
@@ -177,7 +163,8 @@ void RasterizerVulkan::DrawArrays() {
 
     exctx = buffer_cache->Send(exctx);
 
-    const auto cmdbuf = exctx.GetCommandBuffer();
+    FramebufferInfo fbinfo;
+    std::tie(fbinfo, exctx) = ConfigureFramebuffers(exctx, color_attachments, renderpass);
 
     for (const View sampled_view : sampled_views) {
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
@@ -185,7 +172,8 @@ void RasterizerVulkan::DrawArrays() {
                                  pipeline_stage, vk::AccessFlagBits::eShaderRead);
     }
 
-    for (const View color_view : fbinfo.color_views) {
+    const auto cmdbuf = exctx.GetCommandBuffer();
+    for (const View color_view : color_attachments) {
         if (color_view == nullptr)
             continue;
         // TODO(Rodrigo): Optimize this in some way that's not O(n^2)
@@ -207,6 +195,7 @@ void RasterizerVulkan::DrawArrays() {
                                   vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
+    const auto& dld = device.GetDispatchLoader();
     const vk::RenderPassBeginInfo renderpass_bi(
         renderpass, fbinfo.framebuffer, {{0, 0}, {fbinfo.width, fbinfo.height}}, 0, nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline, dld);
@@ -355,8 +344,20 @@ void RasterizerVulkan::UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, in
         cached_pages.add({pages_interval, delta});
 }
 
+std::tuple<std::array<View, Maxwell::NumRenderTargets>, VKExecutionContext>
+RasterizerVulkan::GetColorAttachments(VKExecutionContext exctx) {
+    std::array<View, Maxwell::NumRenderTargets> color_attachments;
+    for (std::size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
+        View attachment;
+        std::tie(attachment, exctx) = texture_cache->GetColorBufferSurface(exctx, rt, true);
+        color_attachments[rt] = attachment;
+    }
+    return {color_attachments, exctx};
+}
+
 std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFramebuffers(
-    VKExecutionContext exctx, vk::RenderPass renderpass) {
+    VKExecutionContext exctx, const std::array<View, Maxwell::NumRenderTargets>& color_attachments,
+    vk::RenderPass renderpass) {
     const auto& regs = system.GPU().Maxwell3D().regs;
 
     FramebufferCacheKey fbkey;
@@ -374,12 +375,8 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
         fbkey.height = std::min(fbkey.height, view->GetHeight());
     };
 
-    std::array<View, Maxwell::NumRenderTargets> color_views;
-    for (std::size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
-        View color_view;
-        std::tie(color_view, exctx) = texture_cache->GetColorBufferSurface(exctx, rt, true);
-        color_views[rt] = color_view;
-        MarkAsModifiedAndPush(color_view);
+    for (const auto color_attachment : color_attachments) {
+        MarkAsModifiedAndPush(color_attachment);
     }
 
     View zeta_view{};
@@ -399,11 +396,26 @@ std::tuple<FramebufferInfo, VKExecutionContext> RasterizerVulkan::ConfigureFrame
 
     FramebufferInfo info;
     info.framebuffer = *framebuffer;
-    info.color_views = color_views;
     info.zeta_view = zeta_view;
     info.width = fbkey.width;
     info.height = fbkey.height;
     return {info, exctx};
+}
+
+void RasterizerVulkan::SetupGeometry(PipelineParams& params) {
+    const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
+    std::size_t buffer_size = CalculateVertexArraysSize();
+    if (is_indexed) {
+        buffer_size = Common::AlignUp<std::size_t>(buffer_size, 4) + CalculateIndexBufferSize();
+    }
+    buffer_size += Maxwell::MaxConstBuffers * (MaxConstbufferSize + uniform_buffer_alignment);
+
+    buffer_cache->Reserve(buffer_size);
+
+    SetupVertexArrays(params);
+    if (is_indexed) {
+        SetupIndexBuffer();
+    }
 }
 
 void RasterizerVulkan::SetupVertexArrays(PipelineParams& params) {

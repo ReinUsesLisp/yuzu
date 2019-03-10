@@ -29,7 +29,6 @@ vk::RenderPass VKRenderPassCache::GetRenderPass(const RenderPassParams& params) 
 }
 
 UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& params) const {
-    constexpr vk::AttachmentLoadOp load_op = vk::AttachmentLoadOp::eLoad;
     std::vector<vk::AttachmentDescription> descriptors;
 
     for (const auto& map : params.color_map) {
@@ -38,10 +37,12 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
         ASSERT_MSG(color_attachable, "Trying to attach a non-attacheable format with format {}",
                    static_cast<u32>(map.pixel_format));
 
+        const auto color_layout = map.is_texception ? vk::ImageLayout::eSharedPresentKHR
+                                                    : vk::ImageLayout::eColorAttachmentOptimal;
         descriptors.push_back(vk::AttachmentDescription(
-            {}, color_format, vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore,
-            vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare,
-            vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal));
+            {}, color_format, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
+            vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
+            vk::AttachmentStoreOp::eDontCare, color_layout, color_layout));
     }
 
     const bool has_zeta = params.has_zeta;
@@ -51,8 +52,9 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
         ASSERT(zeta_attachable);
 
         descriptors.push_back(vk::AttachmentDescription(
-            {}, zeta_format, vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore,
-            load_op, vk::AttachmentStoreOp::eStore, vk::ImageLayout::eDepthStencilAttachmentOptimal,
+            {}, zeta_format, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
+            vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eLoad,
+            vk::AttachmentStoreOp::eStore, vk::ImageLayout::eDepthStencilAttachmentOptimal,
             vk::ImageLayout::eDepthStencilAttachmentOptimal));
     }
 

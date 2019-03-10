@@ -140,8 +140,15 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
 
+    [[nodiscard]] std::tuple<std::array<CachedView*, Maxwell::NumRenderTargets>, VKExecutionContext>
+    GetColorAttachments(VKExecutionContext exctx);
+
     [[nodiscard]] std::tuple<FramebufferInfo, VKExecutionContext> ConfigureFramebuffers(
-        VKExecutionContext exctx, vk::RenderPass renderpass);
+        VKExecutionContext exctx,
+        const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
+        vk::RenderPass renderpass);
+
+    void SetupGeometry(PipelineParams& params);
 
     void SetupVertexArrays(PipelineParams& params);
 
