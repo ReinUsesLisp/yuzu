@@ -208,6 +208,35 @@ void RasterizerVulkan::FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) 
     InvalidateRegion(addr, size);
 }
 
+bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
+                                             const Tegra::Engines::Fermi2D::Regs::Surface& dst,
+                                             const Common::Rectangle<u32>& src_rect,
+                                             const Common::Rectangle<u32>& dst_rect) {
+    auto exctx = scheduler.GetExecutionContext();
+    View src_view;
+    View dst_view;
+    std::tie(src_view, exctx) = texture_cache->GetFermiSurface(exctx, src);
+    std::tie(dst_view, exctx) = texture_cache->GetFermiSurface(exctx, dst);
+
+    const auto cmdbuf = exctx.GetCommandBuffer();
+    src_view->Transition(cmdbuf, vk::ImageLayout::eTransferSrcOptimal,
+                         vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferRead);
+    dst_view->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                         vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
+
+    UNIMPLEMENTED();
+
+    /*
+    const auto& dld = device.GetDispatchLoader();
+    cmdbuf.blitImage(src_view->GetImage(), vk::ImageLayout::eTransferSrcOptimal,
+                     dst_view->GetImage(), vk::ImageLayout::eTransferDstOptimal, {region}, filter,
+                     dld);
+    */
+
+    dst_view->MarkAsModified(true);
+    return true;
+}
+
 bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
                                          VAddr framebuffer_addr, u32 pixel_stride) {
     if (!framebuffer_addr) {

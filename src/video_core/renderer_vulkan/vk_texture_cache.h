@@ -133,6 +133,10 @@ public:
         return {aspect_mask, base_level, num_levels, base_layer, num_layers};
     }
 
+    vk::ImageSubresourceLayers GetImageSubresourceLayers() const {
+        return {surface->GetAspectMask(), base_level, base_layer, num_layers};
+    }
+
     void Transition(vk::CommandBuffer cmdbuf, vk::ImageLayout new_layout,
                     vk::PipelineStageFlags new_stage_mask, vk::AccessFlags new_access) const {
         surface->Transition(cmdbuf, base_layer, num_layers, base_level, num_levels, new_stage_mask,
