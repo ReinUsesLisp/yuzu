@@ -118,7 +118,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eBc3UnormBlock, ComponentType::UNorm, false},         // DXT45
     {vk::Format::eBc4UnormBlock, ComponentType::UNorm, false},         // DXN1
     {vk::Format::eBc5UnormBlock, ComponentType::UNorm, false},         // DXN2UNORM
-    {vk::Format::eUndefined, ComponentType::Invalid, false},           // DXN2SNORM
+    {vk::Format::eBc5SnormBlock, ComponentType::SNorm, false},         // DXN2SNORM
     {vk::Format::eBc7UnormBlock, ComponentType::UNorm, false},         // BC7U
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC6H_UF16
     {vk::Format::eUndefined, ComponentType::Invalid, false},           // BC6H_SF16
@@ -231,6 +231,20 @@ vk::PrimitiveTopology PrimitiveTopology(Maxwell::PrimitiveTopology topology) {
 vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttribute::Size size) {
     switch (type) {
     case Maxwell::VertexAttribute::Type::SignedNorm:
+        switch (size) {
+        case Maxwell::VertexAttribute::Size::Size_8:
+            return vk::Format::eR8Snorm;
+        case Maxwell::VertexAttribute::Size::Size_8_8:
+            return vk::Format::eR8G8Snorm;
+        case Maxwell::VertexAttribute::Size::Size_8_8_8:
+            return vk::Format::eR8G8B8Snorm;
+        case Maxwell::VertexAttribute::Size::Size_8_8_8_8:
+            return vk::Format::eR8G8B8A8Snorm;
+        case Maxwell::VertexAttribute::Size::Size_10_10_10_2:
+            return vk::Format::eA2R10G10B10SnormPack32;
+        default:
+            break;
+        }
         break;
     case Maxwell::VertexAttribute::Type::UnsignedNorm:
         switch (size) {
@@ -242,8 +256,14 @@ vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttr
             return vk::Format::eR8G8B8Unorm;
         case Maxwell::VertexAttribute::Size::Size_8_8_8_8:
             return vk::Format::eR8G8B8A8Unorm;
+        case Maxwell::VertexAttribute::Size::Size_16:
+            return vk::Format::eR16Unorm;
         case Maxwell::VertexAttribute::Size::Size_16_16:
             return vk::Format::eR16G16Unorm;
+        case Maxwell::VertexAttribute::Size::Size_16_16_16:
+            return vk::Format::eR16G16B16Unorm;
+        case Maxwell::VertexAttribute::Size::Size_16_16_16_16:
+            return vk::Format::eR16G16B16A16Unorm;
         default:
             break;
         }
