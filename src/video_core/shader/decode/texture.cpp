@@ -41,8 +41,8 @@ u32 ShaderIR::DecodeTexture(NodeBlock& bb, u32 pc) {
 
     switch (opcode->get().GetId()) {
     case OpCode::Id::TEX: {
-        UNIMPLEMENTED_IF_MSG(instr.tex.UsesMiscMode(TextureMiscMode::AOFFI),
-                             "AOFFI is not implemented");
+        // UNIMPLEMENTED_IF_MSG(instr.tex.UsesMiscMode(TextureMiscMode::AOFFI),
+        //                      "AOFFI is not implemented");
 
         if (instr.tex.UsesMiscMode(TextureMiscMode::NODEP)) {
             LOG_WARNING(HW_GPU, "TEX.NODEP implementation is incomplete");
@@ -78,8 +78,8 @@ u32 ShaderIR::DecodeTexture(NodeBlock& bb, u32 pc) {
     }
     case OpCode::Id::TLD4: {
         ASSERT(instr.tld4.array == 0);
-        UNIMPLEMENTED_IF_MSG(instr.tld4.UsesMiscMode(TextureMiscMode::AOFFI),
-                             "AOFFI is not implemented");
+        // UNIMPLEMENTED_IF_MSG(instr.tld4.UsesMiscMode(TextureMiscMode::AOFFI),
+        //                      "AOFFI is not implemented");
         UNIMPLEMENTED_IF_MSG(instr.tld4.UsesMiscMode(TextureMiscMode::NDV),
                              "NDV is not implemented");
         UNIMPLEMENTED_IF_MSG(instr.tld4.UsesMiscMode(TextureMiscMode::PTP),
@@ -97,8 +97,8 @@ u32 ShaderIR::DecodeTexture(NodeBlock& bb, u32 pc) {
         break;
     }
     case OpCode::Id::TLD4S: {
-        UNIMPLEMENTED_IF_MSG(instr.tld4s.UsesMiscMode(TextureMiscMode::AOFFI),
-                             "AOFFI is not implemented");
+        // UNIMPLEMENTED_IF_MSG(instr.tld4s.UsesMiscMode(TextureMiscMode::AOFFI),
+        //                      "AOFFI is not implemented");
         if (instr.tld4s.UsesMiscMode(TextureMiscMode::NODEP)) {
             LOG_WARNING(HW_GPU, "TLD4S.NODEP implementation is incomplete");
         }
@@ -216,8 +216,8 @@ u32 ShaderIR::DecodeTexture(NodeBlock& bb, u32 pc) {
         const Tegra::Shader::TextureType texture_type{instr.tlds.GetTextureType()};
         const bool is_array{instr.tlds.IsArrayTexture()};
 
-        UNIMPLEMENTED_IF_MSG(instr.tlds.UsesMiscMode(TextureMiscMode::AOFFI),
-                             "AOFFI is not implemented");
+        // UNIMPLEMENTED_IF_MSG(instr.tlds.UsesMiscMode(TextureMiscMode::AOFFI),
+        //                      "AOFFI is not implemented");
         UNIMPLEMENTED_IF_MSG(instr.tlds.UsesMiscMode(TextureMiscMode::MZ), "MZ is not implemented");
 
         if (instr.tlds.UsesMiscMode(TextureMiscMode::NODEP)) {
