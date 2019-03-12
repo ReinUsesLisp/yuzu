@@ -136,9 +136,10 @@ public:
                   "The maximum size of a constbuffer must be a multiple of the size of GLvec4");
 
 private:
-    using Texceptions = std::bitset<Maxwell::NumRenderTargets>;
+    using Texceptions = std::bitset<Maxwell::NumRenderTargets + 1>;
 
     static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
+    static constexpr std::size_t ZETA_TEXCEPTION_INDEX = 8;
 
     void PrepareDraw();
 
@@ -161,7 +162,7 @@ private:
     [[nodiscard]] std::tuple<Texceptions, VKExecutionContext> SetupShaderDescriptors(
         VKExecutionContext exctx,
         const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
-        const std::array<Shader, Maxwell::MaxShaderStage>& shaders);
+        CachedView* zeta_attachment, const std::array<Shader, Maxwell::MaxShaderStage>& shaders);
 
     [[nodiscard]] VKExecutionContext SetupImageTransitions(
         VKExecutionContext exctx, Texceptions texceptions,
@@ -184,7 +185,8 @@ private:
     [[nodiscard]] std::tuple<Texceptions, VKExecutionContext> SetupTextures(
         VKExecutionContext exctx,
         const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
-        Texceptions texceptions, const Shader& shader, Maxwell::ShaderStage stage);
+        CachedView* zeta_attachment, Texceptions texceptions, const Shader& shader,
+        Maxwell::ShaderStage stage);
 
     std::size_t CalculateVertexArraysSize() const;
 

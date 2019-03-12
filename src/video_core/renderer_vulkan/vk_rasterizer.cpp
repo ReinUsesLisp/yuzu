@@ -121,15 +121,15 @@ void RasterizerVulkan::DrawArrays() {
     const auto [shaders, shader_addresses] = pipeline_cache->GetShaders();
 
     Texceptions texceptions;
-    std::tie(texceptions, exctx) = SetupShaderDescriptors(exctx, color_attachments, shaders);
+    std::tie(texceptions, exctx) =
+        SetupShaderDescriptors(exctx, color_attachments, zeta_attachment, shaders);
 
     exctx = SetupImageTransitions(exctx, texceptions, color_attachments, zeta_attachment);
 
-    // Get renderpass parameters and get a renderpass from the cache.
     const auto renderpass_params = GetRenderPassParams(texceptions);
     const auto renderpass = renderpass_cache->GetRenderPass(renderpass_params);
 
-    const Pipeline pipeline = pipeline_cache->GetPipeline(
+    const auto pipeline = pipeline_cache->GetPipeline(
         fixed_state, renderpass_params, shaders, shader_addresses, renderpass, exctx.GetFence());
 
     exctx = buffer_cache->Send(exctx);
@@ -360,7 +360,7 @@ std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext>
 RasterizerVulkan::SetupShaderDescriptors(
     VKExecutionContext exctx,
     const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
-    const std::array<Shader, Maxwell::MaxShaderStage>& shaders) {
+    CachedView* zeta_attachment, const std::array<Shader, Maxwell::MaxShaderStage>& shaders) {
     Texceptions texceptions{};
     for (std::size_t index = 0; index < std::size(shaders); ++index) {
         const Shader& shader = shaders[index];
@@ -371,9 +371,8 @@ RasterizerVulkan::SetupShaderDescriptors(
         SetupConstBuffers(shader, stage);
         SetupGlobalBuffers(shader, stage);
         std::tie(texceptions, exctx) =
-            SetupTextures(exctx, color_attachments, texceptions, shader, stage);
+            SetupTextures(exctx, color_attachments, zeta_attachment, texceptions, shader, stage);
     }
-
     return {texceptions, exctx};
 }
 
@@ -404,8 +403,10 @@ VKExecutionContext RasterizerVulkan::SetupImageTransitions(
     }
 
     if (zeta_attachment != nullptr) {
-        zeta_attachment->Transition(exctx.GetCommandBuffer(),
-                                    vk::ImageLayout::eDepthStencilAttachmentOptimal,
+        const auto image_layout = texceptions[ZETA_TEXCEPTION_INDEX]
+                                      ? vk::ImageLayout::eGeneral
+                                      : vk::ImageLayout::eDepthStencilAttachmentOptimal;
+        zeta_attachment->Transition(exctx.GetCommandBuffer(), image_layout,
                                     vk::PipelineStageFlagBits::eLateFragmentTests,
                                     vk::AccessFlagBits::eDepthStencilAttachmentRead |
                                         vk::AccessFlagBits::eDepthStencilAttachmentWrite);
@@ -551,7 +552,8 @@ void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderS
 std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext> RasterizerVulkan::SetupTextures(
     VKExecutionContext exctx,
     const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
-    Texceptions texceptions, const Shader& shader, Maxwell::ShaderStage stage) {
+    CachedView* zeta_attachment, Texceptions texceptions, const Shader& shader,
+    Maxwell::ShaderStage stage) {
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& entries = shader->GetEntries().samplers;
     const u32 base_binding = shader->GetEntries().samplers_base_binding;
@@ -564,14 +566,23 @@ std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext> RasterizerVulkan::
         std::tie(view, exctx) = texture_cache->GetTextureSurface(exctx, texture);
         UNIMPLEMENTED_IF(view == nullptr);
 
+        vk::ImageLayout image_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
         bool texception = false;
+
         for (std::size_t rt = 0; rt < std::size(color_attachments); ++rt) {
             const auto color_attachment = color_attachments[rt];
             if (color_attachment != nullptr && color_attachment->IsOverlapping(view)) {
                 texceptions.set(rt);
+                image_layout = vk::ImageLayout::eSharedPresentKHR;
                 texception = true;
             }
         }
+        if (zeta_attachment != nullptr && zeta_attachment->IsOverlapping(view)) {
+            texceptions.set(ZETA_TEXCEPTION_INDEX);
+            image_layout = vk::ImageLayout::eGeneral;
+            texception = true;
+        }
+
         sampled_views.emplace_back(view, texception);
 
         const vk::ImageView image_view =
@@ -579,8 +590,6 @@ std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext> RasterizerVulkan::
                             texture.tic.z_source, texture.tic.w_source, entry.IsArray());
 
         const u32 current_binding = base_binding + static_cast<u32>(bindpoint);
-        const auto image_layout = texception ? vk::ImageLayout::eSharedPresentKHR
-                                             : vk::ImageLayout::eShaderReadOnlyOptimal;
         state.AddDescriptor(current_binding, vk::DescriptorType::eCombinedImageSampler,
                             sampler_cache->GetSampler(texture.tsc), image_view, image_layout);
     }
@@ -616,10 +625,6 @@ RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) 
 
     const auto& regs = system.GPU().Maxwell3D().regs;
     RenderPassParams renderpass_params;
-    if ((renderpass_params.has_zeta = regs.zeta_enable)) {
-        renderpass_params.zeta_component_type = ComponentTypeFromDepthFormat(regs.zeta.format);
-        renderpass_params.zeta_pixel_format = PixelFormatFromDepthFormat(regs.zeta.format);
-    }
 
     for (std::size_t rt = 0; rt < static_cast<std::size_t>(regs.rt_control.count); ++rt) {
         const auto& rendertarget = regs.rt[rt];
@@ -631,6 +636,13 @@ RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) 
         attachment.component_type = ComponentTypeFromRenderTarget(rendertarget.format);
         attachment.is_texception = texceptions[rt];
         renderpass_params.color_attachments.Push(attachment);
+    }
+
+    renderpass_params.has_zeta = regs.zeta_enable;
+    if (renderpass_params.has_zeta) {
+        renderpass_params.zeta_component_type = ComponentTypeFromDepthFormat(regs.zeta.format);
+        renderpass_params.zeta_pixel_format = PixelFormatFromDepthFormat(regs.zeta.format);
+        renderpass_params.zeta_texception = texceptions[ZETA_TEXCEPTION_INDEX];
     }
 
     return renderpass_params;

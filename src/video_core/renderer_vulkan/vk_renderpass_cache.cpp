@@ -41,34 +41,34 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
         const auto color_layout = attachment.is_texception
                                       ? vk::ImageLayout::eSharedPresentKHR
                                       : vk::ImageLayout::eColorAttachmentOptimal;
-        descriptors.push_back(vk::AttachmentDescription(
-            vk::AttachmentDescriptionFlagBits::eMayAlias, color_format, vk::SampleCountFlagBits::e1,
-            vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore,
-            vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, color_layout,
-            color_layout));
+        descriptors.emplace_back(vk::AttachmentDescriptionFlagBits::eMayAlias, color_format,
+                                 vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
+                                 vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
+                                 vk::AttachmentStoreOp::eDontCare, color_layout, color_layout);
         color_references.emplace_back(static_cast<u32>(rt), color_layout);
     }
 
-    const bool has_zeta = params.has_zeta;
-    if (has_zeta) {
+    vk::AttachmentReference zeta_attachment_ref;
+    if (params.has_zeta) {
         const auto [zeta_format, zeta_attachable] = MaxwellToVK::SurfaceFormat(
             device, FormatType::Optimal, params.zeta_pixel_format, params.zeta_component_type);
         ASSERT(zeta_attachable);
 
-        descriptors.push_back(vk::AttachmentDescription(
-            {}, zeta_format, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
-            vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eLoad,
-            vk::AttachmentStoreOp::eStore, vk::ImageLayout::eDepthStencilAttachmentOptimal,
-            vk::ImageLayout::eDepthStencilAttachmentOptimal));
+        const auto zeta_layout = params.zeta_texception
+                                     ? vk::ImageLayout::eGeneral
+                                     : vk::ImageLayout::eDepthStencilAttachmentOptimal;
+        descriptors.emplace_back(vk::AttachmentDescriptionFlags{}, zeta_format,
+                                 vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad,
+                                 vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eLoad,
+                                 vk::AttachmentStoreOp::eStore, zeta_layout, zeta_layout);
+        zeta_attachment_ref =
+            vk::AttachmentReference(static_cast<u32>(params.color_attachments.Size()), zeta_layout);
     }
-
-    const vk::AttachmentReference zeta_attachment_ref(
-        static_cast<u32>(params.color_attachments.Size()),
-        vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
     const vk::SubpassDescription subpass_description(
         {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, static_cast<u32>(color_references.size()),
-        color_references.data(), nullptr, has_zeta ? &zeta_attachment_ref : nullptr, 0, nullptr);
+        color_references.data(), nullptr, params.has_zeta ? &zeta_attachment_ref : nullptr, 0,
+        nullptr);
 
     vk::AccessFlags access;
     vk::PipelineStageFlags stage;
@@ -78,7 +78,7 @@ UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams& par
         stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
     }
 
-    if (has_zeta) {
+    if (params.has_zeta) {
         access |= vk::AccessFlagBits::eDepthStencilAttachmentRead |
                   vk::AccessFlagBits::eDepthStencilAttachmentWrite;
         stage |= vk::PipelineStageFlagBits::eLateFragmentTests;

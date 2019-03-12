@@ -49,6 +49,7 @@ struct RenderPassParams {
     VideoCore::Surface::ComponentType zeta_component_type =
         VideoCore::Surface::ComponentType::Invalid;
     bool has_zeta = false;
+    bool zeta_texception = false;
 
     std::size_t Hash() const {
         std::size_t hash = 0;
@@ -57,13 +58,15 @@ struct RenderPassParams {
         boost::hash_combine(hash, zeta_pixel_format);
         boost::hash_combine(hash, zeta_component_type);
         boost::hash_combine(hash, has_zeta);
+        boost::hash_combine(hash, zeta_texception);
         return hash;
     }
 
     bool operator==(const RenderPassParams& rhs) const {
-        return std::tie(color_attachments, zeta_pixel_format, zeta_component_type, has_zeta) ==
-               std::tie(rhs.color_attachments, rhs.zeta_pixel_format, rhs.zeta_component_type,
-                        rhs.has_zeta);
+        return std::tie(color_attachments, zeta_pixel_format, zeta_component_type, has_zeta,
+                        zeta_texception) == std::tie(rhs.color_attachments, rhs.zeta_pixel_format,
+                                                     rhs.zeta_component_type, rhs.has_zeta,
+                                                     rhs.zeta_texception);
     }
 };
 
