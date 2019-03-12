@@ -68,6 +68,11 @@ constexpr u32 GetAttributeLocation(Attribute::Index attribute) {
     return static_cast<u32>(attribute) - static_cast<u32>(Attribute::Index::Attribute_0);
 }
 
+constexpr bool IsGenericAttribute(Attribute::Index attribute) {
+    return attribute >= Attribute::Index::Attribute_0 &&
+           attribute <= Attribute::Index::Attribute_31;
+}
+
 /// Returns true if an object has to be treated as precise
 bool IsPrecise(Operation operand) {
     const auto& meta = operand.GetMeta();
@@ -229,8 +234,8 @@ private:
     void AllocateLabels() {
         for (const auto& pair : ir.GetBasicBlocks()) {
             const u32 address = pair.first;
-            const Id label = Name(OpLabel(), fmt::format("label_0x{:x}", address));
-            labels.insert({address, label});
+            const Id label = OpLabel(fmt::format("label_0x{:x}", address));
+            labels.emplace(address, label);
         }
     }
 
@@ -274,7 +279,7 @@ private:
 
             const Id id = AddGlobalVariable(OpVariable(t_out_float4, spv::StorageClass::Output));
             Name(id, fmt::format("frag_color{}", rt));
-            Decorate(id, spv::Decoration::Location, {rt});
+            Decorate(id, spv::Decoration::Location, rt);
 
             frag_colors[rt] = id;
             interfaces.push_back(id);
@@ -284,21 +289,21 @@ private:
             frag_depth = AddGlobalVariable(OpVariable(t_out_float, spv::StorageClass::Output));
             Name(frag_depth, "frag_depth");
             Decorate(frag_depth, spv::Decoration::BuiltIn,
-                     {static_cast<u32>(spv::BuiltIn::FragDepth)});
+                     static_cast<u32>(spv::BuiltIn::FragDepth));
 
             interfaces.push_back(frag_depth);
         }
 
-        frag_coord = OpVariable(t_in_float4, spv::StorageClass::Input);
-        AddGlobalVariable(Name(frag_coord, "frag_coord"));
-        Decorate(frag_coord, spv::Decoration::BuiltIn, {static_cast<u32>(spv::BuiltIn::FragCoord)});
-        interfaces.push_back(frag_coord);
+        frag_coord = DeclareBuiltIn(spv::BuiltIn::FragCoord, spv::StorageClass::Input, t_in_float4,
+                                    "frag_coord");
+        front_facing = DeclareBuiltIn(spv::BuiltIn::FrontFacing, spv::StorageClass::Input,
+                                      t_in_bool, "front_facing");
     }
 
     Id DeclareBuiltIn(spv::BuiltIn builtin, spv::StorageClass storage, Id type,
                       const std::string& name) {
         const Id id = OpVariable(type, storage);
-        Decorate(id, spv::Decoration::BuiltIn, {static_cast<u32>(builtin)});
+        Decorate(id, spv::Decoration::BuiltIn, static_cast<u32>(builtin));
         AddGlobalVariable(Name(id, name));
         interfaces.push_back(id);
         return id;
@@ -340,7 +345,7 @@ private:
                 return u32{};
             MemberName(gl_per_vertex_struct, declaration_index, name);
             MemberDecorate(gl_per_vertex_struct, declaration_index, spv::Decoration::BuiltIn,
-                           {static_cast<u32>(builtin)});
+                           static_cast<u32>(builtin));
             return declaration_index++;
         };
 
@@ -360,7 +365,7 @@ private:
         for (const u32 gpr : ir.GetRegisters()) {
             const Id id = OpVariable(t_prv_float, spv::StorageClass::Private, v_float_zero);
             Name(id, fmt::format("gpr_{}", gpr));
-            registers.insert({gpr, AddGlobalVariable(id)});
+            registers.emplace(gpr, AddGlobalVariable(id));
         }
     }
 
@@ -368,7 +373,7 @@ private:
         for (const auto pred : ir.GetPredicates()) {
             const Id id = OpVariable(t_prv_bool, spv::StorageClass::Private, v_false);
             Name(id, fmt::format("pred_{}", static_cast<u32>(pred)));
-            predicates.insert({pred, AddGlobalVariable(id)});
+            predicates.emplace(pred, AddGlobalVariable(id));
         }
     }
 
@@ -402,8 +407,7 @@ private:
             const IpaSampleMode sample_mode = input_mode.sampling_mode;
             const IpaInterpMode interp_mode = input_mode.interpolation_mode;
 
-            if (index < Attribute::Index::Attribute_0 || index > Attribute::Index::Attribute_31) {
-                // Skip when it's not a generic attribute
+            if (!IsGenericAttribute(index)) {
                 continue;
             }
 
@@ -420,11 +424,11 @@ private:
             UNIMPLEMENTED_IF(stage == ShaderStage::Geometry);
 
             const Id id = OpVariable(t_in_float4, spv::StorageClass::Input);
-            Name(AddGlobalVariable(id), fmt::format("input_attribute_{}", location));
-            input_attributes.insert({index, id});
+            Name(AddGlobalVariable(id), fmt::format("in_attr{}", location));
+            input_attributes.emplace(index, id);
             interfaces.push_back(id);
 
-            Decorate(id, spv::Decoration::Location, {location});
+            Decorate(id, spv::Decoration::Location, location);
 
             switch (interp_mode) {
             case IpaInterpMode::Constant:
@@ -456,17 +460,16 @@ private:
 
     void DeclareOutputAttributes() {
         for (const auto index : ir.GetOutputAttributes()) {
-            if (index < Attribute::Index::Attribute_0 || index > Attribute::Index::Attribute_31) {
-                // Skip when it's not a generic attribute
+            if (!IsGenericAttribute(index)) {
                 continue;
             }
             const auto location = GetAttributeLocation(index) + GENERIC_VARYING_START_LOCATION;
             const Id id = OpVariable(t_out_float4, spv::StorageClass::Output);
-            Name(AddGlobalVariable(id), fmt::format("output_attribute_{}", location));
-            output_attributes.insert({index, id});
+            Name(AddGlobalVariable(id), fmt::format("out_attr{}", location));
+            output_attributes.emplace(index, id);
             interfaces.push_back(id);
 
-            Decorate(id, spv::Decoration::Location, {location});
+            Decorate(id, spv::Decoration::Location, location);
         }
     }
 
@@ -477,9 +480,9 @@ private:
             const Id id = OpVariable(t_cbuf_ubo, spv::StorageClass::Uniform);
             AddGlobalVariable(Name(id, fmt::format("cbuf_{}", index)));
 
-            Decorate(id, spv::Decoration::Binding, {binding++});
-            Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
-            constant_buffers.insert({index, id});
+            Decorate(id, spv::Decoration::Binding, binding++);
+            Decorate(id, spv::Decoration::DescriptorSet, DESCRIPTOR_SET);
+            constant_buffers.emplace(index, id);
         }
     }
 
@@ -490,9 +493,9 @@ private:
             AddGlobalVariable(
                 Name(id, fmt::format("gmem_{}_{}", entry.cbuf_index, entry.cbuf_offset)));
 
-            Decorate(id, spv::Decoration::Binding, {binding++});
-            Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
-            global_buffers.insert({entry, id});
+            Decorate(id, spv::Decoration::Binding, binding++);
+            Decorate(id, spv::Decoration::DescriptorSet, DESCRIPTOR_SET);
+            global_buffers.emplace(entry, id);
         }
     }
 
@@ -516,8 +519,8 @@ private:
             sampler_images.insert(
                 {static_cast<u32>(sampler.GetIndex()), {image_type, sampled_image_type, id}});
 
-            Decorate(id, spv::Decoration::Binding, {binding++});
-            Decorate(id, spv::Decoration::DescriptorSet, {DESCRIPTOR_SET});
+            Decorate(id, spv::Decoration::Binding, binding++);
+            Decorate(id, spv::Decoration::DescriptorSet, DESCRIPTOR_SET);
         }
     }
 
@@ -591,9 +594,20 @@ private:
                 }
                 UNIMPLEMENTED_MSG("Unmanaged TessCoordInstanceIDVertexID element={}", element);
                 return Constant(t_float, 0);
+            case Attribute::Index::FrontFacing:
+                // TODO(Subv): Find out what the values are for the other elements.
+                ASSERT(stage == ShaderStage::Fragment);
+                if (element == 3) {
+                    const Id is_front_facing = Emit(OpLoad(t_bool, front_facing));
+                    const Id true_value =
+                        Emit(OpBitcast(t_float, Constant(t_int, static_cast<s32>(-1))));
+                    const Id false_value = Emit(OpBitcast(t_float, Constant(t_int, 0)));
+                    return Emit(OpSelect(t_float, is_front_facing, true_value, false_value));
+                }
+                UNIMPLEMENTED_MSG("Unmanaged FrontFacing element={}", element);
+                return Constant(t_float, 0.0f);
             default:
-                if (attribute >= Attribute::Index::Attribute_0 &&
-                    attribute <= Attribute::Index::Attribute_31) {
+                if (IsGenericAttribute(attribute)) {
                     const Id pointer =
                         AccessElement(t_in_float, input_attributes.at(attribute), element);
                     return Emit(OpLoad(t_float, pointer));
@@ -629,8 +643,8 @@ private:
                 UNREACHABLE_MSG("Unmanaged offset node type");
             }
 
-            const Id pointer = Emit(OpAccessChain(
-                t_cbuf_float, buffer_id, {Constant(t_uint, 0), buffer_index, buffer_element}));
+            const Id pointer = Emit(OpAccessChain(t_cbuf_float, buffer_id, Constant(t_uint, 0),
+                                                  buffer_index, buffer_element));
             return Emit(OpLoad(t_float, pointer));
 
         } else if (const auto gmem = std::get_if<GmemNode>(node)) {
@@ -641,7 +655,7 @@ private:
             Id offset = Emit(OpISub(t_uint, real, base));
             offset = Emit(OpUDiv(t_uint, offset, Constant(t_uint, 4u)));
             return Emit(OpLoad(t_float, Emit(OpAccessChain(t_gmem_float, gmem_buffer,
-                                                           {Constant(t_uint, 0u), offset}))));
+                                                           Constant(t_uint, 0u), offset))));
 
         } else if (const auto conditional = std::get_if<ConditionalNode>(node)) {
             // It's invalid to call conditional on nested nodes, use an operation instead
@@ -835,8 +849,7 @@ private:
                     return AccessElement(t_out_float, per_vertex, clip_distances_index,
                                          abuf->GetElement() + 4);
                 default:
-                    if (attribute >= Attribute::Index::Attribute_0 &&
-                        attribute <= Attribute::Index::Attribute_31) {
+                    if (IsGenericAttribute(attribute)) {
                         return AccessElement(t_out_float, output_attributes.at(attribute),
                                              abuf->GetElement());
                     }
@@ -956,7 +969,7 @@ private:
     Id GetTextureElement(Operation operation, Id sample_value) {
         const auto meta = std::get_if<MetaTexture>(&operation.GetMeta());
         ASSERT(meta);
-        return Emit(OpCompositeExtract(t_float, sample_value, {meta->element}));
+        return Emit(OpCompositeExtract(t_float, sample_value, meta->element));
     }
 
     Id Texture(Operation operation) {
@@ -1026,7 +1039,7 @@ private:
 
         const std::array<Id, 3> types = {t_int, t_int2, t_int3};
         const Id sizes = Emit(OpImageQuerySizeLod(types.at(coords_count - 1), image_id, lod));
-        const Id size = Emit(OpCompositeExtract(t_int, sizes, {meta->element}));
+        const Id size = Emit(OpCompositeExtract(t_int, sizes, meta->element));
         return Emit(OpBitcast(t_float, size));
     }
 
@@ -1055,7 +1068,7 @@ private:
 
         const Id current = Emit(OpLoad(t_uint, flow_stack_top));
         const Id next = Emit(OpIAdd(t_uint, current, Constant(t_uint, 1)));
-        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, {current}));
+        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, current));
 
         Emit(OpStore(access, Constant(t_uint, target->GetValue())));
         Emit(OpStore(flow_stack_top, next));
@@ -1065,7 +1078,7 @@ private:
     Id PopFlowStack(Operation) {
         const Id current = Emit(OpLoad(t_uint, flow_stack_top));
         const Id previous = Emit(OpISub(t_uint, current, Constant(t_uint, 1)));
-        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, {previous}));
+        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, previous));
         const Id target = Emit(OpLoad(t_uint, access));
 
         Emit(OpStore(flow_stack_top, previous));
@@ -1106,14 +1119,12 @@ private:
             // Write the color outputs using the data in the shader registers, disabled
             // rendertargets/components are skipped in the register assignment.
             u32 current_reg = 0;
-            for (u32 render_target = 0; render_target < Maxwell::NumRenderTargets;
-                 ++render_target) {
+            for (u32 rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
                 // TODO(Subv): Figure out how dual-source blending is configured in the Switch.
                 for (u32 component = 0; component < 4; ++component) {
-                    if (header.ps.IsColorComponentOutputEnabled(render_target, component)) {
-                        Emit(OpStore(
-                            AccessElement(t_out_float, frag_colors.at(render_target), component),
-                            SafeGetRegister(current_reg)));
+                    if (header.ps.IsColorComponentOutputEnabled(rt, component)) {
+                        Emit(OpStore(AccessElement(t_out_float, frag_colors.at(rt), component),
+                                     SafeGetRegister(current_reg)));
                         ++current_reg;
                     }
                 }
@@ -1325,6 +1336,7 @@ private:
 
     const Id t_func_uint = Name(OpTypePointer(spv::StorageClass::Function, t_uint), "func_uint");
 
+    const Id t_in_bool = Name(OpTypePointer(spv::StorageClass::Input, t_bool), "in_bool");
     const Id t_in_uint = Name(OpTypePointer(spv::StorageClass::Input, t_uint), "in_uint");
     const Id t_in_float = Name(OpTypePointer(spv::StorageClass::Input, t_float), "in_float");
     const Id t_in_float4 = Name(OpTypePointer(spv::StorageClass::Input, t_float4), "in_float4");
@@ -1335,18 +1347,18 @@ private:
     const Id t_cbuf_float = OpTypePointer(spv::StorageClass::Uniform, t_float);
     const Id t_cbuf_array = Decorate(
         Name(OpTypeArray(t_float4, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS)), "CbufArray"),
-        spv::Decoration::ArrayStride, {CBUF_STRIDE});
+        spv::Decoration::ArrayStride, CBUF_STRIDE);
     const Id t_cbuf_struct =
-        MemberDecorate(Decorate(OpTypeStruct({t_cbuf_array}), spv::Decoration::Block), 0,
-                       spv::Decoration::Offset, {0});
+        MemberDecorate(Decorate(OpTypeStruct(t_cbuf_array), spv::Decoration::Block), 0,
+                       spv::Decoration::Offset, 0);
     const Id t_cbuf_ubo = OpTypePointer(spv::StorageClass::Uniform, t_cbuf_struct);
 
     const Id t_gmem_float = OpTypePointer(spv::StorageClass::StorageBuffer, t_float);
-    const Id t_gmem_array = Name(
-        Decorate(OpTypeRuntimeArray(t_float), spv::Decoration::ArrayStride, {4u}), "GmemArray");
+    const Id t_gmem_array =
+        Name(Decorate(OpTypeRuntimeArray(t_float), spv::Decoration::ArrayStride, 4u), "GmemArray");
     const Id t_gmem_struct =
-        MemberDecorate(Decorate(OpTypeStruct({t_gmem_array}), spv::Decoration::Block), 0,
-                       spv::Decoration::Offset, {0});
+        MemberDecorate(Decorate(OpTypeStruct(t_gmem_array), spv::Decoration::Block), 0,
+                       spv::Decoration::Offset, 0);
     const Id t_gmem_ssbo = OpTypePointer(spv::StorageClass::StorageBuffer, t_gmem_struct);
 
     const Id v_float_zero = Constant(t_float, 0.0f);
@@ -1369,6 +1381,7 @@ private:
     std::array<Id, Maxwell::NumRenderTargets> frag_colors{};
     Id frag_depth{};
     Id frag_coord{};
+    Id front_facing{};
     Id guest_position{};
 
     u32 host_position_index{};
