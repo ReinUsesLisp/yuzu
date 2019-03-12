@@ -29,22 +29,12 @@ static std::optional<vk::BorderColor> TryConvertBorderColor(std::array<float, 4>
 
 std::size_t SamplerCacheKey::Hash() const {
     std::size_t hash = 0;
-    boost::hash_combine(hash, raw0);
-    boost::hash_combine(hash, raw1);
-    boost::hash_combine(hash, raw2);
-    boost::hash_combine(hash, raw3);
-    boost::hash_combine(hash, border_color_r);
-    boost::hash_combine(hash, border_color_g);
-    boost::hash_combine(hash, border_color_b);
-    boost::hash_combine(hash, border_color_a);
+    boost::hash_combine(hash, raw);
     return hash;
 }
 
 bool SamplerCacheKey::operator==(const SamplerCacheKey& rhs) const {
-    return std::tie(raw0, raw1, raw2, raw3, border_color_r, border_color_g, border_color_b,
-                    border_color_a) == std::tie(rhs.raw0, rhs.raw1, rhs.raw2, rhs.raw3,
-                                                rhs.border_color_r, rhs.border_color_g,
-                                                rhs.border_color_b, rhs.border_color_a);
+    return raw == rhs.raw;
 }
 
 VKSamplerCache::VKSamplerCache(const VKDevice& device) : device{device} {}
@@ -61,19 +51,10 @@ vk::Sampler VKSamplerCache::GetSampler(const Tegra::Texture::TSCEntry& tsc) {
 }
 
 UniqueSampler VKSamplerCache::CreateSampler(const Tegra::Texture::TSCEntry& tsc) {
-    // Sign extend the 13-bit value.
-    constexpr u32 bias_mask = 1U << (13 - 1);
-    const float bias_lod =
-        static_cast<s32>((tsc.mip_lod_bias.Value() ^ bias_mask) - bias_mask) / 256.0f;
-
-    const auto max_anisotropy = static_cast<float>(1 << tsc.max_anisotropy.Value());
+    const float max_anisotropy = tsc.GetMaxAnisotropy();
     const bool has_anisotropy = max_anisotropy > 1.0f;
 
-    const auto lod_min = static_cast<float>(tsc.min_lod_clamp.Value()) / 256.0f;
-    const auto lod_max = static_cast<float>(tsc.max_lod_clamp.Value()) / 256.0f;
-
-    const std::array<float, 4> border_color = {tsc.border_color_r, tsc.border_color_g,
-                                               tsc.border_color_b, tsc.border_color_a};
+    const auto border_color = tsc.GetBorderColor();
     const auto vk_border_color = TryConvertBorderColor(border_color);
     UNIMPLEMENTED_IF_MSG(!vk_border_color, "Unimplemented border color {} {} {} {}",
                          border_color[0], border_color[1], border_color[2], border_color[3]);
@@ -83,12 +64,13 @@ UniqueSampler VKSamplerCache::CreateSampler(const Tegra::Texture::TSCEntry& tsc)
     const vk::SamplerCreateInfo sampler_ci(
         {}, MaxwellToVK::Sampler::Filter(tsc.mag_filter),
         MaxwellToVK::Sampler::Filter(tsc.min_filter),
-        MaxwellToVK::Sampler::MipmapMode(tsc.mip_filter),
+        MaxwellToVK::Sampler::MipmapMode(tsc.mipmap_filter),
         MaxwellToVK::Sampler::WrapMode(tsc.wrap_u), MaxwellToVK::Sampler::WrapMode(tsc.wrap_v),
-        MaxwellToVK::Sampler::WrapMode(tsc.wrap_p), bias_lod, has_anisotropy, max_anisotropy,
-        tsc.depth_compare_enabled,
-        MaxwellToVK::Sampler::DepthCompareFunction(tsc.depth_compare_func), lod_min, lod_max,
-        vk_border_color.value_or(vk::BorderColor::eFloatTransparentBlack), unnormalized_coords);
+        MaxwellToVK::Sampler::WrapMode(tsc.wrap_p), tsc.GetLodBias(), has_anisotropy,
+        max_anisotropy, tsc.depth_compare_enabled,
+        MaxwellToVK::Sampler::DepthCompareFunction(tsc.depth_compare_func), tsc.GetMinLod(),
+        tsc.GetMaxLod(), vk_border_color.value_or(vk::BorderColor::eFloatTransparentBlack),
+        unnormalized_coords);
 
     const auto& dld = device.GetDispatchLoader();
     const auto dev = device.GetLogical();
