@@ -311,8 +311,7 @@ public:
         const auto& regs{system.GPU().Maxwell3D().regs};
         ASSERT(index < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets);
 
-        if (index >= regs.rt_control.count ||
-            regs.rt[index].Address() == 0 ||
+        if (index >= regs.rt_control.count || regs.rt[index].Address() == 0 ||
             regs.rt[index].format == Tegra::RenderTargetFormat::NONE) {
             return {{}, exctx};
         }
@@ -331,7 +330,7 @@ public:
 
     ResultType GetFermiSurface(TExecutionContext exctx,
                                const Tegra::Engines::Fermi2D::Regs::Surface& config) {
-        const auto cpu_addr{memory_manager.GpuToCpuAddress(config.Address())};
+        const auto cpu_addr{system.GPU().MemoryManager().GpuToCpuAddress(config.Address())};
         ASSERT(cpu_addr);
         return GetSurfaceView(exctx, *cpu_addr, SurfaceParams::CreateForFermiCopySurface(config),
                               true);
