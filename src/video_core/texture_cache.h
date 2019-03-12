@@ -15,10 +15,11 @@
 
 #include "common/assert.h"
 #include "common/common_types.h"
+#include "video_core/engines/fermi_2d.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/gpu.h"
-#include "video_core/surface.h"
 #include "video_core/rasterizer_interface.h"
+#include "video_core/surface.h"
 
 namespace Core {
 class System;
@@ -47,6 +48,10 @@ struct SurfaceParams {
 
     /// Creates SurfaceParams from a framebuffer configuration
     static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
+
+    /// Creates SurfaceParams from a Fermi2D surface configuration
+    static SurfaceParams CreateForFermiCopySurface(
+        const Tegra::Engines::Fermi2D::Regs::Surface& config);
 
     std::map<u64, std::pair<u32, u32>> CreateViewOffsetMap() const;
 
@@ -306,10 +311,8 @@ public:
         const auto& regs{system.GPU().Maxwell3D().regs};
         ASSERT(index < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets);
 
-        if (index >= regs.rt_control.count) {
-            return {{}, exctx};
-        }
-        if (regs.rt[index].Address() == 0 ||
+        if (index >= regs.rt_control.count ||
+            regs.rt[index].Address() == 0 ||
             regs.rt[index].format == Tegra::RenderTargetFormat::NONE) {
             return {{}, exctx};
         }
@@ -324,6 +327,14 @@ public:
 
         return GetSurfaceView(exctx, *cpu_addr, SurfaceParams::CreateForFramebuffer(system, index),
                               preserve_contents);
+    }
+
+    ResultType GetFermiSurface(TExecutionContext exctx,
+                               const Tegra::Engines::Fermi2D::Regs::Surface& config) {
+        const auto cpu_addr{memory_manager.GpuToCpuAddress(config.Address())};
+        ASSERT(cpu_addr);
+        return GetSurfaceView(exctx, *cpu_addr, SurfaceParams::CreateForFermiCopySurface(config),
+                              true);
     }
 
     TSurface* TryFindFramebufferSurface(VAddr address) const {

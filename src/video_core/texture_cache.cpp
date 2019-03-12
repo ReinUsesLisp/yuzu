@@ -115,6 +115,31 @@ SurfaceParams SurfaceParams::CreateForFramebuffer(Core::System& system, std::siz
     return params;
 }
 
+SurfaceParams SurfaceParams::CreateForFermiCopySurface(
+    const Tegra::Engines::Fermi2D::Regs::Surface& config) {
+    SurfaceParams params{};
+    params.is_tiled = !config.linear;
+    params.block_width = params.is_tiled ? std::min(config.BlockWidth(), 32U) : 0,
+    params.block_height = params.is_tiled ? std::min(config.BlockHeight(), 32U) : 0,
+    params.block_depth = params.is_tiled ? std::min(config.BlockDepth(), 32U) : 0,
+    params.tile_width_spacing = 1;
+    params.pixel_format = PixelFormatFromRenderTargetFormat(config.format);
+    // params.srgb_conversion = config.format == Tegra::RenderTargetFormat::BGRA8_SRGB ||
+    //                          config.format == Tegra::RenderTargetFormat::RGBA8_SRGB;
+    params.component_type = ComponentTypeFromRenderTarget(config.format);
+    params.type = GetFormatType(params.pixel_format);
+    params.width = config.width;
+    params.height = config.height;
+    params.unaligned_height = config.height;
+    // TODO(Rodrigo): Try to guess the surface target from depth and layer parameters
+    params.target = SurfaceTarget::Texture2D;
+    params.depth = 1;
+    params.num_levels = 1;
+
+    params.CalculateCachedValues();
+    return params;
+}
+
 std::map<u64, std::pair<u32, u32>> SurfaceParams::CreateViewOffsetMap() const {
     std::map<u64, std::pair<u32, u32>> view_offset_map;
     switch (target) {
