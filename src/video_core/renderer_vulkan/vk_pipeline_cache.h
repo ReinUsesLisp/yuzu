@@ -161,10 +161,6 @@ struct FixedPipelineState {
         bool operator==(const ColorBlending& rhs) const;
     } color_blending;
 
-    std::size_t hash;
-
-    void CalculateHash();
-
     std::size_t Hash() const;
     bool operator==(const FixedPipelineState& rhs) const;
 };

@@ -21,7 +21,7 @@ static VkBool32 DebugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTy
                               const char* layer_prefix, const char* message, void* user_data) {
     if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
         LOG_ERROR(Render_Vulkan, "{}", message);
-        UNREACHABLE();
+        // UNREACHABLE();
     } else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
         LOG_WARNING(Render_Vulkan, "{}", message);
     } else if (flags &

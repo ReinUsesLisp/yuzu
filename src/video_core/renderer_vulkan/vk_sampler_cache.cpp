@@ -2,11 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cstring>
 #include <optional>
 #include <unordered_map>
 
-#include <boost/functional/hash.hpp>
-
+#include "common/assert.h"
+#include "common/cityhash.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_sampler_cache.h"
@@ -28,13 +29,12 @@ static std::optional<vk::BorderColor> TryConvertBorderColor(std::array<float, 4>
 }
 
 std::size_t SamplerCacheKey::Hash() const {
-    std::size_t hash = 0;
-    boost::hash_combine(hash, raw);
-    return hash;
+    return static_cast<std::size_t>(
+        Common::CityHash64(reinterpret_cast<const char*>(raw.data()), raw.size() / sizeof(u64)));
 }
 
 bool SamplerCacheKey::operator==(const SamplerCacheKey& rhs) const {
-    return raw == rhs.raw;
+    return std::memcmp(raw.data(), rhs.raw.data(), sizeof(raw)) == 0;
 }
 
 VKSamplerCache::VKSamplerCache(const VKDevice& device) : device{device} {}

@@ -14,9 +14,14 @@ namespace Vulkan {
 
 class VKDevice;
 
-struct SamplerCacheKey : public Tegra::Texture::TSCEntry {
+struct SamplerCacheKey final : public Tegra::Texture::TSCEntry {
     std::size_t Hash() const;
+
     bool operator==(const SamplerCacheKey& rhs) const;
+
+    bool operator!=(const SamplerCacheKey& rhs) const {
+        return !operator==(rhs);
+    }
 };
 
 } // namespace Vulkan
@@ -25,7 +30,7 @@ namespace std {
 
 template <>
 struct hash<Vulkan::SamplerCacheKey> {
-    std::size_t operator()(const Vulkan::SamplerCacheKey& k) const {
+    std::size_t operator()(const Vulkan::SamplerCacheKey& k) const noexcept {
         return k.Hash();
     }
 };
@@ -36,7 +41,7 @@ namespace Vulkan {
 
 class VKSamplerCache {
 public:
-    VKSamplerCache(const VKDevice& device);
+    explicit VKSamplerCache(const VKDevice& device);
     ~VKSamplerCache();
 
     vk::Sampler GetSampler(const Tegra::Texture::TSCEntry& tsc);

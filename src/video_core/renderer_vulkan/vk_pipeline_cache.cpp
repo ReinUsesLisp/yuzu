@@ -214,8 +214,8 @@ bool FixedPipelineState::ColorBlending::operator==(const ColorBlending& rhs) con
            std::tie(rhs.blend_constants, rhs.attachments_count, rhs.attachments);
 }
 
-void FixedPipelineState::CalculateHash() {
-    hash = 0;
+std::size_t FixedPipelineState::Hash() const {
+    std::size_t hash = 0;
     boost::hash_combine(hash, vertex_input.Hash());
     boost::hash_combine(hash, input_assembly.Hash());
     boost::hash_combine(hash, viewport_state.Hash());
@@ -223,9 +223,6 @@ void FixedPipelineState::CalculateHash() {
     // boost::hash_combine(hash, multisampling.Hash());
     boost::hash_combine(hash, depth_stencil.Hash());
     boost::hash_combine(hash, color_blending.Hash());
-}
-
-std::size_t FixedPipelineState::Hash() const {
     return hash;
 }
 
@@ -374,7 +371,6 @@ Pipeline VKPipelineCache::GetPipeline(const FixedPipelineState& fixed_state,
                                       vk::RenderPass renderpass, VKFence& fence) {
     Pipeline pipeline;
     PipelineCacheKey key{shader_addresses, renderpass_params, fixed_state};
-    key.fixed_state.CalculateHash();
     const auto [pair, is_cache_miss] = cache.try_emplace(key);
     auto& entry = pair->second;
 
