@@ -244,11 +244,6 @@ private:
             return;
 
         DeclareVertexRedeclarations();
-
-        guest_position = OpVariable(t_out_float4, spv::StorageClass::Output);
-        AddGlobalVariable(Name(guest_position, "guest_position"));
-
-        interfaces.push_back(guest_position);
     }
 
     void DeclareGeometry() {
@@ -349,7 +344,7 @@ private:
             return declaration_index++;
         };
 
-        host_position_index = MemberDecorateBuiltIn(spv::BuiltIn::Position, "host_position", true);
+        position_index = MemberDecorateBuiltIn(spv::BuiltIn::Position, "position", true);
         point_size_index =
             MemberDecorateBuiltIn(spv::BuiltIn::PointSize, "point_size", is_point_size_declared);
         clip_distances_index = MemberDecorateBuiltIn(spv::BuiltIn::ClipDistance, "clip_distances",
@@ -821,8 +816,6 @@ private:
         return value;
     }
 
-    // End Helpers
-
     Id Assign(Operation operation) {
         const Node dest = operation[0];
         const Node src = operation[1];
@@ -836,10 +829,11 @@ private:
             target = registers.at(gpr->GetIndex());
 
         } else if (const auto abuf = std::get_if<AbufNode>(dest)) {
-            target = [&]() {
-                switch (const auto attribute = abuf->GetIndex(); abuf->GetIndex()) {
+            target = [&]() -> Id {
+                switch (const auto attribute = abuf->GetIndex(); attribute) {
                 case Attribute::Index::Position:
-                    return AccessElement(t_out_float, guest_position, abuf->GetElement());
+                    return AccessElement(t_out_float, per_vertex, position_index,
+                                         abuf->GetElement());
                 case Attribute::Index::PointSize:
                     return AccessElement(t_out_float, per_vertex, point_size_index);
                 case Attribute::Index::ClipDistances0123:
@@ -855,6 +849,7 @@ private:
                     }
                     UNIMPLEMENTED_MSG("Unhandled output attribute: {}",
                                       static_cast<u32>(attribute));
+                    return {};
                 }
             }();
 
@@ -1090,16 +1085,13 @@ private:
     Id Exit(Operation operation) {
         switch (stage) {
         case ShaderStage::Vertex: {
-            const Id host_position = AccessElement(t_out_float4, per_vertex, host_position_index);
-            const Id guest_value = Emit(OpLoad(t_float4, guest_position));
-            Emit(OpStore(host_position, guest_value));
-
             // TODO(Rodrigo): We should use VK_EXT_depth_range_unrestricted instead, but it doesn't
             // seem to be working on Nvidia's drivers and Intel (mesa or blob) doesn't support it.
-            Id depth = Emit(OpLoad(t_float, AccessElement(t_out_float, host_position, 2)));
+            const Id position = AccessElement(t_float4, per_vertex, position_index);
+            Id depth = Emit(OpLoad(t_float, AccessElement(t_out_float, position, 2)));
             depth = Emit(OpFAdd(t_float, depth, Constant(t_float, 1.0f)));
             depth = Emit(OpFMul(t_float, depth, Constant(t_float, 0.5f)));
-            Emit(OpStore(AccessElement(t_out_float, host_position, 2), depth));
+            Emit(OpStore(AccessElement(t_out_float, position, 2), depth));
             break;
         }
         case ShaderStage::Fragment: {
@@ -1380,9 +1372,8 @@ private:
     Id frag_depth{};
     Id frag_coord{};
     Id front_facing{};
-    Id guest_position{};
 
-    u32 host_position_index{};
+    u32 position_index{};
     u32 point_size_index{};
     u32 clip_distances_index{};
 
