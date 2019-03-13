@@ -115,7 +115,7 @@ public:
         DeclareSamplers();
 
         execute_function =
-            Emit(OpFunction(t_void, spv::FunctionControlMask::Inline, OpTypeFunction(t_void)));
+            Emit(OpFunction(t_void, spv::FunctionControlMask::Inline, TypeFunction(t_void)));
         Emit(OpLabel());
 
         const u32 first_address = ir.GetBasicBlocks().begin()->first;
@@ -136,10 +136,10 @@ public:
         // TODO(Rodrigo): Figure out the actual depth of the flow stack, for now it seems unlikely
         // that shaders will use 20 nested SSYs and PBKs.
         constexpr u32 FLOW_STACK_SIZE = 20;
-        const Id flow_stack_type = OpTypeArray(t_uint, Constant(t_uint, FLOW_STACK_SIZE));
-        jmp_to = Emit(OpVariable(OpTypePointer(spv::StorageClass::Function, t_uint),
+        const Id flow_stack_type = TypeArray(t_uint, Constant(t_uint, FLOW_STACK_SIZE));
+        jmp_to = Emit(OpVariable(TypePointer(spv::StorageClass::Function, t_uint),
                                  spv::StorageClass::Function, Constant(t_uint, first_address)));
-        flow_stack = Emit(OpVariable(OpTypePointer(spv::StorageClass::Function, flow_stack_type),
+        flow_stack = Emit(OpVariable(TypePointer(spv::StorageClass::Function, flow_stack_type),
                                      spv::StorageClass::Function, ConstantNull(flow_stack_type)));
         flow_stack_top =
             Emit(OpVariable(t_func_uint, spv::StorageClass::Function, Constant(t_uint, 0)));
@@ -332,10 +332,10 @@ private:
             members.push_back(t_float);
         }
         if (is_clip_distances_declared) {
-            members.push_back(OpTypeArray(t_float, Constant(t_uint, 8)));
+            members.push_back(TypeArray(t_float, Constant(t_uint, 8)));
         }
 
-        const Id gl_per_vertex_struct = Name(OpTypeStruct(members), "PerVertex");
+        const Id gl_per_vertex_struct = Name(TypeStruct(members), "PerVertex");
         Decorate(gl_per_vertex_struct, spv::Decoration::Block);
 
         u32 declaration_index = 0;
@@ -355,7 +355,7 @@ private:
         clip_distances_index = MemberDecorateBuiltIn(spv::BuiltIn::ClipDistance, "clip_distances",
                                                      is_clip_distances_declared);
 
-        const Id type_pointer = OpTypePointer(spv::StorageClass::Output, gl_per_vertex_struct);
+        const Id type_pointer = TypePointer(spv::StorageClass::Output, gl_per_vertex_struct);
         per_vertex = OpVariable(type_pointer, spv::StorageClass::Output);
         AddGlobalVariable(Name(per_vertex, "per_vertex"));
         interfaces.push_back(per_vertex);
@@ -380,8 +380,8 @@ private:
     void DeclareLocalMemory() {
         if (const u64 local_memory_size = header.GetLocalMemorySize(); local_memory_size > 0) {
             const auto element_count = static_cast<u32>(Common::AlignUp(local_memory_size, 4) / 4);
-            const Id type_array = OpTypeArray(t_float, Constant(t_uint, element_count));
-            const Id type_pointer = OpTypePointer(spv::StorageClass::Private, type_array);
+            const Id type_array = TypeArray(t_float, Constant(t_uint, element_count));
+            const Id type_pointer = TypePointer(spv::StorageClass::Private, type_array);
             Name(type_pointer, "LocalMemory");
 
             local_memory =
@@ -508,11 +508,11 @@ private:
             // TODO(Rodrigo): Sampled 1 indicates that the image will be used with a sampler. When
             // SULD and SUST instructions are implemented, replace this value.
             const int sampled = 1;
-            const Id image_type = OpTypeImage(t_float, dim, depth, arrayed, false, sampled,
-                                              spv::ImageFormat::Unknown);
-            const Id sampled_image_type = OpTypeSampledImage(image_type);
+            const Id image_type =
+                TypeImage(t_float, dim, depth, arrayed, false, sampled, spv::ImageFormat::Unknown);
+            const Id sampled_image_type = TypeSampledImage(image_type);
             const Id pointer_type =
-                OpTypePointer(spv::StorageClass::UniformConstant, sampled_image_type);
+                TypePointer(spv::StorageClass::UniformConstant, sampled_image_type);
             const Id id = OpVariable(pointer_type, spv::StorageClass::UniformConstant);
             AddGlobalVariable(Name(id, fmt::format("sampler_{}", sampler.GetIndex())));
 
@@ -1311,55 +1311,53 @@ private:
     const ShaderStage stage;
     const Tegra::Shader::Header header;
 
-    const Id t_void = Name(OpTypeVoid(), "void");
+    const Id t_void = Name(TypeVoid(), "void");
 
-    const Id t_bool = Name(OpTypeBool(), "bool");
-    const Id t_bool2 = Name(OpTypeVector(t_bool, 2), "bool2");
+    const Id t_bool = Name(TypeBool(), "bool");
+    const Id t_bool2 = Name(TypeVector(t_bool, 2), "bool2");
 
-    const Id t_int = Name(OpTypeInt(32, true), "int");
-    const Id t_int2 = Name(OpTypeVector(t_int, 2), "int2");
-    const Id t_int3 = Name(OpTypeVector(t_int, 3), "int3");
-    const Id t_int4 = Name(OpTypeVector(t_int, 4), "int4");
+    const Id t_int = Name(TypeInt(32, true), "int");
+    const Id t_int2 = Name(TypeVector(t_int, 2), "int2");
+    const Id t_int3 = Name(TypeVector(t_int, 3), "int3");
+    const Id t_int4 = Name(TypeVector(t_int, 4), "int4");
 
-    const Id t_uint = Name(OpTypeInt(32, false), "uint");
-    const Id t_uint2 = Name(OpTypeVector(t_uint, 2), "uint2");
-    const Id t_uint3 = Name(OpTypeVector(t_uint, 3), "uint3");
-    const Id t_uint4 = Name(OpTypeVector(t_uint, 4), "uint4");
+    const Id t_uint = Name(TypeInt(32, false), "uint");
+    const Id t_uint2 = Name(TypeVector(t_uint, 2), "uint2");
+    const Id t_uint3 = Name(TypeVector(t_uint, 3), "uint3");
+    const Id t_uint4 = Name(TypeVector(t_uint, 4), "uint4");
 
-    const Id t_float = Name(OpTypeFloat(32), "float");
-    const Id t_float2 = Name(OpTypeVector(t_float, 2), "float2");
-    const Id t_float3 = Name(OpTypeVector(t_float, 3), "float3");
-    const Id t_float4 = Name(OpTypeVector(t_float, 4), "float4");
+    const Id t_float = Name(TypeFloat(32), "float");
+    const Id t_float2 = Name(TypeVector(t_float, 2), "float2");
+    const Id t_float3 = Name(TypeVector(t_float, 3), "float3");
+    const Id t_float4 = Name(TypeVector(t_float, 4), "float4");
 
-    const Id t_prv_bool = Name(OpTypePointer(spv::StorageClass::Private, t_bool), "prv_bool");
-    const Id t_prv_float = Name(OpTypePointer(spv::StorageClass::Private, t_float), "prv_float");
+    const Id t_prv_bool = Name(TypePointer(spv::StorageClass::Private, t_bool), "prv_bool");
+    const Id t_prv_float = Name(TypePointer(spv::StorageClass::Private, t_float), "prv_float");
 
-    const Id t_func_uint = Name(OpTypePointer(spv::StorageClass::Function, t_uint), "func_uint");
+    const Id t_func_uint = Name(TypePointer(spv::StorageClass::Function, t_uint), "func_uint");
 
-    const Id t_in_bool = Name(OpTypePointer(spv::StorageClass::Input, t_bool), "in_bool");
-    const Id t_in_uint = Name(OpTypePointer(spv::StorageClass::Input, t_uint), "in_uint");
-    const Id t_in_float = Name(OpTypePointer(spv::StorageClass::Input, t_float), "in_float");
-    const Id t_in_float4 = Name(OpTypePointer(spv::StorageClass::Input, t_float4), "in_float4");
+    const Id t_in_bool = Name(TypePointer(spv::StorageClass::Input, t_bool), "in_bool");
+    const Id t_in_uint = Name(TypePointer(spv::StorageClass::Input, t_uint), "in_uint");
+    const Id t_in_float = Name(TypePointer(spv::StorageClass::Input, t_float), "in_float");
+    const Id t_in_float4 = Name(TypePointer(spv::StorageClass::Input, t_float4), "in_float4");
 
-    const Id t_out_float = Name(OpTypePointer(spv::StorageClass::Output, t_float), "out_float");
-    const Id t_out_float4 = Name(OpTypePointer(spv::StorageClass::Output, t_float4), "out_float4");
+    const Id t_out_float = Name(TypePointer(spv::StorageClass::Output, t_float), "out_float");
+    const Id t_out_float4 = Name(TypePointer(spv::StorageClass::Output, t_float4), "out_float4");
 
-    const Id t_cbuf_float = OpTypePointer(spv::StorageClass::Uniform, t_float);
-    const Id t_cbuf_array = Decorate(
-        Name(OpTypeArray(t_float4, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS)), "CbufArray"),
-        spv::Decoration::ArrayStride, CBUF_STRIDE);
-    const Id t_cbuf_struct =
-        MemberDecorate(Decorate(OpTypeStruct(t_cbuf_array), spv::Decoration::Block), 0,
-                       spv::Decoration::Offset, 0);
-    const Id t_cbuf_ubo = OpTypePointer(spv::StorageClass::Uniform, t_cbuf_struct);
+    const Id t_cbuf_float = TypePointer(spv::StorageClass::Uniform, t_float);
+    const Id t_cbuf_array =
+        Decorate(Name(TypeArray(t_float4, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS)), "CbufArray"),
+                 spv::Decoration::ArrayStride, CBUF_STRIDE);
+    const Id t_cbuf_struct = MemberDecorate(
+        Decorate(TypeStruct(t_cbuf_array), spv::Decoration::Block), 0, spv::Decoration::Offset, 0);
+    const Id t_cbuf_ubo = TypePointer(spv::StorageClass::Uniform, t_cbuf_struct);
 
-    const Id t_gmem_float = OpTypePointer(spv::StorageClass::StorageBuffer, t_float);
+    const Id t_gmem_float = TypePointer(spv::StorageClass::StorageBuffer, t_float);
     const Id t_gmem_array =
-        Name(Decorate(OpTypeRuntimeArray(t_float), spv::Decoration::ArrayStride, 4u), "GmemArray");
-    const Id t_gmem_struct =
-        MemberDecorate(Decorate(OpTypeStruct(t_gmem_array), spv::Decoration::Block), 0,
-                       spv::Decoration::Offset, 0);
-    const Id t_gmem_ssbo = OpTypePointer(spv::StorageClass::StorageBuffer, t_gmem_struct);
+        Name(Decorate(TypeRuntimeArray(t_float), spv::Decoration::ArrayStride, 4u), "GmemArray");
+    const Id t_gmem_struct = MemberDecorate(
+        Decorate(TypeStruct(t_gmem_array), spv::Decoration::Block), 0, spv::Decoration::Offset, 0);
+    const Id t_gmem_ssbo = TypePointer(spv::StorageClass::StorageBuffer, t_gmem_struct);
 
     const Id v_float_zero = Constant(t_float, 0.0f);
     const Id v_true = ConstantTrue(t_bool);

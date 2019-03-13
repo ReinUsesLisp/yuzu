@@ -23,9 +23,9 @@ ProgramResult GenerateVertexShader(const ShaderSetup& setup) {
     const auto [module, entries] = Decompile(ir, Maxwell::ShaderStage::Vertex);
     const auto vertex_entry = entries.entry_function;
     const auto main = module->Emit(
-        module->OpFunction(module->OpTypeVoid(), {}, module->OpTypeFunction(module->OpTypeVoid())));
+        module->OpFunction(module->TypeVoid(), {}, module->TypeFunction(module->TypeVoid())));
     module->Emit(module->OpLabel());
-    module->Emit(module->OpFunctionCall(module->OpTypeVoid(), vertex_entry));
+    module->Emit(module->OpFunctionCall(module->TypeVoid(), vertex_entry));
     module->Emit(module->OpReturn());
     module->Emit(module->OpFunctionEnd());
     module->AddEntryPoint(spv::ExecutionModel::Vertex, main, "main", entries.interfaces);
@@ -43,9 +43,9 @@ ProgramResult GenerateFragmentShader(const ShaderSetup& setup) {
     const auto [module, entries] = Decompile(ir, Maxwell::ShaderStage::Fragment);
     const auto fragment_entry = entries.entry_function;
     const auto main = module->Emit(
-        module->OpFunction(module->OpTypeVoid(), {}, module->OpTypeFunction(module->OpTypeVoid())));
+        module->OpFunction(module->TypeVoid(), {}, module->TypeFunction(module->TypeVoid())));
     module->Emit(module->OpLabel());
-    module->Emit(module->OpFunctionCall(module->OpTypeVoid(), fragment_entry));
+    module->Emit(module->OpFunctionCall(module->TypeVoid(), fragment_entry));
     module->Emit(module->OpReturn());
     module->Emit(module->OpFunctionEnd());
     module->AddEntryPoint(spv::ExecutionModel::Fragment, main, "main", entries.interfaces);
