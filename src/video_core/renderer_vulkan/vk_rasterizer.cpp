@@ -224,7 +224,7 @@ bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs
     dst_view->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
                          vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
 
-    UNIMPLEMENTED();
+    // UNIMPLEMENTED();
 
     /*
     const auto& dld = device.GetDispatchLoader();

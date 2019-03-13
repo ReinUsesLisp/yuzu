@@ -24,9 +24,7 @@ namespace Vulkan::VKShader {
 
 using Sirit::Id;
 using Tegra::Shader::Attribute;
-using Tegra::Shader::IpaInterpMode;
-using Tegra::Shader::IpaMode;
-using Tegra::Shader::IpaSampleMode;
+using Tegra::Shader::AttributeUse;
 using Tegra::Shader::Register;
 using namespace VideoCommon::Shader;
 
@@ -34,7 +32,6 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using ShaderStage = Tegra::Engines::Maxwell3D::Regs::ShaderStage;
 using Operation = const OperationNode&;
 
-enum : u32 { POSITION_VARYING_LOCATION = 0, GENERIC_VARYING_START_LOCATION = 1 };
 // TODO(Rodrigo): Use rasterizer's value
 constexpr u32 MAX_CONSTBUFFER_ELEMENTS = 0x1000;
 constexpr u32 STAGE_BINDING_STRIDE = 0x100;
@@ -398,26 +395,13 @@ private:
     void DeclareInputAttributes() {
         for (const auto element : ir.GetInputAttributes()) {
             const Attribute::Index index = element.first;
-            const IpaMode& input_mode = *element.second.begin();
-            const IpaSampleMode sample_mode = input_mode.sampling_mode;
-            const IpaInterpMode interp_mode = input_mode.interpolation_mode;
-
             if (!IsGenericAttribute(index)) {
                 continue;
             }
 
-            ASSERT(element.second.size() > 0);
-            UNIMPLEMENTED_IF_MSG(element.second.size() > 1,
-                                 "Multiple input flag modes are not implemented");
-
-            u32 location = GetAttributeLocation(index);
-            if (stage != ShaderStage::Vertex) {
-                // If inputs are varyings, add an offset
-                location += GENERIC_VARYING_START_LOCATION;
-            }
-
             UNIMPLEMENTED_IF(stage == ShaderStage::Geometry);
 
+            const u32 location = GetAttributeLocation(index);
             const Id id = OpVariable(t_in_float4, spv::StorageClass::Input);
             Name(AddGlobalVariable(id), fmt::format("in_attr{}", location));
             input_attributes.emplace(index, id);
@@ -425,30 +409,21 @@ private:
 
             Decorate(id, spv::Decoration::Location, location);
 
-            switch (interp_mode) {
-            case IpaInterpMode::Constant:
+            if (stage != ShaderStage::Fragment) {
+                continue;
+            }
+            switch (header.ps.GetAttributeUse(location)) {
+            case AttributeUse::Constant:
                 Decorate(id, spv::Decoration::Flat);
                 break;
-            case IpaInterpMode::Pass:
+            case AttributeUse::ScreenLinear:
                 Decorate(id, spv::Decoration::NoPerspective);
                 break;
-            case IpaInterpMode::Multiply:
-                // Default, Smooth
+            case AttributeUse::Perspective:
+                // Default
                 break;
             default:
-                UNIMPLEMENTED_MSG("Unhandled IPA interp mode: {}", static_cast<u32>(interp_mode));
-            }
-            switch (sample_mode) {
-            case IpaSampleMode::Centroid:
-                // It can be implemented with the "centroid " keyword in GLSL
-                UNIMPLEMENTED_MSG("Unimplemented IPA sampler mode centroid");
-                break;
-            case IpaSampleMode::Default:
-                // Default, n/a
-                break;
-            default:
-                UNIMPLEMENTED_MSG("Unimplemented IPA sampler mode: {}",
-                                  static_cast<u32>(sample_mode));
+                UNREACHABLE_MSG("Unused attribute being fetched");
             }
         }
     }
@@ -458,7 +433,7 @@ private:
             if (!IsGenericAttribute(index)) {
                 continue;
             }
-            const auto location = GetAttributeLocation(index) + GENERIC_VARYING_START_LOCATION;
+            const auto location = GetAttributeLocation(index);
             const Id id = OpVariable(t_out_float4, spv::StorageClass::Output);
             Name(AddGlobalVariable(id), fmt::format("out_attr{}", location));
             output_attributes.emplace(index, id);
@@ -1086,7 +1061,7 @@ private:
         switch (stage) {
         case ShaderStage::Vertex: {
             // TODO(Rodrigo): We should use VK_EXT_depth_range_unrestricted instead, but it doesn't
-            // seem to be working on Nvidia's drivers and Intel (mesa or blob) doesn't support it.
+            // seem to be working on Nvidia's drivers and Intel (mesa and blob) doesn't support it.
             const Id position = AccessElement(t_float4, per_vertex, position_index);
             Id depth = Emit(OpLoad(t_float, AccessElement(t_out_float, position, 2)));
             depth = Emit(OpFAdd(t_float, depth, Constant(t_float, 1.0f)));
@@ -1124,7 +1099,7 @@ private:
             if (header.ps.omap.depth) {
                 // The depth output is always 2 registers after the last color output, and
                 // current_reg already contains one past the last color register.
-                OpStore(frag_depth, SafeGetRegister(current_reg + 1));
+                Emit(OpStore(frag_depth, SafeGetRegister(current_reg + 1)));
             }
             break;
         }
