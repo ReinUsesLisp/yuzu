@@ -198,7 +198,9 @@ public:
             entries.samplers.emplace_back(sampler);
         }
         for (const auto& attr : ir.GetInputAttributes()) {
-            entries.attributes.insert(GetGenericAttributeLocation(attr.first));
+            if (const auto attribute = attr.first; IsGenericAttribute(attribute)) {
+                entries.attributes.insert(GetGenericAttributeLocation(attribute));
+            }
         }
         entries.clip_distances = ir.GetClipDistances();
         entries.shader_length = ir.GetLength();
