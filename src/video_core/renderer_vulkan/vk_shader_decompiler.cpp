@@ -45,6 +45,7 @@ struct SamplerImage {
 };
 
 namespace {
+
 spv::Dim GetSamplerDim(const Sampler& sampler) {
     switch (sampler.GetType()) {
     case Tegra::Shader::TextureType::Texture1D:
@@ -61,13 +62,16 @@ spv::Dim GetSamplerDim(const Sampler& sampler) {
     }
 }
 
-constexpr u32 GetAttributeLocation(Attribute::Index attribute) {
-    return static_cast<u32>(attribute) - static_cast<u32>(Attribute::Index::Attribute_0);
-}
-
+/// Returns true if an attribute index is one of the 32 generic attributes
 constexpr bool IsGenericAttribute(Attribute::Index attribute) {
     return attribute >= Attribute::Index::Attribute_0 &&
            attribute <= Attribute::Index::Attribute_31;
+}
+
+/// Returns the location of a generic attribute
+constexpr u32 GetGenericAttributeLocation(Attribute::Index attribute) {
+    ASSERT(IsGenericAttribute(attribute));
+    return static_cast<u32>(attribute) - static_cast<u32>(Attribute::Index::Attribute_0);
 }
 
 /// Returns true if an object has to be treated as precise
@@ -116,11 +120,11 @@ public:
         Emit(OpLabel());
 
         const u32 first_address = ir.GetBasicBlocks().begin()->first;
-        const Id loop_label = Name(OpLabel(), "loop");
-        const Id merge_label = Name(OpLabel(), "merge");
+        const Id loop_label = OpLabel("loop");
+        const Id merge_label = OpLabel("merge");
         const Id dummy_label = OpLabel();
         const Id jump_label = OpLabel();
-        continue_label = Name(OpLabel(), "continue");
+        continue_label = OpLabel("continue");
 
         std::vector<Sirit::Literal> literals;
         std::vector<Id> branch_labels;
@@ -153,7 +157,7 @@ public:
         Emit(dummy_label);
         const Id default_branch = OpLabel();
         const Id jmp_to_load = Emit(OpLoad(t_uint, jmp_to));
-        Emit(OpSelectionMerge(jump_label, spv::SelectionControlMask::Flatten));
+        Emit(OpSelectionMerge(jump_label, spv::SelectionControlMask::MaskNone));
         Emit(OpSwitch(jmp_to_load, default_branch, literals, branch_labels));
 
         Emit(default_branch);
@@ -194,7 +198,7 @@ public:
             entries.samplers.emplace_back(sampler);
         }
         for (const auto& attr : ir.GetInputAttributes()) {
-            entries.attributes.insert(GetAttributeLocation(attr.first));
+            entries.attributes.insert(GetGenericAttributeLocation(attr.first));
         }
         entries.clip_distances = ir.GetClipDistances();
         entries.shader_length = ir.GetLength();
@@ -231,8 +235,7 @@ private:
     void AllocateLabels() {
         for (const auto& pair : ir.GetBasicBlocks()) {
             const u32 address = pair.first;
-            const Id label = OpLabel(fmt::format("label_0x{:x}", address));
-            labels.emplace(address, label);
+            labels.emplace(address, OpLabel(fmt::format("label_0x{:x}", address)));
         }
     }
 
@@ -255,17 +258,7 @@ private:
             return;
 
         for (u32 rt = 0; rt < static_cast<u32>(frag_colors.size()); ++rt) {
-            // Find out if this rendertarget is being used.
-            const bool is_rt_used = [&]() {
-                for (u32 component = 0; component < 4; ++component) {
-                    if (header.ps.IsColorComponentOutputEnabled(rt, component)) {
-                        return true;
-                    }
-                }
-                return false;
-            }();
-            if (!is_rt_used) {
-                // Skip if the rendertarget is not used.
+            if (!IsRenderTargetUsed(rt)) {
                 continue;
             }
 
@@ -290,67 +283,6 @@ private:
                                     "frag_coord");
         front_facing = DeclareBuiltIn(spv::BuiltIn::FrontFacing, spv::StorageClass::Input,
                                       t_in_bool, "front_facing");
-    }
-
-    Id DeclareBuiltIn(spv::BuiltIn builtin, spv::StorageClass storage, Id type,
-                      const std::string& name) {
-        const Id id = OpVariable(type, storage);
-        Decorate(id, spv::Decoration::BuiltIn, static_cast<u32>(builtin));
-        AddGlobalVariable(Name(id, name));
-        interfaces.push_back(id);
-        return id;
-    }
-
-    void DeclareVertexRedeclarations() {
-        vertex_index = DeclareBuiltIn(spv::BuiltIn::VertexIndex, spv::StorageClass::Input,
-                                      t_in_uint, "vertex_index");
-        instance_index = DeclareBuiltIn(spv::BuiltIn::InstanceIndex, spv::StorageClass::Input,
-                                        t_in_uint, "instance_index");
-
-        bool is_point_size_declared = false;
-        bool is_clip_distances_declared = false;
-        for (const auto index : ir.GetOutputAttributes()) {
-            if (index == Attribute::Index::PointSize) {
-                is_point_size_declared = true;
-            } else if (index == Attribute::Index::ClipDistances0123 ||
-                       index == Attribute::Index::ClipDistances4567) {
-                is_clip_distances_declared = true;
-            }
-        }
-
-        std::vector<Id> members;
-        members.push_back(t_float4);
-        if (is_point_size_declared) {
-            members.push_back(t_float);
-        }
-        if (is_clip_distances_declared) {
-            members.push_back(TypeArray(t_float, Constant(t_uint, 8)));
-        }
-
-        const Id gl_per_vertex_struct = Name(TypeStruct(members), "PerVertex");
-        Decorate(gl_per_vertex_struct, spv::Decoration::Block);
-
-        u32 declaration_index = 0;
-        const auto MemberDecorateBuiltIn = [&](spv::BuiltIn builtin, std::string name,
-                                               bool condition) {
-            if (!condition)
-                return u32{};
-            MemberName(gl_per_vertex_struct, declaration_index, name);
-            MemberDecorate(gl_per_vertex_struct, declaration_index, spv::Decoration::BuiltIn,
-                           static_cast<u32>(builtin));
-            return declaration_index++;
-        };
-
-        position_index = MemberDecorateBuiltIn(spv::BuiltIn::Position, "position", true);
-        point_size_index =
-            MemberDecorateBuiltIn(spv::BuiltIn::PointSize, "point_size", is_point_size_declared);
-        clip_distances_index = MemberDecorateBuiltIn(spv::BuiltIn::ClipDistance, "clip_distances",
-                                                     is_clip_distances_declared);
-
-        const Id type_pointer = TypePointer(spv::StorageClass::Output, gl_per_vertex_struct);
-        per_vertex = OpVariable(type_pointer, spv::StorageClass::Output);
-        AddGlobalVariable(Name(per_vertex, "per_vertex"));
-        interfaces.push_back(per_vertex);
     }
 
     void DeclareRegisters() {
@@ -401,7 +333,7 @@ private:
 
             UNIMPLEMENTED_IF(stage == ShaderStage::Geometry);
 
-            const u32 location = GetAttributeLocation(index);
+            const u32 location = GetGenericAttributeLocation(index);
             const Id id = OpVariable(t_in_float4, spv::StorageClass::Input);
             Name(AddGlobalVariable(id), fmt::format("in_attr{}", location));
             input_attributes.emplace(index, id);
@@ -433,7 +365,7 @@ private:
             if (!IsGenericAttribute(index)) {
                 continue;
             }
-            const auto location = GetAttributeLocation(index);
+            const auto location = GetGenericAttributeLocation(index);
             const Id id = OpVariable(t_out_float4, spv::StorageClass::Output);
             Name(AddGlobalVariable(id), fmt::format("out_attr{}", location));
             output_attributes.emplace(index, id);
@@ -492,6 +424,58 @@ private:
             Decorate(id, spv::Decoration::Binding, binding++);
             Decorate(id, spv::Decoration::DescriptorSet, DESCRIPTOR_SET);
         }
+    }
+
+    void DeclareVertexRedeclarations() {
+        vertex_index = DeclareBuiltIn(spv::BuiltIn::VertexIndex, spv::StorageClass::Input,
+                                      t_in_uint, "vertex_index");
+        instance_index = DeclareBuiltIn(spv::BuiltIn::InstanceIndex, spv::StorageClass::Input,
+                                        t_in_uint, "instance_index");
+
+        bool is_point_size_declared = false;
+        bool is_clip_distances_declared = false;
+        for (const auto index : ir.GetOutputAttributes()) {
+            if (index == Attribute::Index::PointSize) {
+                is_point_size_declared = true;
+            } else if (index == Attribute::Index::ClipDistances0123 ||
+                       index == Attribute::Index::ClipDistances4567) {
+                is_clip_distances_declared = true;
+            }
+        }
+
+        std::vector<Id> members;
+        members.push_back(t_float4);
+        if (is_point_size_declared) {
+            members.push_back(t_float);
+        }
+        if (is_clip_distances_declared) {
+            members.push_back(TypeArray(t_float, Constant(t_uint, 8)));
+        }
+
+        const Id gl_per_vertex_struct = Name(TypeStruct(members), "PerVertex");
+        Decorate(gl_per_vertex_struct, spv::Decoration::Block);
+
+        u32 declaration_index = 0;
+        const auto MemberDecorateBuiltIn = [&](spv::BuiltIn builtin, std::string name,
+                                               bool condition) {
+            if (!condition)
+                return u32{};
+            MemberName(gl_per_vertex_struct, declaration_index, name);
+            MemberDecorate(gl_per_vertex_struct, declaration_index, spv::Decoration::BuiltIn,
+                           static_cast<u32>(builtin));
+            return declaration_index++;
+        };
+
+        position_index = MemberDecorateBuiltIn(spv::BuiltIn::Position, "position", true);
+        point_size_index =
+            MemberDecorateBuiltIn(spv::BuiltIn::PointSize, "point_size", is_point_size_declared);
+        clip_distances_index = MemberDecorateBuiltIn(spv::BuiltIn::ClipDistance, "clip_distances",
+                                                     is_clip_distances_declared);
+
+        const Id type_pointer = TypePointer(spv::StorageClass::Output, gl_per_vertex_struct);
+        per_vertex = OpVariable(type_pointer, spv::StorageClass::Output);
+        AddGlobalVariable(Name(per_vertex, "per_vertex"));
+        interfaces.push_back(per_vertex);
     }
 
     void VisitBasicBlock(const NodeBlock& bb) {
@@ -601,6 +585,8 @@ private:
 
             } else if (std::holds_alternative<OperationNode>(*offset)) {
                 // Indirect access
+                // TODO(Rodrigo): Use a uniform buffer stride of 4 and drop this slow math (which
+                // emits sub-optimal code on GLSL from my testing).
                 const Id offset_id = BitcastTo<Type::Uint>(Visit(offset));
                 const Id unsafe_offset = Emit(OpUDiv(t_uint, offset_id, Constant(t_uint, 4)));
                 const Id final_offset = Emit(
@@ -644,92 +630,6 @@ private:
             return {};
         }
 
-        UNREACHABLE();
-        return {};
-    }
-
-    template <typename... Args>
-    Id AccessElement(Id pointer_type, Id composite, Args... elements_) {
-        std::vector<Id> members;
-        auto elements = {elements_...};
-        for (const auto element : elements) {
-            members.push_back(Constant(t_uint, element));
-        }
-
-        return Emit(OpAccessChain(pointer_type, composite, members));
-    }
-
-    template <Type type>
-    Id VisitOperand(Operation operation, std::size_t operand_index) {
-        const Id value = Visit(operation[operand_index]);
-
-        switch (type) {
-        case Type::Bool:
-        case Type::Bool2:
-        case Type::Float:
-            return value;
-        case Type::Int:
-            return Emit(OpBitcast(t_int, value));
-        case Type::Uint:
-            return Emit(OpBitcast(t_uint, value));
-        case Type::HalfFloat:
-            UNIMPLEMENTED();
-        }
-        UNREACHABLE();
-        return value;
-    }
-
-    template <Type type>
-    Id BitcastFrom(Id value) {
-        switch (type) {
-        case Type::Bool:
-        case Type::Bool2:
-        case Type::Float:
-            return value;
-        case Type::Int:
-        case Type::Uint:
-            return Emit(OpBitcast(t_float, value));
-        case Type::HalfFloat:
-            UNIMPLEMENTED();
-        }
-        UNREACHABLE();
-        return value;
-    }
-
-    template <Type type>
-    Id BitcastTo(Id value) {
-        switch (type) {
-        case Type::Bool:
-        case Type::Bool2:
-            UNREACHABLE();
-        case Type::Float:
-            return Emit(OpBitcast(t_float, value));
-        case Type::Int:
-            return Emit(OpBitcast(t_int, value));
-        case Type::Uint:
-            return Emit(OpBitcast(t_uint, value));
-        case Type::HalfFloat:
-            UNIMPLEMENTED();
-        }
-        UNREACHABLE();
-        return value;
-    }
-
-    Id GetTypeDefinition(Type type) {
-        switch (type) {
-        case Type::Bool:
-            return t_bool;
-        case Type::Bool2:
-            return t_bool2;
-        case Type::Float:
-            return t_float;
-        case Type::Int:
-            return t_int;
-        case Type::Uint:
-            return t_uint;
-        case Type::HalfFloat:
-            UNIMPLEMENTED();
-        }
         UNREACHABLE();
         return {};
     }
@@ -1125,6 +1025,110 @@ private:
     }
 
     Id YNegate(Operation) {
+        UNREACHABLE();
+        return {};
+    }
+
+    Id DeclareBuiltIn(spv::BuiltIn builtin, spv::StorageClass storage, Id type,
+                      const std::string& name) {
+        const Id id = OpVariable(type, storage);
+        Decorate(id, spv::Decoration::BuiltIn, static_cast<u32>(builtin));
+        AddGlobalVariable(Name(id, name));
+        interfaces.push_back(id);
+        return id;
+    }
+
+    template <typename... Args>
+    Id AccessElement(Id pointer_type, Id composite, Args... elements_) {
+        std::vector<Id> members;
+        auto elements = {elements_...};
+        for (const auto element : elements) {
+            members.push_back(Constant(t_uint, element));
+        }
+
+        return Emit(OpAccessChain(pointer_type, composite, members));
+    }
+
+    bool IsRenderTargetUsed(u32 rt) const {
+        for (u32 component = 0; component < 4; ++component) {
+            if (header.ps.IsColorComponentOutputEnabled(rt, component)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    template <Type type>
+    Id VisitOperand(Operation operation, std::size_t operand_index) {
+        const Id value = Visit(operation[operand_index]);
+
+        switch (type) {
+        case Type::Bool:
+        case Type::Bool2:
+        case Type::Float:
+            return value;
+        case Type::Int:
+            return Emit(OpBitcast(t_int, value));
+        case Type::Uint:
+            return Emit(OpBitcast(t_uint, value));
+        case Type::HalfFloat:
+            UNIMPLEMENTED();
+        }
+        UNREACHABLE();
+        return value;
+    }
+
+    template <Type type>
+    Id BitcastFrom(Id value) {
+        switch (type) {
+        case Type::Bool:
+        case Type::Bool2:
+        case Type::Float:
+            return value;
+        case Type::Int:
+        case Type::Uint:
+            return Emit(OpBitcast(t_float, value));
+        case Type::HalfFloat:
+            UNIMPLEMENTED();
+        }
+        UNREACHABLE();
+        return value;
+    }
+
+    template <Type type>
+    Id BitcastTo(Id value) {
+        switch (type) {
+        case Type::Bool:
+        case Type::Bool2:
+            UNREACHABLE();
+        case Type::Float:
+            return Emit(OpBitcast(t_float, value));
+        case Type::Int:
+            return Emit(OpBitcast(t_int, value));
+        case Type::Uint:
+            return Emit(OpBitcast(t_uint, value));
+        case Type::HalfFloat:
+            UNIMPLEMENTED();
+        }
+        UNREACHABLE();
+        return value;
+    }
+
+    Id GetTypeDefinition(Type type) {
+        switch (type) {
+        case Type::Bool:
+            return t_bool;
+        case Type::Bool2:
+            return t_bool2;
+        case Type::Float:
+            return t_float;
+        case Type::Int:
+            return t_int;
+        case Type::Uint:
+            return t_uint;
+        case Type::HalfFloat:
+            UNIMPLEMENTED();
+        }
         UNREACHABLE();
         return {};
     }
