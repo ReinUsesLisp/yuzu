@@ -517,8 +517,7 @@ private:
             return Emit(OpLoad(t_float, registers.at(index)));
 
         } else if (const auto immediate = std::get_if<ImmediateNode>(node)) {
-            const u32 value = immediate->GetValue();
-            return Emit(OpBitcast(t_float, Constant(t_uint, value)));
+            return BitcastTo<Type::Float>(Constant(t_uint, immediate->GetValue()));
 
         } else if (const auto predicate = std::get_if<PredicateNode>(node)) {
             const auto value = [&]() -> Id {
@@ -570,8 +569,8 @@ private:
                 if (element == 3) {
                     const Id is_front_facing = Emit(OpLoad(t_bool, front_facing));
                     const Id true_value =
-                        Emit(OpBitcast(t_float, Constant(t_int, static_cast<s32>(-1))));
-                    const Id false_value = Emit(OpBitcast(t_float, Constant(t_int, 0)));
+                        BitcastTo<Type::Float>(Constant(t_int, static_cast<s32>(-1)));
+                    const Id false_value = BitcastTo<Type::Float>(Constant(t_int, 0));
                     return Emit(OpSelect(t_float, is_front_facing, true_value, false_value));
                 }
                 UNIMPLEMENTED_MSG("Unmanaged FrontFacing element={}", element);
@@ -602,7 +601,7 @@ private:
 
             } else if (std::holds_alternative<OperationNode>(*offset)) {
                 // Indirect access
-                const Id offset_id = Emit(OpBitcast(t_uint, Visit(offset)));
+                const Id offset_id = BitcastTo<Type::Uint>(Visit(offset));
                 const Id unsafe_offset = Emit(OpUDiv(t_uint, offset_id, Constant(t_uint, 4)));
                 const Id final_offset = Emit(
                     OpUMod(t_uint, unsafe_offset, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS - 1)));
@@ -702,9 +701,11 @@ private:
         switch (type) {
         case Type::Bool:
         case Type::Bool2:
+            UNREACHABLE();
         case Type::Float:
             return Emit(OpBitcast(t_float, value));
         case Type::Int:
+            return Emit(OpBitcast(t_int, value));
         case Type::Uint:
             return Emit(OpBitcast(t_uint, value));
         case Type::HalfFloat:
@@ -829,8 +830,7 @@ private:
             }();
 
         } else if (const auto lmem = std::get_if<LmemNode>(dest)) {
-            Id address = Visit(lmem->GetAddress());
-            address = Emit(OpBitcast(t_uint, address));
+            Id address = BitcastTo<Type::Uint>(Visit(lmem->GetAddress()));
             address = Emit(OpUDiv(t_uint, address, Constant(t_uint, 4)));
             target = Emit(OpAccessChain(t_prv_float, local_memory, {address}));
         }
@@ -923,7 +923,7 @@ private:
             coords.push_back(Visit(operation[i]));
         }
         if (meta->sampler.IsArray()) {
-            const Id array_integer = Emit(OpBitcast(t_int, Visit(meta->array)));
+            const Id array_integer = BitcastTo<Type::Int>(Visit(meta->array));
             coords.push_back(Emit(OpConvertSToF(t_float, array_integer)));
         }
         if (meta->sampler.IsShadow()) {
@@ -984,7 +984,7 @@ private:
         AddCapability(spv::Capability::ImageQuery);
 
         if (meta->element == 3) {
-            return OpBitcast(t_float, Emit(OpImageQueryLevels(t_int, image_id)));
+            return BitcastTo<Type::Float>(Emit(OpImageQueryLevels(t_int, image_id)));
         }
 
         const Id lod = VisitOperand<Type::Uint>(operation, 0);
@@ -1004,13 +1004,13 @@ private:
         }();
 
         if (meta->element >= coords_count) {
-            return Emit(OpBitcast(t_float, Constant(t_int, 0)));
+            return Constant(t_float, 0.0f);
         }
 
         const std::array<Id, 3> types = {t_int, t_int2, t_int3};
         const Id sizes = Emit(OpImageQuerySizeLod(types.at(coords_count - 1), image_id, lod));
         const Id size = Emit(OpCompositeExtract(t_int, sizes, meta->element));
-        return Emit(OpBitcast(t_float, size));
+        return BitcastTo<Type::Float>(size);
     }
 
     Id TextureQueryLod(Operation) {
