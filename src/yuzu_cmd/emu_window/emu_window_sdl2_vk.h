@@ -26,6 +26,8 @@ public:
     void RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
                                 void** surface) const override;
 
+    std::unique_ptr<Core::Frontend::GraphicsContext> CreateSharedContext() const override;
+
 private:
     bool UseStandardLayers(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr) const;
 

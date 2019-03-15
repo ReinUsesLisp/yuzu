@@ -169,6 +169,10 @@ void EmuWindow_SDL2_VK::RetrieveVulkanHandlers(void** get_instance_proc_addr, vo
     *surface = this->surface;
 }
 
+std::unique_ptr<Core::Frontend::GraphicsContext> EmuWindow_SDL2_VK::CreateSharedContext() const {
+    return nullptr;
+}
+
 bool EmuWindow_SDL2_VK::UseStandardLayers(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr) const {
     if (!enable_layers) {
         return false;

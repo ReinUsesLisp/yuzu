@@ -18,6 +18,37 @@
 #include "input_common/motion_emu.h"
 #include "yuzu_cmd/emu_window/emu_window_sdl2_gl.h"
 
+class SDLGLContext : public Core::Frontend::GraphicsContext {
+public:
+    explicit SDLGLContext() {
+        // create a hidden window to make the shared context against
+        window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, // x position
+                                  SDL_WINDOWPOS_UNDEFINED,     // y position
+                                  Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height,
+                                  SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+        context = SDL_GL_CreateContext(window);
+    }
+
+    ~SDLGLContext() {
+        SDL_GL_DeleteContext(context);
+        SDL_DestroyWindow(window);
+    }
+
+    void MakeCurrent() override {
+        SDL_GL_MakeCurrent(window, context);
+    }
+
+    void DoneCurrent() override {
+        SDL_GL_MakeCurrent(window, nullptr);
+    }
+
+    void SwapBuffers() override {}
+
+private:
+    SDL_Window* window;
+    SDL_GLContext context;
+};
+
 bool EmuWindow_SDL2_GL::SupportsRequiredGLExtensions() {
     std::vector<std::string> unsupported_ext;
 
@@ -51,6 +82,7 @@ EmuWindow_SDL2_GL::EmuWindow_SDL2_GL(bool fullscreen) : EmuWindow_SDL2(fullscree
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
+    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
 
     std::string window_title = fmt::format("yuzu {} | {}-{}", Common::g_build_fullname,
                                            Common::g_scm_branch, Common::g_scm_desc);
@@ -69,7 +101,6 @@ EmuWindow_SDL2_GL::EmuWindow_SDL2_GL(bool fullscreen) : EmuWindow_SDL2(fullscree
     if (fullscreen) {
         Fullscreen();
     }
-
     gl_context = SDL_GL_CreateContext(render_window);
 
     if (gl_context == nullptr) {
@@ -119,4 +150,8 @@ void EmuWindow_SDL2_GL::DoneCurrent() {
 void EmuWindow_SDL2_GL::RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
                                                void** surface) const {
     // Should not have been called from OpenGL
+}
+
+std::unique_ptr<Core::Frontend::GraphicsContext> EmuWindow_SDL2_GL::CreateSharedContext() const {
+    return std::make_unique<SDLGLContext>();
 }
