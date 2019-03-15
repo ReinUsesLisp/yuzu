@@ -964,11 +964,11 @@ private:
         case ShaderStage::Vertex: {
             // TODO(Rodrigo): We should use VK_EXT_depth_range_unrestricted instead, but it doesn't
             // seem to be working on Nvidia's drivers and Intel (mesa and blob) doesn't support it.
-            const Id position = AccessElement(t_float4, per_vertex, position_index);
-            Id depth = Emit(OpLoad(t_float, AccessElement(t_out_float, position, 2)));
+            const Id z_pointer = AccessElement(t_out_float, per_vertex, position_index, 2u);
+            Id depth = Emit(OpLoad(t_float, z_pointer));
             depth = Emit(OpFAdd(t_float, depth, Constant(t_float, 1.0f)));
             depth = Emit(OpFMul(t_float, depth, Constant(t_float, 0.5f)));
-            Emit(OpStore(AccessElement(t_out_float, position, 2), depth));
+            Emit(OpStore(z_pointer, depth));
             break;
         }
         case ShaderStage::Fragment: {
