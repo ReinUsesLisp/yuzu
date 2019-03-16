@@ -10,6 +10,10 @@
 #include "video_core/engines/shader_bytecode.h"
 #include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 
+namespace Vulkan {
+class VKDevice;
+}
+
 namespace Vulkan::VKShader {
 
 constexpr std::size_t MAX_PROGRAM_CODE_LENGTH{0x1000};
@@ -44,16 +48,8 @@ struct ProgramResult {
     ShaderEntries entries;
 };
 
-/**
- * Generates the GLSL vertex shader program source code for the given VS program
- * @returns String of the shader source code
- */
-ProgramResult GenerateVertexShader(const ShaderSetup& setup);
+ProgramResult GenerateVertexShader(const VKDevice& device, const ShaderSetup& setup);
 
-/**
- * Generates the GLSL fragment shader program source code for the given FS program
- * @returns String of the shader source code
- */
-ProgramResult GenerateFragmentShader(const ShaderSetup& setup);
+ProgramResult GenerateFragmentShader(const VKDevice& device,const ShaderSetup& setup);
 
 } // namespace Vulkan::VKShader

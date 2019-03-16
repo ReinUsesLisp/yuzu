@@ -27,14 +27,57 @@
 
 namespace Vulkan {
 
+enum class IgnoreMode { Head, Tail };
+
+struct IgnoreEntry {
+    IgnoreMode mode;
+    std::size_t length;
+    const char* message;
+};
+
+static constexpr IgnoreEntry BuildIgnore(IgnoreMode mode, const char* message) {
+    // constexpr std::strlen reimplementation
+    std::size_t length = 0;
+    while (message[length] != 0) {
+        ++length;
+    }
+    return {mode, length, message};
+}
+
+static constexpr std::array<IgnoreEntry, 2> ignored_messages = {
+    BuildIgnore(IgnoreMode::Head, "Device Extension VK_EXT_scalar_block_layout "),
+    BuildIgnore(IgnoreMode::Tail, " is an array with stride 4 not satisfying alignment to 16")};
+
+static bool IsMessageIgnored(std::string message) {
+    const auto divisor = message.find('|');
+    const auto end_of_line = message.find('\n');
+    for (const auto& ignore : ignored_messages) {
+        switch (ignore.mode) {
+        case IgnoreMode::Head:
+            if (divisor != std::string::npos &&
+                message.compare(divisor + 2, ignore.length, ignore.message) == 0) {
+                return true;
+            }
+            break;
+        case IgnoreMode::Tail:
+            if (end_of_line != std::string::npos && end_of_line >= ignore.length &&
+                message.compare(end_of_line - ignore.length, ignore.length, ignore.message) == 0) {
+                return true;
+            }
+            break;
+        }
+    }
+    return false;
+}
+
 static VkBool32 DebugCallback(VkDebugReportFlagsEXT flags_, VkDebugReportObjectTypeEXT object_type,
                               u64 object, std::size_t location, s32 message_code,
                               const char* layer_prefix, const char* message, void* user_data) {
     const vk::DebugReportFlagsEXT flags{flags_};
-    if (flags & vk::DebugReportFlagBitsEXT::eError) {
+    if (flags & vk::DebugReportFlagBitsEXT::eError && !IsMessageIgnored(message)) {
         LOG_ERROR(Render_Vulkan, "{}", message);
         UNREACHABLE();
-    } else if (flags & (vk::DebugReportFlagBitsEXT::eWarning |
+    } else if (flags & (vk::DebugReportFlagBitsEXT::eError | vk::DebugReportFlagBitsEXT::eWarning |
                         vk::DebugReportFlagBitsEXT::ePerformanceWarning)) {
         LOG_WARNING(Render_Vulkan, "{}", message);
     } else if (flags & vk::DebugReportFlagBitsEXT::eDebug) {

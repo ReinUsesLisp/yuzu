@@ -72,7 +72,7 @@ bool VKDevice::Create(const vk::DispatchLoaderDynamic& dldi, vk::Instance instan
     vk::PhysicalDeviceFeatures device_features;
     device_features.vertexPipelineStoresAndAtomics = true;
 
-    const std::vector<const char*> extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const std::vector<const char*> extensions = LoadExtensions(dldi);
     const vk::DeviceCreateInfo device_ci({}, static_cast<u32>(queue_cis.size()), queue_cis.data(),
                                          0, nullptr, static_cast<u32>(extensions.size()),
                                          extensions.data(), &device_features);
@@ -186,6 +186,30 @@ bool VKDevice::IsSuitable(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDev
 
     // Device is suitable.
     return true;
+}
+
+std::vector<const char*> VKDevice::LoadExtensions(const vk::DispatchLoaderDynamic& dldi) {
+    std::vector<const char*> extensions;
+    extensions.reserve(2);
+    extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+    const auto Test = [&](const vk::ExtensionProperties& extension,
+                          std::optional<std::reference_wrapper<bool>> status, const char* name,
+                          u32 revision) {
+        if (extension.extensionName != std::string(name)) {
+            return;
+        }
+        extensions.push_back(name);
+        if (status) {
+            status->get() = true;
+        }
+    };
+
+    for (const auto& extension : physical.enumerateDeviceExtensionProperties(nullptr, dldi)) {
+        Test(extension, ext_scalar_block_layout, VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, 1);
+    }
+
+    return extensions;
 }
 
 void VKDevice::SetupFamilies(const vk::DispatchLoaderDynamic& dldi, vk::SurfaceKHR surface) {

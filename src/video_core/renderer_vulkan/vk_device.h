@@ -84,11 +84,19 @@ public:
         return max_storage_buffer_range;
     }
 
+    /// Returns true if the device supports VK_EXT_scalar_block_layout
+    bool IsExtScalarBlockLayoutSupported() const {
+        return ext_scalar_block_layout;
+    }
+
     /// Checks if the physical device is suitable.
     static bool IsSuitable(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical,
                            vk::SurfaceKHR surface);
 
 private:
+    /// Loads extensions into a vector and stores available ones in this object.
+    std::vector<const char*> LoadExtensions(const vk::DispatchLoaderDynamic& dldi);
+
     /// Sets up queue families.
     void SetupFamilies(const vk::DispatchLoaderDynamic& dldi, vk::SurfaceKHR surface);
 
@@ -116,6 +124,7 @@ private:
     vk::PhysicalDeviceType device_type; ///< Physical device type.
     u64 uniform_buffer_alignment{};     ///< Uniform buffer alignment requeriment.
     u64 max_storage_buffer_range{};     ///< Max storage buffer size.
+    bool ext_scalar_block_layout;       ///< Support for VK_EXT_scalar_block_layout.
     std::map<vk::Format, vk::FormatProperties> format_properties; ///< Format properties dictionary.
 };
 

@@ -16,11 +16,11 @@ static constexpr u32 PROGRAM_OFFSET{10};
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using namespace VideoCommon::Shader;
 
-ProgramResult GenerateVertexShader(const ShaderSetup& setup) {
+ProgramResult GenerateVertexShader(const VKDevice& device, const ShaderSetup& setup) {
     // TODO(Rodrigo): Add vertex stage B.
     const ShaderIR ir(setup.program.code, PROGRAM_OFFSET);
 
-    const auto [module, entries] = Decompile(ir, Maxwell::ShaderStage::Vertex);
+    const auto [module, entries] = Decompile(device, ir, Maxwell::ShaderStage::Vertex);
     const auto vertex_entry = entries.entry_function;
     const auto main = module->Emit(
         module->OpFunction(module->TypeVoid(), {}, module->TypeFunction(module->TypeVoid())));
@@ -37,10 +37,10 @@ ProgramResult GenerateVertexShader(const ShaderSetup& setup) {
     return {code, entries};
 }
 
-ProgramResult GenerateFragmentShader(const ShaderSetup& setup) {
+ProgramResult GenerateFragmentShader(const VKDevice& device, const ShaderSetup& setup) {
     const ShaderIR ir(setup.program.code, PROGRAM_OFFSET);
 
-    const auto [module, entries] = Decompile(ir, Maxwell::ShaderStage::Fragment);
+    const auto [module, entries] = Decompile(device, ir, Maxwell::ShaderStage::Fragment);
     const auto fragment_entry = entries.entry_function;
     const auto main = module->Emit(
         module->OpFunction(module->TypeVoid(), {}, module->TypeFunction(module->TypeVoid())));

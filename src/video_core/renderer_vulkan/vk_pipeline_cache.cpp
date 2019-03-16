@@ -280,9 +280,9 @@ CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr a
             setup.SetProgramB(
                 GetShaderCode(GetShaderAddress(system, Maxwell::ShaderProgram::VertexB)));
         case Maxwell::ShaderProgram::VertexB:
-            return VKShader::GenerateVertexShader(setup);
+            return VKShader::GenerateVertexShader(device, setup);
         case Maxwell::ShaderProgram::Fragment:
-            return VKShader::GenerateFragmentShader(setup);
+            return VKShader::GenerateFragmentShader(device, setup);
         default:
             LOG_CRITICAL(HW_GPU, "Unimplemented program_type={}", static_cast<u32>(program_type));
             UNREACHABLE();
