@@ -12,26 +12,8 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/scm_rev.h"
+#include "core/settings.h"
 #include "yuzu_cmd/emu_window/emu_window_sdl2_vk.h"
-
-#pragma optimize("", off)
-
-static VkBool32 DebugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT object_type,
-                              u64 object, size_t location, s32 message_code,
-                              const char* layer_prefix, const char* message, void* user_data) {
-    if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
-        LOG_ERROR(Render_Vulkan, "{}", message);
-        // UNREACHABLE();
-    } else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
-        LOG_WARNING(Render_Vulkan, "{}", message);
-    } else if (flags &
-               (VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) {
-        LOG_DEBUG(Render_Vulkan, "{}", message);
-    } else if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
-        LOG_TRACE(Render_Vulkan, "{}", message);
-    }
-    return VK_FALSE;
-}
 
 EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(bool fullscreen) : EmuWindow_SDL2(fullscreen) {
     if (SDL_Vulkan_LoadLibrary(nullptr) != 0) {
@@ -92,7 +74,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(bool fullscreen) : EmuWindow_SDL2(fullscree
     instance_ci.pApplicationInfo = &app_info;
     instance_ci.enabledExtensionCount = static_cast<u32>(enabled_extensions.size());
     instance_ci.ppEnabledExtensionNames = enabled_extensions.data();
-    if (enable_layers) {
+    if (Settings::values.renderer_debug) {
         instance_ci.enabledLayerCount = static_cast<u32>(enabled_layers.size());
         instance_ci.ppEnabledLayerNames = enabled_layers.data();
     }
@@ -112,27 +94,6 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(bool fullscreen) : EmuWindow_SDL2(fullscree
         exit(EXIT_FAILURE);
     }
 
-    if (use_standard_layers) {
-        VkDebugReportCallbackCreateInfoEXT callback_ci{};
-        callback_ci.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
-        callback_ci.pfnCallback = DebugCallback;
-        callback_ci.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT |
-                            VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
-                            VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
-
-        vkCreateDebugReportCallbackEXT = reinterpret_cast<PFN_vkCreateDebugReportCallbackEXT>(
-            vkGetInstanceProcAddr(instance, "vkCreateDebugReportCallbackEXT"));
-        vkDestroyDebugReportCallbackEXT = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(
-            vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT"));
-
-        if (vkCreateDebugReportCallbackEXT == nullptr ||
-            vkDestroyDebugReportCallbackEXT == nullptr ||
-            vkCreateDebugReportCallbackEXT(instance, &callback_ci, nullptr, &debug_report) !=
-                VK_SUCCESS) {
-            LOG_CRITICAL(Frontend, "Failed to setup Vulkan debug callback!");
-        }
-    }
-
     if (!SDL_Vulkan_CreateSurface(render_window, instance, &surface)) {
         LOG_CRITICAL(Frontend, "Failed to create Vulkan surface! {}", SDL_GetError());
         exit(EXIT_FAILURE);
@@ -146,9 +107,6 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(bool fullscreen) : EmuWindow_SDL2(fullscree
 }
 
 EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
-    if (debug_report) {
-        vkDestroyDebugReportCallbackEXT(instance, debug_report, nullptr);
-    }
     vkDestroyInstance(instance, nullptr);
 }
 
@@ -174,7 +132,7 @@ std::unique_ptr<Core::Frontend::GraphicsContext> EmuWindow_SDL2_VK::CreateShared
 }
 
 bool EmuWindow_SDL2_VK::UseStandardLayers(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr) const {
-    if (!enable_layers) {
+    if (!Settings::values.renderer_debug) {
         return false;
     }
 

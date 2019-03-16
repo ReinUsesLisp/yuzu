@@ -34,13 +34,6 @@ private:
     VkInstance instance{};
     VkSurfaceKHR surface{};
 
-    VkDebugReportCallbackEXT debug_report{};
-
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr{};
     PFN_vkDestroyInstance vkDestroyInstance{};
-    PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT{};
-    PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT{};
-
-    /// Enable Vulkan validations layers
-    static constexpr bool enable_layers = true;
 };

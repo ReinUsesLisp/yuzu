@@ -18,11 +18,15 @@ class QKeyEvent;
 class QScreen;
 class QTouchEvent;
 
+class GWidgetInternal;
 class GGLWidgetInternal;
+class GVKWidgetInternal;
 class GMainWindow;
 class GRenderWindow;
 class QSurface;
 class QOpenGLContext;
+class QVulkanInstance;
+class QVulkanWindow;
 
 namespace VideoCore {
 enum class LoadCallbackStage;
@@ -175,7 +179,9 @@ private:
     void OnMinimalClientAreaChangeRequest(
         const std::pair<unsigned, unsigned>& minimal_size) override;
 
-    GGLWidgetInternal* child;
+    QWidget* container = nullptr;
+
+    GWidgetInternal* child = nullptr;
 
     QByteArray geometry;
 
@@ -185,6 +191,8 @@ private:
     // Context that will be shared between all newly created contexts. This should never be made
     // current
     std::unique_ptr<QOpenGLContext> shared_context;
+
+    QVulkanInstance* instance;
 
     /// Temporary storage of the screenshot taken
     QImage screenshot_image;

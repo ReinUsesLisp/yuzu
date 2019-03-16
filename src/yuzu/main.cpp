@@ -749,7 +749,7 @@ bool GMainWindow::LoadROM(const QString& filename) {
 
     render_window->InitRenderTarget();
 
-    {
+    if (Settings::values.renderer_backend == Settings::RendererBackend::OpenGL) {
         Core::Frontend::ScopeAcquireWindowContext acquire_context{*render_window};
         if (!gladLoadGL()) {
             QMessageBox::critical(this, tr("Error while initializing OpenGL 4.3 Core!"),
@@ -757,16 +757,16 @@ bool GMainWindow::LoadROM(const QString& filename) {
                                      "have the latest graphics driver."));
             return false;
         }
-    }
 
-    QStringList unsupported_gl_extensions = GetUnsupportedGLExtensions();
-    if (!unsupported_gl_extensions.empty()) {
-        QMessageBox::critical(this, tr("Error while initializing OpenGL Core!"),
-                              tr("Your GPU may not support one or more required OpenGL"
-                                 "extensions. Please ensure you have the latest graphics "
-                                 "driver.<br><br>Unsupported extensions:<br>") +
-                                  unsupported_gl_extensions.join("<br>"));
-        return false;
+        QStringList unsupported_gl_extensions = GetUnsupportedGLExtensions();
+        if (!unsupported_gl_extensions.empty()) {
+            QMessageBox::critical(this, tr("Error while initializing OpenGL Core!"),
+                                  tr("Your GPU may not support one or more required OpenGL"
+                                     "extensions. Please ensure you have the latest graphics "
+                                     "driver.<br><br>Unsupported extensions:<br>") +
+                                      unsupported_gl_extensions.join("<br>"));
+            return false;
+        }
     }
 
     Core::System& system{Core::System::GetInstance()};
@@ -876,7 +876,9 @@ void GMainWindow::BootGame(const QString& filename) {
     // Create and start the emulation thread
     emu_thread = std::make_unique<EmuThread>(render_window);
     emit EmulationStarting(emu_thread.get());
-    render_window->moveContext();
+    if (Settings::values.renderer_backend == Settings::RendererBackend::OpenGL) {
+        render_window->moveContext();
+    }
     emu_thread->start();
 
     connect(render_window, &GRenderWindow::Closed, this, &GMainWindow::OnStopGame);

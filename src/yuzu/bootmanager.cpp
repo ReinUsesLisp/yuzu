@@ -9,6 +9,7 @@
 #include <QOpenGLWindow>
 #include <QPainter>
 #include <QScreen>
+#include <QVulkanWindow>
 #include <QWindow>
 #include <fmt/format.h>
 #include "common/microprofile.h"
@@ -112,19 +113,9 @@ private:
     QOffscreenSurface surface;
 };
 
-// This class overrides paintEvent and resizeEvent to prevent the GUI thread from stealing GL
-// context.
-// The corresponding functionality is handled in EmuThread instead
-class GGLWidgetInternal : public QOpenGLWindow {
+class GWidgetInternal : public QWindow {
 public:
-    GGLWidgetInternal(GRenderWindow* parent, QOpenGLContext* shared_context)
-        : QOpenGLWindow(shared_context), parent(parent) {}
-
-    void paintEvent(QPaintEvent* ev) override {
-        if (do_painting) {
-            QPainter painter(this);
-        }
-    }
+    GWidgetInternal(GRenderWindow* parent) : parent(parent) {}
 
     void resizeEvent(QResizeEvent* ev) override {
         parent->OnClientAreaResized(ev->size().width(), ev->size().height());
@@ -134,17 +125,56 @@ public:
     void DisablePainting() {
         do_painting = false;
     }
+
     void EnablePainting() {
         do_painting = true;
     }
 
+    virtual std::pair<unsigned, unsigned> GetSize() const = 0;
+
+protected:
+    bool IsPaintingEnabled() const {
+        return do_painting;
+    }
+
 private:
     GRenderWindow* parent;
-    bool do_painting;
+    bool do_painting = false;
+};
+
+// This class overrides paintEvent and resizeEvent to prevent the GUI thread from stealing GL
+// context.
+// The corresponding functionality is handled in EmuThread instead
+class GGLWidgetInternal final : public GWidgetInternal, public QOpenGLWindow {
+public:
+    GGLWidgetInternal(GRenderWindow* parent, QOpenGLContext* shared_context)
+        : GWidgetInternal(parent), QOpenGLWindow(shared_context) {}
+
+    void paintEvent(QPaintEvent* ev) override {
+        if (IsPaintingEnabled()) {
+            QPainter painter(this);
+        }
+    }
+
+    std::pair<unsigned, unsigned> GetSize() const override {
+        return std::make_pair(QPaintDevice::width(), QPaintDevice::height());
+    }
+};
+
+class GVKWidgetInternal final : public GWidgetInternal {
+public:
+    GVKWidgetInternal(GRenderWindow* parent, QVulkanInstance* instance) : GWidgetInternal(parent) {
+        setSurfaceType(QSurface::SurfaceType::VulkanSurface);
+        setVulkanInstance(instance);
+    }
+
+    std::pair<unsigned, unsigned> GetSize() const override {
+        return std::make_pair(width(), height());
+    }
 };
 
 GRenderWindow::GRenderWindow(QWidget* parent, EmuThread* emu_thread)
-    : QWidget(parent), child(nullptr), context(nullptr), emu_thread(emu_thread) {
+    : QWidget(parent), emu_thread(emu_thread) {
 
     setWindowTitle(QStringLiteral("yuzu %1 | %2-%3")
                        .arg(Common::g_build_name, Common::g_scm_branch, Common::g_scm_desc));
@@ -161,6 +191,9 @@ GRenderWindow::~GRenderWindow() {
 }
 
 void GRenderWindow::moveContext() {
+    if (!context) {
+        return;
+    }
     DoneCurrent();
 
     // If the thread started running, move the GL Context to the new thread. Otherwise, move it
@@ -178,9 +211,10 @@ void GRenderWindow::SwapBuffers() {
     // - The Qt debug runtime prints a bogus warning on the console if `makeCurrent` wasn't called
     // since the last time `swapBuffers` was executed;
     // - On macOS, if `makeCurrent` isn't called explicitely, resizing the buffer breaks.
-    context->makeCurrent(child);
-
-    context->swapBuffers(child);
+    if (context) {
+        context->makeCurrent(child);
+        context->swapBuffers(child);
+    }
     if (!first_frame) {
         emit FirstFrameDisplayed();
         first_frame = true;
@@ -188,11 +222,15 @@ void GRenderWindow::SwapBuffers() {
 }
 
 void GRenderWindow::MakeCurrent() {
-    context->makeCurrent(child);
+    if (context) {
+        context->makeCurrent(child);
+    }
 }
 
 void GRenderWindow::DoneCurrent() {
-    context->doneCurrent();
+    if (context) {
+        context->doneCurrent();
+    }
 }
 
 void GRenderWindow::PollEvents() {}
@@ -202,7 +240,12 @@ bool GRenderWindow::IsShown() const {
 }
 
 void GRenderWindow::RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
-                                           void** surface) const {}
+                                           void** surface) const {
+    *get_instance_proc_addr =
+        static_cast<void*>(this->instance->getInstanceProcAddr("vkGetInstanceProcAddr"));
+    *instance = static_cast<void*>(this->instance->vkInstance());
+    *surface = this->instance->surfaceForWindow(child);
+}
 
 // On Qt 5.0+, this correctly gets the size of the framebuffer (pixels).
 //
@@ -212,10 +255,9 @@ void GRenderWindow::RetrieveVulkanHandlers(void** get_instance_proc_addr, void**
 void GRenderWindow::OnFramebufferSizeChanged() {
     // Screen changes potentially incur a change in screen DPI, hence we should update the
     // framebuffer size
-    qreal pixelRatio = windowPixelRatio();
-    unsigned width = child->QPaintDevice::width() * pixelRatio;
-    unsigned height = child->QPaintDevice::height() * pixelRatio;
-    UpdateCurrentFramebufferLayout(width, height);
+    const qreal pixelRatio = windowPixelRatio();
+    const auto size = child->GetSize();
+    UpdateCurrentFramebufferLayout(size.first * pixelRatio, size.second * pixelRatio);
 }
 
 void GRenderWindow::BackupGeometry() {
@@ -368,30 +410,63 @@ void GRenderWindow::InitRenderTarget() {
         delete child;
     }
 
+    if (container) {
+        delete container;
+    }
+
     if (layout()) {
         delete layout();
     }
 
     first_frame = false;
 
-    // TODO: One of these flags might be interesting: WA_OpaquePaintEvent, WA_NoBackground,
-    // WA_DontShowOnScreen, WA_DeleteOnClose
-    QSurfaceFormat fmt;
-    fmt.setVersion(4, 3);
-    fmt.setProfile(QSurfaceFormat::CoreProfile);
-    // TODO: expose a setting for buffer value (ie default/single/double/triple)
-    fmt.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
-    shared_context = std::make_unique<QOpenGLContext>();
-    shared_context->setFormat(fmt);
-    shared_context->create();
-    context = std::make_unique<QOpenGLContext>();
-    context->setShareContext(shared_context.get());
-    context->setFormat(fmt);
-    context->create();
-    fmt.setSwapInterval(false);
+    switch (Settings::values.renderer_backend) {
+    case Settings::RendererBackend::OpenGL: {
+        // TODO: One of these flags might be interesting: WA_OpaquePaintEvent, WA_NoBackground,
+        // WA_DontShowOnScreen, WA_DeleteOnClose
+        QSurfaceFormat fmt;
+        fmt.setVersion(4, 3);
+        fmt.setProfile(QSurfaceFormat::CoreProfile);
+        // TODO: expose a setting for buffer value (ie default/single/double/triple)
+        fmt.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
+        shared_context = std::make_unique<QOpenGLContext>();
+        shared_context->setFormat(fmt);
+        shared_context->create();
+        context = std::make_unique<QOpenGLContext>();
+        context->setShareContext(shared_context.get());
+        context->setFormat(fmt);
+        context->create();
+        fmt.setSwapInterval(false);
 
-    child = new GGLWidgetInternal(this, shared_context.get());
-    QWidget* container = QWidget::createWindowContainer(child, this);
+        child = new GGLWidgetInternal(this, shared_context.get());
+        break;
+    }
+    case Settings::RendererBackend::Vulkan: {
+        instance = new QVulkanInstance();
+        instance->setApiVersion(QVersionNumber(1, 1, 0));
+        instance->setFlags(QVulkanInstance::Flag::NoDebugOutputRedirect);
+        if (Settings::values.renderer_debug) {
+            const auto supported_layers = instance->supportedLayers();
+            const bool found = std::find_if(
+                supported_layers.begin(), supported_layers.end(), [](const auto& layer) {
+                    constexpr const char searched_layer[] = "VK_LAYER_LUNARG_standard_validation";
+                    return layer.name == searched_layer;
+                });
+            if (found) {
+                instance->setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
+                instance->setExtensions(QByteArrayList() << VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+            }
+        }
+        if (!instance->create()) {
+            abort();
+        }
+
+        child = new GVKWidgetInternal(this, instance);
+        break;
+    }
+    }
+
+    container = QWidget::createWindowContainer(child, this);
     QBoxLayout* layout = new QHBoxLayout(this);
 
     resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
@@ -404,7 +479,7 @@ void GRenderWindow::InitRenderTarget() {
     OnMinimalClientAreaChangeRequest(GetActiveConfig().min_client_area_size);
 
     OnFramebufferSizeChanged();
-    NotifyClientAreaSizeChanged(std::pair<unsigned, unsigned>(child->width(), child->height()));
+    NotifyClientAreaSizeChanged(child->GetSize());
 
     BackupGeometry();
     // show causes the window to actually be created and the gl context as well

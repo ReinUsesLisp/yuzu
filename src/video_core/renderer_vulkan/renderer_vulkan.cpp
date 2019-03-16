@@ -27,6 +27,24 @@
 
 namespace Vulkan {
 
+static VkBool32 DebugCallback(VkDebugReportFlagsEXT flags_, VkDebugReportObjectTypeEXT object_type,
+                              u64 object, std::size_t location, s32 message_code,
+                              const char* layer_prefix, const char* message, void* user_data) {
+    const vk::DebugReportFlagsEXT flags{flags_};
+    if (flags & vk::DebugReportFlagBitsEXT::eError) {
+        LOG_ERROR(Render_Vulkan, "{}", message);
+        UNREACHABLE();
+    } else if (flags & (vk::DebugReportFlagBitsEXT::eWarning |
+                        vk::DebugReportFlagBitsEXT::ePerformanceWarning)) {
+        LOG_WARNING(Render_Vulkan, "{}", message);
+    } else if (flags & vk::DebugReportFlagBitsEXT::eDebug) {
+        LOG_DEBUG(Render_Vulkan, "{}", message);
+    } else if (flags & vk::DebugReportFlagBitsEXT::eInformation) {
+        LOG_TRACE(Render_Vulkan, "{}", message);
+    }
+    return VK_FALSE;
+}
+
 RendererVulkan::RendererVulkan(Core::Frontend::EmuWindow& window, Core::System& system)
     : RendererBase(window), system{system} {}
 
@@ -36,7 +54,6 @@ RendererVulkan::~RendererVulkan() {
 
 void RendererVulkan::SwapBuffers(
     std::optional<std::reference_wrapper<const Tegra::FramebufferConfig>> framebuffer) {
-
     system.GetPerfStats().EndSystemFrame();
 
     const auto& layout = render_window.GetFramebufferLayout();
@@ -51,7 +68,9 @@ void RendererVulkan::SwapBuffers(
 
         scheduler->Flush();
 
-        swapchain->Present(render_semaphore, fence);
+        if (swapchain->Present(render_semaphore, fence)) {
+            blit_screen->Recreate();
+        }
 
         render_window.SwapBuffers();
     }
@@ -69,9 +88,23 @@ bool RendererVulkan::Init() {
                                          reinterpret_cast<void**>(&surface));
     const vk::DispatchLoaderDynamic dldi(instance, vkGetInstanceProcAddr);
 
+    std::optional<vk::DebugReportCallbackEXT> debug_callback_opt = std::nullopt;
+    if (Settings::values.renderer_debug && dldi.vkCreateDebugReportCallbackEXT) {
+        debug_callback_opt = CreateDebugCallback(dldi);
+        if (!debug_callback_opt) {
+            return false;
+        }
+    }
+
     if (!PickDevices(dldi)) {
+        if (debug_callback_opt) {
+            instance.destroy(*debug_callback_opt, nullptr, dldi);
+        }
         return false;
     }
+    debug_callback = UniqueDebugReportCallbackEXT(
+        *debug_callback_opt, vk::ObjectDestroy<vk::Instance, vk::DispatchLoaderDynamic>(
+                                 instance, nullptr, device->GetDispatchLoader()));
 
     memory_manager = std::make_unique<VKMemoryManager>(*device);
 
@@ -108,6 +141,22 @@ void RendererVulkan::ShutDown() {
     memory_manager.reset();
     resource_manager.reset();
     device.reset();
+}
+
+std::optional<vk::DebugReportCallbackEXT> RendererVulkan::CreateDebugCallback(
+    const vk::DispatchLoaderDynamic& dldi) {
+    const vk::DebugReportCallbackCreateInfoEXT callback_ci(
+        vk::DebugReportFlagBitsEXT::eInformation | vk::DebugReportFlagBitsEXT::eWarning |
+            vk::DebugReportFlagBitsEXT::ePerformanceWarning | vk::DebugReportFlagBitsEXT::eError |
+            vk::DebugReportFlagBitsEXT::eDebug,
+        reinterpret_cast<PFN_vkDebugReportCallbackEXT>(DebugCallback));
+    vk::DebugReportCallbackEXT debug_callback;
+    if (instance.createDebugReportCallbackEXT(&callback_ci, nullptr, &debug_callback, dldi) !=
+        vk::Result::eSuccess) {
+        LOG_ERROR(Render_Vulkan, "Failed to create debug callback");
+        return {};
+    }
+    return debug_callback;
 }
 
 bool RendererVulkan::PickDevices(const vk::DispatchLoaderDynamic& dldi) {

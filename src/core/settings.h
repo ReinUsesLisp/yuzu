@@ -394,6 +394,7 @@ struct Values {
 
     // Renderer
     RendererBackend renderer_backend;
+    bool renderer_debug;
     int vulkan_device;
 
     float resolution_factor;

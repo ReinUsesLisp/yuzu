@@ -27,7 +27,9 @@ public:
 
     void AcquireNextImage();
 
-    void Present(vk::Semaphore render_semaphore, VKFence& fence);
+    /// Presents the rendered image to the swapchain. Returns true when the swapchains had to be
+    /// recreated.
+    bool Present(vk::Semaphore render_semaphore, VKFence& fence);
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
 

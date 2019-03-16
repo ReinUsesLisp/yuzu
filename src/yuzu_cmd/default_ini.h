@@ -82,12 +82,16 @@ use_cpu_jit =
 
 # Whether to use multi-core for CPU emulation
 # 0 (default): Disabled, 1: Enabled
-use_multi_core=
+use_multi_core =
 
 [Renderer]
 # Which backend API to use.
-# 0: OpenGL (default), 1: Vulkan
+# 0 (default): OpenGL, 1: Vulkan
 backend =
+
+# Enable graphics API debugging mode.
+# 0 (default): Disabled, 1: Enabled
+debug =
 
 # Which Vulkan physical device to use (defaults to 0)
 vulkan_device =

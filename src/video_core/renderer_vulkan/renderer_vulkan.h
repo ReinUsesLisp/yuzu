@@ -46,6 +46,9 @@ public:
     void ShutDown() override;
 
 private:
+    std::optional<vk::DebugReportCallbackEXT> CreateDebugCallback(
+        const vk::DispatchLoaderDynamic& dldi);
+
     bool PickDevices(const vk::DispatchLoaderDynamic& dldi);
 
     Core::System& system;
@@ -55,6 +58,7 @@ private:
 
     VKScreenInfo screen_info;
 
+    UniqueDebugReportCallbackEXT debug_callback;
     std::unique_ptr<VKDevice> device;
     std::unique_ptr<VKSwapchain> swapchain;
     std::unique_ptr<VKMemoryManager> memory_manager;

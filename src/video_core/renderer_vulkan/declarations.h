@@ -41,5 +41,6 @@ using UniqueSemaphore = UniqueHandle<vk::Semaphore>;
 using UniqueShaderModule = UniqueHandle<vk::ShaderModule>;
 using UniqueSwapchainKHR = UniqueHandle<vk::SwapchainKHR>;
 using UniqueValidationCacheEXT = UniqueHandle<vk::ValidationCacheEXT>;
+using UniqueDebugReportCallbackEXT = UniqueHandle<vk::DebugReportCallbackEXT>;
 
 } // namespace Vulkan

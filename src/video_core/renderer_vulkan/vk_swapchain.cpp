@@ -93,7 +93,7 @@ void VKSwapchain::AcquireNextImage() {
     }
 }
 
-void VKSwapchain::Present(vk::Semaphore render_semaphore, VKFence& fence) {
+bool VKSwapchain::Present(vk::Semaphore render_semaphore, VKFence& fence) {
     const vk::Semaphore present_semaphore = *present_semaphores[frame_index];
     std::array<vk::Semaphore, 2> semaphores{present_semaphore, render_semaphore};
     const u32 wait_semaphore_count{render_semaphore ? 2u : 1u};
@@ -104,10 +104,12 @@ void VKSwapchain::Present(vk::Semaphore render_semaphore, VKFence& fence) {
     const auto& dld = device.GetDispatchLoader();
     const auto present_queue = device.GetPresentQueue();
 
+    bool recreated = false;
     switch (present_queue.presentKHR(&present_info, dld)) {
     case vk::Result::eErrorOutOfDateKHR:
         if (current_width > 0 && current_height > 0) {
             Create(current_width, current_height);
+            recreated = true;
         }
         break;
     case vk::Result::eSuccess:
@@ -120,6 +122,7 @@ void VKSwapchain::Present(vk::Semaphore render_semaphore, VKFence& fence) {
     ASSERT(fences[image_index] == nullptr);
     fences[image_index] = &fence;
     frame_index = (frame_index + 1) % image_count;
+    return recreated;
 }
 
 bool VKSwapchain::HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const {

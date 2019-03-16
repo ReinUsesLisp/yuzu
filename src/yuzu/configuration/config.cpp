@@ -367,6 +367,10 @@ void Config::ReadValues() {
     qt_config->endGroup();
 
     qt_config->beginGroup("Renderer");
+    Settings::values.renderer_backend =
+        static_cast<Settings::RendererBackend>(qt_config->value("backend", 0).toInt());
+    Settings::values.renderer_debug = qt_config->value("debug", false).toBool();
+    Settings::values.vulkan_device = qt_config->value("vulkan_device", 0).toInt();
     Settings::values.resolution_factor = qt_config->value("resolution_factor", 1.0).toFloat();
     Settings::values.use_frame_limit = qt_config->value("use_frame_limit", true).toBool();
     Settings::values.frame_limit = qt_config->value("frame_limit", 100).toInt();
@@ -628,6 +632,9 @@ void Config::SaveValues() {
     qt_config->endGroup();
 
     qt_config->beginGroup("Renderer");
+    qt_config->setValue("backend", (int)Settings::values.renderer_backend);
+    qt_config->setValue("debug", Settings::values.renderer_debug);
+    qt_config->setValue("vulkan_device", Settings::values.vulkan_device);
     qt_config->setValue("resolution_factor", (double)Settings::values.resolution_factor);
     qt_config->setValue("use_frame_limit", Settings::values.use_frame_limit);
     qt_config->setValue("frame_limit", Settings::values.frame_limit);

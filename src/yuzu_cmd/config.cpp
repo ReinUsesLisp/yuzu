@@ -348,6 +348,7 @@ void Config::ReadValues() {
     const int renderer_backend = sdl2_config->GetInteger(
         "Renderer", "backend", static_cast<int>(Settings::RendererBackend::OpenGL));
     Settings::values.renderer_backend = static_cast<Settings::RendererBackend>(renderer_backend);
+    Settings::values.renderer_debug = sdl2_config->GetBoolean("Renderer", "debug", false);
     Settings::values.vulkan_device = sdl2_config->GetInteger("Renderer", "vulkan_device", 0);
 
     Settings::values.resolution_factor =
