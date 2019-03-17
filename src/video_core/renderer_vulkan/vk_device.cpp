@@ -71,6 +71,7 @@ bool VKDevice::Create(const vk::DispatchLoaderDynamic& dldi, vk::Instance instan
 
     vk::PhysicalDeviceFeatures device_features;
     device_features.vertexPipelineStoresAndAtomics = true;
+    device_features.independentBlend = true;
 
     const std::vector<const char*> extensions = LoadExtensions(dldi);
     const vk::DeviceCreateInfo device_ci({}, static_cast<u32>(queue_cis.size()), queue_cis.data(),
@@ -145,11 +146,9 @@ bool VKDevice::IsFormatSupported(vk::Format wanted_format, vk::FormatFeatureFlag
 
 bool VKDevice::IsSuitable(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical,
                           vk::SurfaceKHR surface) {
-    const std::string swapchain_extension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-
     bool has_swapchain{};
     for (const auto& prop : physical.enumerateDeviceExtensionProperties(nullptr, dldi)) {
-        has_swapchain |= prop.extensionName == swapchain_extension;
+        has_swapchain |= prop.extensionName == std::string(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
     if (!has_swapchain) {
         // The device doesn't support creating swapchains.

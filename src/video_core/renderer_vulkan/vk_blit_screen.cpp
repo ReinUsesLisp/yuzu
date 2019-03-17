@@ -257,10 +257,7 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
     }
     cmdbuf.endRenderPass(dld);
 
-    const vk::Semaphore render_semaphore = *semaphores[image_index];
-    scheduler.Flush(render_semaphore);
-
-    return {fence, render_semaphore};
+    return {fence, *semaphores[image_index]};
 }
 
 void VKBlitScreen::CreateStaticResources() {

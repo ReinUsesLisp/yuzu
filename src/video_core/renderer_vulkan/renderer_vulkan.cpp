@@ -109,7 +109,7 @@ void RendererVulkan::SwapBuffers(
         swapchain->AcquireNextImage();
         const auto [fence, render_semaphore] = blit_screen->Draw(*framebuffer);
 
-        scheduler->Flush();
+        scheduler->Flush(false, render_semaphore);
 
         if (swapchain->Present(render_semaphore, fence)) {
             blit_screen->Recreate();

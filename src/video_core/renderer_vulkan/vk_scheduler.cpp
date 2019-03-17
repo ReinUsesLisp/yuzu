@@ -23,17 +23,19 @@ VKExecutionContext VKScheduler::GetExecutionContext() const {
     return VKExecutionContext(current_fence, current_cmdbuf);
 }
 
-VKExecutionContext VKScheduler::Flush(vk::Semaphore semaphore) {
+VKExecutionContext VKScheduler::Flush(bool release_fence, vk::Semaphore semaphore) {
     SubmitExecution(semaphore);
-    current_fence->Release();
+    if (release_fence)
+        current_fence->Release();
     AllocateNewContext();
     return GetExecutionContext();
 }
 
-VKExecutionContext VKScheduler::Finish(vk::Semaphore semaphore) {
+VKExecutionContext VKScheduler::Finish(bool release_fence, vk::Semaphore semaphore) {
     SubmitExecution(semaphore);
     current_fence->Wait();
-    current_fence->Release();
+    if (release_fence)
+        current_fence->Release();
     AllocateNewContext();
     return GetExecutionContext();
 }
