@@ -8,6 +8,7 @@
 
 #include <boost/functional/hash.hpp>
 
+#include "common/microprofile.h"
 #include "common/static_vector.h"
 #include "core/core.h"
 #include "core/memory.h"
@@ -22,6 +23,8 @@
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
 namespace Vulkan {
+
+MICROPROFILE_DECLARE(Vulkan_PipelineCache);
 
 // How many sets are created per descriptor pool.
 static constexpr std::size_t SETS_PER_POOL = 0x400;
@@ -369,6 +372,7 @@ Pipeline VKPipelineCache::GetPipeline(const FixedPipelineState& fixed_state,
                                       const std::array<Shader, Maxwell::MaxShaderStage>& shaders,
                                       const PipelineCacheShaders& shader_addresses,
                                       vk::RenderPass renderpass, VKFence& fence) {
+    MICROPROFILE_SCOPE(Vulkan_PipelineCache);
     Pipeline pipeline;
     PipelineCacheKey key{shader_addresses, renderpass_params, fixed_state};
     const auto [pair, is_cache_miss] = cache.try_emplace(key);

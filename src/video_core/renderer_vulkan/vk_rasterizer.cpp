@@ -12,6 +12,7 @@
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/microprofile.h"
 #include "common/static_vector.h"
 #include "core/core.h"
 #include "core/memory.h"
@@ -33,6 +34,21 @@
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
+
+MICROPROFILE_DEFINE(Vulkan_Drawing, "Vulkan", "Record Drawing", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_Clearing, "Vulkan", "Record Clearing", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_SubmitExecution, "Vulkan", "Submit Execution", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_RecordRendering, "Vulkan", "Record Rendering", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_Geometry, "Vulkan", "Setup Geometry", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_ConstBuffers, "Vulkan", "Setup Constant Buffers", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_GlobalBuffers, "Vulkan", "Setup Global Buffers", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_Samplers, "Vulkan", "Setup Samplers", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_ColorBuffers, "Vulkan", "Setup Color Buffers", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_ZetaBuffers, "Vulkan", "Setup Zeta Buffers", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_PipelineState, "Vulkan", "Pipeline State", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_PipelineCache, "Vulkan", "Pipeline Cache", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_DescriptorUpdate, "Vulkan", "Descriptor Update", MP_RGB(192, 128, 128));
+MICROPROFILE_DEFINE(Vulkan_ImageTransitions, "Vulkan", "Image Transitions", MP_RGB(192, 128, 128));
 
 void PipelineState::Reset() {
     vertex_bindings.clear();
@@ -64,6 +80,7 @@ void PipelineState::AddDescriptor(u32 current_binding, vk::DescriptorType descri
 void PipelineState::UpdateDescriptorSet(
     const VKDevice& device, vk::DescriptorSet descriptor_set,
     vk::DescriptorUpdateTemplate descriptor_update_template) const {
+    MICROPROFILE_SCOPE(Vulkan_DescriptorUpdate);
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
     dev.updateDescriptorSetWithTemplate(descriptor_set, descriptor_update_template,
@@ -107,10 +124,11 @@ RasterizerVulkan::RasterizerVulkan(Core::System& system, Core::Frontend::EmuWind
 RasterizerVulkan::~RasterizerVulkan() = default;
 
 void RasterizerVulkan::DrawArrays() {
+    MICROPROFILE_SCOPE(Vulkan_Drawing);
+
     PrepareDraw();
 
-    FixedPipelineState fixed_state;
-    SyncFixedPipeline(fixed_state);
+    FixedPipelineState fixed_state = GetFixedPipelineState();
     SetupGeometry(fixed_state);
 
     auto [color_attachments, exctx] = GetColorAttachments(scheduler.GetExecutionContext());
@@ -148,6 +166,7 @@ void RasterizerVulkan::DrawArrays() {
 }
 
 void RasterizerVulkan::Clear() {
+    MICROPROFILE_SCOPE(Vulkan_Clearing);
     const auto& regs = system.GPU().Maxwell3D().regs;
     const bool use_color = regs.clear_buffers.R || regs.clear_buffers.G || regs.clear_buffers.B ||
                            regs.clear_buffers.A;
@@ -162,8 +181,11 @@ void RasterizerVulkan::Clear() {
 
     if (use_color) {
         View color_view{};
-        std::tie(color_view, exctx) =
-            texture_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
+        {
+            MICROPROFILE_SCOPE(Vulkan_ColorBuffers);
+            std::tie(color_view, exctx) =
+                texture_cache->GetColorBufferSurface(exctx, regs.clear_buffers.RT.Value(), false);
+        }
 
         const auto cmdbuf = exctx.GetCommandBuffer();
         color_view->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
@@ -177,7 +199,10 @@ void RasterizerVulkan::Clear() {
     }
     if (use_depth || use_stencil) {
         View zeta_surface{};
-        std::tie(zeta_surface, exctx) = texture_cache->GetDepthBufferSurface(exctx, false);
+        {
+            MICROPROFILE_SCOPE(Vulkan_ZetaBuffers);
+            std::tie(zeta_surface, exctx) = texture_cache->GetDepthBufferSurface(exctx, false);
+        }
 
         const auto cmdbuf = exctx.GetCommandBuffer();
         zeta_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
@@ -308,16 +333,20 @@ void RasterizerVulkan::PrepareDraw() {
     sampled_views.clear();
 }
 
-void RasterizerVulkan::SyncFixedPipeline(FixedPipelineState& fixed_state) {
+FixedPipelineState RasterizerVulkan::GetFixedPipelineState() const {
+    MICROPROFILE_SCOPE(Vulkan_PipelineState);
+    FixedPipelineState fixed_state;
     SyncDepthStencil(fixed_state);
     SyncInputAssembly(fixed_state);
     SyncColorBlending(fixed_state);
     SyncViewportState(fixed_state);
     SyncRasterizerState(fixed_state);
+    return fixed_state;
 }
 
 std::tuple<std::array<View, Maxwell::NumRenderTargets>, VKExecutionContext>
 RasterizerVulkan::GetColorAttachments(VKExecutionContext exctx) {
+    MICROPROFILE_SCOPE(Vulkan_ColorBuffers);
     std::array<View, Maxwell::NumRenderTargets> color_attachments;
     for (std::size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
         View attachment;
@@ -329,6 +358,7 @@ RasterizerVulkan::GetColorAttachments(VKExecutionContext exctx) {
 
 std::tuple<CachedView*, VKExecutionContext> RasterizerVulkan::GetZetaAttachment(
     VKExecutionContext exctx) {
+    MICROPROFILE_SCOPE(Vulkan_ZetaBuffers);
     return texture_cache->GetDepthBufferSurface(exctx, true);
 }
 
@@ -371,6 +401,8 @@ RasterizerVulkan::ConfigureFramebuffers(
 }
 
 void RasterizerVulkan::SetupGeometry(FixedPipelineState& fixed_state) {
+    MICROPROFILE_SCOPE(Vulkan_Geometry);
+
     std::size_t buffer_size = CalculateVertexArraysSize();
     if (is_indexed) {
         buffer_size = Common::AlignUp<std::size_t>(buffer_size, 4) + CalculateIndexBufferSize();
@@ -447,6 +479,7 @@ void RasterizerVulkan::DispatchDraw(VKExecutionContext exctx, vk::PipelineLayout
                                     vk::DescriptorSet descriptor_set, vk::Pipeline pipeline,
                                     vk::RenderPass renderpass, vk::Framebuffer framebuffer,
                                     vk::Extent2D render_area) {
+    MICROPROFILE_SCOPE(Vulkan_RecordRendering);
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& regs = gpu.regs;
 
@@ -531,6 +564,7 @@ void RasterizerVulkan::SetupIndexBuffer() {
 }
 
 void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage) {
+    MICROPROFILE_SCOPE(Vulkan_ConstBuffers);
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& shader_stage = gpu.state.shader_stages[static_cast<std::size_t>(stage)];
     const auto& entries = shader->GetEntries().const_buffers;
@@ -567,6 +601,7 @@ void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderSt
 }
 
 void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage) {
+    MICROPROFILE_SCOPE(Vulkan_GlobalBuffers);
     const auto& entries = shader->GetEntries().global_buffers;
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {
         const auto& entry = entries[bindpoint];
@@ -583,6 +618,7 @@ std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext> RasterizerVulkan::
     const std::array<CachedView*, Maxwell::NumRenderTargets>& color_attachments,
     CachedView* zeta_attachment, Texceptions texceptions, const Shader& shader,
     Maxwell::ShaderStage stage) {
+    MICROPROFILE_SCOPE(Vulkan_Samplers);
     const auto& gpu = system.GPU().Maxwell3D();
     const auto& entries = shader->GetEntries().samplers;
     const u32 base_binding = shader->GetEntries().samplers_base_binding;
@@ -677,7 +713,7 @@ RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) 
     return renderpass_params;
 }
 
-void RasterizerVulkan::SyncDepthStencil(FixedPipelineState& fixed_state) {
+void RasterizerVulkan::SyncDepthStencil(FixedPipelineState& fixed_state) const {
     const auto& regs = system.GPU().Maxwell3D().regs;
     auto& ds = fixed_state.depth_stencil;
 
@@ -713,7 +749,7 @@ void RasterizerVulkan::SyncDepthStencil(FixedPipelineState& fixed_state) {
     ds.depth_bounds_max = 0.0f;
 }
 
-void RasterizerVulkan::SyncInputAssembly(FixedPipelineState& fixed_state) {
+void RasterizerVulkan::SyncInputAssembly(FixedPipelineState& fixed_state) const {
     const auto& regs = system.GPU().Maxwell3D().regs;
     auto& ia = fixed_state.input_assembly;
 
@@ -721,7 +757,7 @@ void RasterizerVulkan::SyncInputAssembly(FixedPipelineState& fixed_state) {
     // ia.primitive_restart_enable = ;
 }
 
-void RasterizerVulkan::SyncColorBlending(FixedPipelineState& fixed_state) {
+void RasterizerVulkan::SyncColorBlending(FixedPipelineState& fixed_state) const {
     const auto& regs = system.GPU().Maxwell3D().regs;
     auto& cd = fixed_state.color_blending;
 
@@ -761,7 +797,7 @@ void RasterizerVulkan::SyncColorBlending(FixedPipelineState& fixed_state) {
     }
 }
 
-void RasterizerVulkan::SyncViewportState(FixedPipelineState& fixed_state) {
+void RasterizerVulkan::SyncViewportState(FixedPipelineState& fixed_state) const {
     const auto& regs = system.GPU().Maxwell3D().regs;
     const auto& viewport = regs.viewport_transform[0];
 
@@ -777,7 +813,7 @@ void RasterizerVulkan::SyncViewportState(FixedPipelineState& fixed_state) {
     vs.height = viewport.translate_y + scale_y - vs.y;
 }
 
-void RasterizerVulkan::SyncRasterizerState(FixedPipelineState& fixed_state) {
+void RasterizerVulkan::SyncRasterizerState(FixedPipelineState& fixed_state) const {
     const auto& regs = system.GPU().Maxwell3D().regs;
     auto& rs = fixed_state.rasterizer;
 

@@ -5,12 +5,15 @@
 #include <memory>
 #include <vector>
 
+#include "common/microprofile.h"
 #include "common/assert.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_image.h"
 
 namespace Vulkan {
+
+MICROPROFILE_DECLARE(Vulkan_ImageTransitions);
 
 VKImage::VKImage(const VKDevice& device, const vk::ImageCreateInfo& image_ci,
                  vk::ImageAspectFlags aspect_mask)
@@ -33,6 +36,7 @@ VKImage::~VKImage() = default;
 void VKImage::Transition(vk::CommandBuffer cmdbuf, u32 base_layer, u32 num_layers, u32 base_level,
                          u32 num_levels, vk::PipelineStageFlags new_stage_mask,
                          vk::AccessFlags new_access, vk::ImageLayout new_layout, u32 new_family) {
+    MICROPROFILE_SCOPE(Vulkan_ImageTransitions);
     std::size_t i = 0;
     for (u32 layer_it = 0; layer_it < num_layers; ++layer_it) {
         for (u32 level_it = 0; level_it < num_levels; ++level_it, ++i) {

@@ -4,12 +4,15 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/microprofile.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 
 namespace Vulkan {
+
+MICROPROFILE_DECLARE(Vulkan_SubmitExecution);
 
 VKScheduler::VKScheduler(const VKDevice& device, VKResourceManager& resource_manager)
     : device{device}, resource_manager{resource_manager} {
@@ -44,6 +47,7 @@ void VKScheduler::SubmitExecution(vk::Semaphore semaphore) {
     const auto& dld = device.GetDispatchLoader();
     current_cmdbuf.end(dld);
 
+    MICROPROFILE_SCOPE(Vulkan_SubmitExecution);
     const auto queue = device.GetGraphicsQueue();
     const vk::SubmitInfo submit_info(0, nullptr, nullptr, 1, &current_cmdbuf, semaphore ? 1u : 0u,
                                      &semaphore);

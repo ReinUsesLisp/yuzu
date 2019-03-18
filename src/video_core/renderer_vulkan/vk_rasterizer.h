@@ -147,7 +147,7 @@ private:
 
     void PrepareDraw();
 
-    void SyncFixedPipeline(FixedPipelineState& fixed_state);
+    FixedPipelineState GetFixedPipelineState() const;
 
     [[nodiscard]] std::tuple<std::array<CachedView*, Maxwell::NumRenderTargets>, VKExecutionContext>
     GetColorAttachments(VKExecutionContext exctx);
@@ -198,11 +198,11 @@ private:
 
     RenderPassParams GetRenderPassParams(Texceptions texceptions) const;
 
-    void SyncDepthStencil(FixedPipelineState& fixed_state);
-    void SyncInputAssembly(FixedPipelineState& fixed_state);
-    void SyncColorBlending(FixedPipelineState& fixed_state);
-    void SyncViewportState(FixedPipelineState& fixed_state);
-    void SyncRasterizerState(FixedPipelineState& fixed_state);
+    void SyncDepthStencil(FixedPipelineState& fixed_state) const;
+    void SyncInputAssembly(FixedPipelineState& fixed_state) const;
+    void SyncColorBlending(FixedPipelineState& fixed_state) const;
+    void SyncViewportState(FixedPipelineState& fixed_state) const;
+    void SyncRasterizerState(FixedPipelineState& fixed_state) const;
 
     Core::System& system;
     Core::Frontend::EmuWindow& render_window;
