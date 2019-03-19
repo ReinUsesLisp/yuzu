@@ -101,8 +101,8 @@ static vk::ImageCreateInfo GenerateImageCreateInfo(const VKDevice& device,
                                vk::ImageLayout::eUndefined);
 }
 
-static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfaceParams& params,
-                        u8* buffer, u32 level) {
+static void SwizzleFunc(MortonSwizzleMode mode, u8* memory, const SurfaceParams& params, u8* buffer,
+                        u32 level) {
     const u32 width = params.GetMipWidth(level);
     const u32 height = params.GetMipHeight(level);
     const u32 block_height = params.GetMipBlockHeight(level);
@@ -115,15 +115,14 @@ static void SwizzleFunc(MortonSwizzleMode mode, VAddr address, const SurfacePara
         const std::size_t host_stride = params.GetHostLayerSize(level);
         for (u32 layer = 0; layer < params.num_layers; layer++) {
             MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth, 1,
-                          params.tile_width_spacing, buffer + host_offset, host_stride,
-                          address + guest_offset);
+                          params.tile_width_spacing, buffer + host_offset, memory + guest_offset);
             guest_offset += guest_stride;
             host_offset += host_stride;
         }
     } else {
         MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth,
-                      params.GetMipDepth(level), params.tile_width_spacing, buffer, 0,
-                      address + guest_offset);
+                      params.GetMipDepth(level), params.tile_width_spacing, buffer,
+                      memory + guest_offset);
     }
 }
 
@@ -132,7 +131,7 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKScheduler& scheduler, const SurfaceParams& params)
     : VKImage(device, GenerateImageCreateInfo(device, params),
               PixelFormatToImageAspect(params.pixel_format)),
-      SurfaceBase(params), device{device}, resource_manager{resource_manager},
+      SurfaceBase(params), system{system}, device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, scheduler{scheduler} {
     const auto dev = device.GetLogical();
     const auto& dld = device.GetDispatchLoader();
@@ -154,19 +153,18 @@ void CachedSurface::LoadBuffer() {
     if (params.is_tiled) {
         ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture target {}",
                    params.block_width, static_cast<u32>(params.target));
-
         for (u32 level = 0; level < params.num_levels; ++level) {
             u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
-            SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetAddress(), params, buffer, level);
+            SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetHostPtr(), params, buffer, level);
         }
     } else {
         ASSERT_MSG(params.num_levels == 1, "Linear mipmap loading is not implemented");
         const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
         const u32 copy_size = params.width * bpp;
         if (params.pitch == copy_size) {
-            std::memcpy(vk_buffer, Memory::GetPointer(GetAddress()), params.host_size_in_bytes);
+            std::memcpy(vk_buffer, GetHostPtr(), params.host_size_in_bytes);
         } else {
-            const u8* start = Memory::GetPointer(GetAddress());
+            const u8* start = GetHostPtr();
             u8* write_to = vk_buffer;
             for (u32 h = params.height; h > 0; h--) {
                 std::memcpy(write_to, start, copy_size);
@@ -209,7 +207,7 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
     ASSERT_MSG(params.block_width == 1, "Block width is defined as {}", params.block_width);
     for (u32 level = 0; level < params.num_levels; ++level) {
         u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
-        SwizzleFunc(MortonSwizzleMode::LinearToMorton, GetAddress(), params, buffer, level);
+        SwizzleFunc(MortonSwizzleMode::LinearToMorton, GetHostPtr(), params, buffer, level);
     }
 
     return exctx;
@@ -340,8 +338,8 @@ VKTextureCache::VKTextureCache(Core::System& system, VideoCore::RasterizerInterf
 VKTextureCache::~VKTextureCache() = default;
 
 std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
-    VKExecutionContext exctx, VAddr address, const SurfaceParams& params, bool preserve_contents,
-    const std::vector<Surface>& overlaps) {
+    VKExecutionContext exctx, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
+    bool preserve_contents, const std::vector<Surface>& overlaps) {
     if (overlaps.size() > 1) {
         return {{}, exctx};
     }
@@ -351,7 +349,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
     if (old_params.target == params.target && old_params.type == params.type &&
         old_params.depth == params.depth && params.depth == 1 &&
         GetFormatBpp(old_params.pixel_format) == GetFormatBpp(params.pixel_format)) {
-        return FastCopySurface(exctx, old_surface, address, params);
+        return FastCopySurface(exctx, old_surface, cpu_addr, host_ptr, params);
     }
 
     return {{}, exctx};
@@ -363,13 +361,14 @@ std::unique_ptr<CachedSurface> VKTextureCache::CreateSurface(const SurfaceParams
 }
 
 std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
-    VKExecutionContext exctx, Surface src_surface, VAddr address, const SurfaceParams& dst_params) {
+    VKExecutionContext exctx, Surface src_surface, VAddr cpu_addr, u8* host_ptr,
+    const SurfaceParams& dst_params) {
     const auto& src_params = src_surface->GetSurfaceParams();
     const u32 width{std::min(src_params.width, dst_params.width)};
     const u32 height{std::min(src_params.height, dst_params.height)};
 
     const Surface dst_surface = GetUncachedSurface(dst_params);
-    Register(dst_surface, address);
+    Register(dst_surface, cpu_addr, host_ptr);
 
     const auto cmdbuf = exctx.GetCommandBuffer();
     src_surface->FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer,
@@ -389,7 +388,7 @@ std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
 
     dst_surface->MarkAsModified(true);
 
-    return {dst_surface->GetView(address, dst_params), exctx};
+    return {dst_surface->GetView(cpu_addr, dst_params), exctx};
 }
 
 } // namespace Vulkan

@@ -86,6 +86,7 @@ private:
 
     vk::ImageSubresourceRange GetImageSubresourceRange() const;
 
+    Core::System& system;
     const VKDevice& device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
@@ -184,7 +185,7 @@ private:
     ViewCache image_view_cube_array;
 };
 
-class VKTextureCache
+class VKTextureCache final
     : public VideoCommon::TextureCache<CachedSurface, CachedView, VKExecutionContext> {
 public:
     explicit VKTextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
@@ -194,13 +195,14 @@ public:
 
 private:
     std::tuple<View, VKExecutionContext> TryFastGetSurfaceView(
-        VKExecutionContext exctx, VAddr address, const SurfaceParams& params,
+        VKExecutionContext exctx, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
         bool preserve_contents, const std::vector<Surface>& overlaps);
 
     std::unique_ptr<CachedSurface> CreateSurface(const SurfaceParams& params);
 
     std::tuple<View, VKExecutionContext> FastCopySurface(VKExecutionContext exctx,
-                                                         Surface src_surface, VAddr address,
+                                                         Surface src_surface, VAddr cpu_addr,
+                                                         u8* host_ptr,
                                                          const SurfaceParams& dst_params);
 
     const VKDevice& device;

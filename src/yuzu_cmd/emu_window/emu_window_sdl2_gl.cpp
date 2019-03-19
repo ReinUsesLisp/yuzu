@@ -82,7 +82,6 @@ EmuWindow_SDL2_GL::EmuWindow_SDL2_GL(bool fullscreen) : EmuWindow_SDL2(fullscree
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
-    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
 
     std::string window_title = fmt::format("yuzu {} | {}-{}", Common::g_build_fullname,
                                            Common::g_scm_branch, Common::g_scm_desc);
@@ -101,6 +100,7 @@ EmuWindow_SDL2_GL::EmuWindow_SDL2_GL(bool fullscreen) : EmuWindow_SDL2(fullscree
     if (fullscreen) {
         Fullscreen();
     }
+
     gl_context = SDL_GL_CreateContext(render_window);
 
     if (gl_context == nullptr) {
@@ -124,15 +124,13 @@ EmuWindow_SDL2_GL::EmuWindow_SDL2_GL(bool fullscreen) : EmuWindow_SDL2(fullscree
     SDL_GL_SetSwapInterval(false);
     LOG_INFO(Frontend, "yuzu Version: {} | {}-{}", Common::g_build_fullname, Common::g_scm_branch,
              Common::g_scm_desc);
+    Settings::LogSettings();
 
     DoneCurrent();
 }
 
 EmuWindow_SDL2_GL::~EmuWindow_SDL2_GL() {
     SDL_GL_DeleteContext(gl_context);
-    SDL_Quit();
-
-    InputCommon::Shutdown();
 }
 
 void EmuWindow_SDL2_GL::SwapBuffers() {

@@ -14,8 +14,8 @@
 namespace Vulkan {
 
 CachedGlobalRegion::CachedGlobalRegion(const VKDevice& device, VKMemoryManager& memory_manager,
-                                       VAddr addr, u64 size_)
-    : device{device}, addr{addr} {
+                                       VAddr cpu_addr, u8* host_ptr, u64 size_)
+    : device{device}, cpu_addr{cpu_addr}, host_ptr{host_ptr}, RasterizerCacheObject{host_ptr} {
     const auto max_size = device.GetMaxStorageBufferRange();
     size = size_;
     if (size > max_size) {
@@ -40,7 +40,7 @@ CachedGlobalRegion::~CachedGlobalRegion() = default;
 
 void CachedGlobalRegion::Upload(u64 size_) {
     UNIMPLEMENTED_IF(size != size_);
-    Memory::ReadBlock(addr, memory, static_cast<std::size_t>(size));
+    std::memcpy(memory, host_ptr, static_cast<std::size_t>(size));
 }
 
 void CachedGlobalRegion::Flush() {
@@ -59,18 +59,18 @@ GlobalRegion VKGlobalCache::TryGetReservedGlobalRegion(VAddr addr, u64 size) con
     return {};
 }
 
-GlobalRegion VKGlobalCache::GetUncachedGlobalRegion(VAddr addr, u64 size) {
+GlobalRegion VKGlobalCache::GetUncachedGlobalRegion(VAddr addr, u8* host_ptr, u64 size) {
     GlobalRegion region{TryGetReservedGlobalRegion(addr, size)};
     if (!region) {
-        region = std::make_shared<CachedGlobalRegion>(device, memory_manager, addr, size);
+        region = std::make_shared<CachedGlobalRegion>(device, memory_manager, addr, host_ptr, size);
         ReserveGlobalRegion(region);
     }
     region->Upload(size);
     return region;
 }
 
-void VKGlobalCache::ReserveGlobalRegion(const GlobalRegion& region) {
-    reserve[region->GetAddr()] = region;
+void VKGlobalCache::ReserveGlobalRegion(GlobalRegion region) {
+    reserve.insert_or_assign(region->GetCacheAddr(), std::move(region));
 }
 
 GlobalRegion VKGlobalCache::GetGlobalRegion(const VKShader::GlobalBufferEntry& descriptor,
@@ -79,18 +79,15 @@ GlobalRegion VKGlobalCache::GetGlobalRegion(const VKShader::GlobalBufferEntry& d
     auto& emu_memory_manager{gpu.MemoryManager()};
 
     const auto& cbufs = gpu.Maxwell3D().state.shader_stages[static_cast<std::size_t>(stage)];
-    const auto cbuf_addr = emu_memory_manager.GpuToCpuAddress(
-        cbufs.const_buffers[descriptor.GetCbufIndex()].address + descriptor.GetCbufOffset());
-    ASSERT(cbuf_addr);
+    const auto addr =
+        cbufs.const_buffers[descriptor.GetCbufIndex()].address + descriptor.GetCbufOffset();
+    const auto actual_addr{emu_memory_manager.Read64(addr)};
+    const auto size{emu_memory_manager.Read64(addr + 8)};
 
-    const auto actual_addr_gpu = Memory::Read64(*cbuf_addr);
-    const auto size = Memory::Read64(*cbuf_addr + sizeof(u64));
-    const auto actual_addr = emu_memory_manager.GpuToCpuAddress(actual_addr_gpu);
-    ASSERT(actual_addr);
-
-    GlobalRegion region = TryGet(*actual_addr);
+    const auto host_ptr{emu_memory_manager.GetPointer(actual_addr)};
+    GlobalRegion region = TryGet(host_ptr);
     if (!region) {
-        region = GetUncachedGlobalRegion(*actual_addr, size);
+        region = GetUncachedGlobalRegion(actual_addr, host_ptr, size);
         Register(region);
     }
     return region;

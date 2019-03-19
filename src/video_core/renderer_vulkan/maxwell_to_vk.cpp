@@ -170,7 +170,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid, false},   // Z32FS8
 }};
 
-constexpr bool IsZetaFormat(PixelFormat pixel_format) {
+static constexpr bool IsZetaFormat(PixelFormat pixel_format) {
     return pixel_format >= PixelFormat::MaxColorFormat &&
            pixel_format < PixelFormat::MaxDepthStencilFormat;
 }

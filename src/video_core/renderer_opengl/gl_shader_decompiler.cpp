@@ -771,10 +771,12 @@ private:
             case Type::Float:
                 expr += Visit(operand);
                 break;
-            default:
-                UNIMPLEMENTED_MSG("Unimplemented extra type={}", static_cast<u32>(type));
+            default: {
+                const auto type_int = static_cast<u32>(type);
+                UNIMPLEMENTED_MSG("Unimplemented extra type={}", type_int);
                 expr += '0';
                 break;
+            }
             }
         }
 

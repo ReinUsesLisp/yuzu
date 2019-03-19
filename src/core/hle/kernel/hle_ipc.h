@@ -6,6 +6,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -14,6 +15,8 @@
 #include "common/swap.h"
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/object.h"
+
+union ResultCode;
 
 namespace Service {
 class ServiceFrameworkBase;
@@ -166,12 +169,12 @@ public:
         return buffer_c_desciptors;
     }
 
-    const IPC::DomainMessageHeader* GetDomainMessageHeader() const {
-        return domain_message_header.get();
+    const IPC::DomainMessageHeader& GetDomainMessageHeader() const {
+        return domain_message_header.value();
     }
 
     bool HasDomainMessageHeader() const {
-        return domain_message_header != nullptr;
+        return domain_message_header.has_value();
     }
 
     /// Helper function to read a buffer using the appropriate buffer descriptor
@@ -208,14 +211,12 @@ public:
 
     template <typename T>
     SharedPtr<T> GetCopyObject(std::size_t index) {
-        ASSERT(index < copy_objects.size());
-        return DynamicObjectCast<T>(copy_objects[index]);
+        return DynamicObjectCast<T>(copy_objects.at(index));
     }
 
     template <typename T>
     SharedPtr<T> GetMoveObject(std::size_t index) {
-        ASSERT(index < move_objects.size());
-        return DynamicObjectCast<T>(move_objects[index]);
+        return DynamicObjectCast<T>(move_objects.at(index));
     }
 
     void AddMoveObject(SharedPtr<Object> object) {
@@ -232,7 +233,7 @@ public:
 
     template <typename T>
     std::shared_ptr<T> GetDomainRequestHandler(std::size_t index) const {
-        return std::static_pointer_cast<T>(domain_request_handlers[index]);
+        return std::static_pointer_cast<T>(domain_request_handlers.at(index));
     }
 
     void SetDomainRequestHandlers(
@@ -272,10 +273,10 @@ private:
     boost::container::small_vector<SharedPtr<Object>, 8> copy_objects;
     boost::container::small_vector<std::shared_ptr<SessionRequestHandler>, 8> domain_objects;
 
-    std::shared_ptr<IPC::CommandHeader> command_header;
-    std::shared_ptr<IPC::HandleDescriptorHeader> handle_descriptor_header;
-    std::shared_ptr<IPC::DataPayloadHeader> data_payload_header;
-    std::shared_ptr<IPC::DomainMessageHeader> domain_message_header;
+    std::optional<IPC::CommandHeader> command_header;
+    std::optional<IPC::HandleDescriptorHeader> handle_descriptor_header;
+    std::optional<IPC::DataPayloadHeader> data_payload_header;
+    std::optional<IPC::DomainMessageHeader> domain_message_header;
     std::vector<IPC::BufferDescriptorX> buffer_x_desciptors;
     std::vector<IPC::BufferDescriptorABW> buffer_a_desciptors;
     std::vector<IPC::BufferDescriptorABW> buffer_b_desciptors;

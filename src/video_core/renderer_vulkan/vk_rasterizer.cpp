@@ -219,16 +219,16 @@ void RasterizerVulkan::Clear() {
 
 void RasterizerVulkan::FlushAll() {}
 
-void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
+void RasterizerVulkan::FlushRegion(CacheAddr addr, u64 size) {}
 
-void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
+void RasterizerVulkan::InvalidateRegion(CacheAddr addr, u64 size) {
     texture_cache->InvalidateRegion(addr, size);
     pipeline_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
     global_cache->InvalidateRegion(addr, size);
 }
 
-void RasterizerVulkan::FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
+void RasterizerVulkan::FlushAndInvalidateRegion(CacheAddr addr, u64 size) {
     FlushRegion(addr, size);
     InvalidateRegion(addr, size);
 }
@@ -265,12 +265,13 @@ bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs
 bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
                                          VAddr framebuffer_addr, u32 pixel_stride) {
     if (!framebuffer_addr) {
-        return {};
+        return false;
     }
 
-    const auto& surface{texture_cache->TryFindFramebufferSurface(framebuffer_addr)};
+    const auto surface{
+        texture_cache->TryFindFramebufferSurface(Memory::GetPointer(framebuffer_addr))};
     if (!surface) {
-        return {};
+        return false;
     }
 
     // Verify that the cached surface is the same size and format as the requested framebuffer
@@ -298,7 +299,7 @@ static constexpr auto RangeFromInterval(Map& map, const Interval& interval) {
     return boost::make_iterator_range(map.equal_range(interval));
 }
 
-void RasterizerVulkan::UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) {
+void RasterizerVulkan::UpdatePagesCachedCount(VAddr addr, u64 size, int delta) {
     const u64 page_start{addr >> Memory::PAGE_BITS};
     const u64 page_end{(addr + size + Memory::PAGE_SIZE - 1) >> Memory::PAGE_BITS};
 

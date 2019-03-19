@@ -36,7 +36,8 @@
 #include "frontend/applets/software_keyboard.h"
 #include "frontend/applets/web_browser.h"
 #include "video_core/debug_utils/debug_utils.h"
-#include "video_core/gpu.h"
+#include "video_core/gpu_asynch.h"
+#include "video_core/gpu_synch.h"
 #include "video_core/renderer_base.h"
 #include "video_core/video_core.h"
 
@@ -78,6 +79,7 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
     return vfs->OpenFile(path, FileSys::Mode::Read);
 }
 struct System::Impl {
+    explicit Impl(System& system) : kernel{system} {}
 
     Cpu& CurrentCpuCore() {
         return cpu_core_manager.GetCurrentCore();
@@ -95,7 +97,7 @@ struct System::Impl {
         LOG_DEBUG(HW_Memory, "initialized OK");
 
         core_timing.Initialize();
-        kernel.Initialize(core_timing);
+        kernel.Initialize();
 
         const auto current_time = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch());
@@ -114,7 +116,7 @@ struct System::Impl {
         if (web_browser == nullptr)
             web_browser = std::make_unique<Core::Frontend::DefaultWebBrowserApplet>();
 
-        auto main_process = Kernel::Process::Create(kernel, "main");
+        auto main_process = Kernel::Process::Create(system, "main");
         kernel.MakeCurrentProcess(main_process.get());
 
         telemetry_session = std::make_unique<Core::TelemetrySession>();
@@ -128,10 +130,16 @@ struct System::Impl {
             return ResultStatus::ErrorVideoCore;
         }
 
-        gpu_core = std::make_unique<Tegra::GPU>(system, renderer->Rasterizer());
+        is_powered_on = true;
+
+        if (Settings::values.use_asynchronous_gpu_emulation) {
+            gpu_core = std::make_unique<VideoCommon::GPUAsynch>(system, *renderer);
+        } else {
+            gpu_core = std::make_unique<VideoCommon::GPUSynch>(system, *renderer);
+        }
 
         cpu_core_manager.Initialize(system);
-        is_powered_on = true;
+
         LOG_DEBUG(Core, "Initialized OK");
 
         // Reset counters and set time origin to current frame
@@ -182,13 +190,13 @@ struct System::Impl {
 
     void Shutdown() {
         // Log last frame performance stats
-        auto perf_results = GetAndResetPerfStats();
-        Telemetry().AddField(Telemetry::FieldType::Performance, "Shutdown_EmulationSpeed",
-                             perf_results.emulation_speed * 100.0);
-        Telemetry().AddField(Telemetry::FieldType::Performance, "Shutdown_Framerate",
-                             perf_results.game_fps);
-        Telemetry().AddField(Telemetry::FieldType::Performance, "Shutdown_Frametime",
-                             perf_results.frametime * 1000.0);
+        const auto perf_results = GetAndResetPerfStats();
+        telemetry_session->AddField(Telemetry::FieldType::Performance, "Shutdown_EmulationSpeed",
+                                    perf_results.emulation_speed * 100.0);
+        telemetry_session->AddField(Telemetry::FieldType::Performance, "Shutdown_Framerate",
+                                    perf_results.game_fps);
+        telemetry_session->AddField(Telemetry::FieldType::Performance, "Shutdown_Frametime",
+                                    perf_results.frametime * 1000.0);
 
         is_powered_on = false;
 
@@ -265,7 +273,7 @@ struct System::Impl {
     Core::FrameLimiter frame_limiter;
 };
 
-System::System() : impl{std::make_unique<Impl>()} {}
+System::System() : impl{std::make_unique<Impl>(*this)} {}
 System::~System() = default;
 
 Cpu& System::CurrentCpuCore() {

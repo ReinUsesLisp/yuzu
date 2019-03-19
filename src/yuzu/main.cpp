@@ -11,6 +11,7 @@
 #include "applets/profile_select.h"
 #include "applets/software_keyboard.h"
 #include "applets/web_browser.h"
+#include "configuration/configure_input.h"
 #include "configuration/configure_per_general.h"
 #include "core/file_sys/vfs.h"
 #include "core/file_sys/vfs_real.h"
@@ -339,6 +340,11 @@ void GMainWindow::WebBrowserOpenPage(std::string_view filename, std::string_view
                 .arg(QString::fromStdString(std::to_string(key_code))));
     };
 
+    QMessageBox::information(
+        this, tr("Exit"),
+        tr("To exit the web application, use the game provided controls to select exit, select the "
+           "'Exit Web Applet' option in the menu bar, or press the 'Enter' key."));
+
     bool running_exit_check = false;
     while (!finished) {
         QApplication::processEvents();
@@ -522,6 +528,7 @@ void GMainWindow::InitializeHotkeys() {
                                    Qt::ApplicationShortcut);
     hotkey_registry.RegisterHotkey("Main Window", "Capture Screenshot",
                                    QKeySequence(QKeySequence::Print));
+    hotkey_registry.RegisterHotkey("Main Window", "Change Docked Mode", QKeySequence(Qt::Key_F10));
 
     hotkey_registry.LoadHotkeys();
 
@@ -561,7 +568,10 @@ void GMainWindow::InitializeHotkeys() {
                 Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
                 UpdateStatusBar();
             });
-    constexpr u16 SPEED_LIMIT_STEP = 5;
+    // TODO: Remove this comment/static whenever the next major release of
+    // MSVC occurs and we make it a requirement (see:
+    // https://developercommunity.visualstudio.com/content/problem/93922/constexprs-are-trying-to-be-captured-in-lambda-fun.html)
+    static constexpr u16 SPEED_LIMIT_STEP = 5;
     connect(hotkey_registry.GetHotkey("Main Window", "Increase Speed Limit", this),
             &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit < 9999 - SPEED_LIMIT_STEP) {
@@ -587,6 +597,12 @@ void GMainWindow::InitializeHotkeys() {
                 if (emu_thread->IsRunning()) {
                     OnCaptureScreenshot();
                 }
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Change Docked Mode", this),
+            &QShortcut::activated, this, [&] {
+                Settings::values.use_docked_mode = !Settings::values.use_docked_mode;
+                OnDockedModeChanged(!Settings::values.use_docked_mode,
+                                    Settings::values.use_docked_mode);
             });
 }
 
@@ -846,7 +862,7 @@ bool GMainWindow::LoadROM(const QString& filename) {
     }
     game_path = filename;
 
-    Core::Telemetry().AddField(Telemetry::FieldType::App, "Frontend", "Qt");
+    system.TelemetrySession().AddField(Telemetry::FieldType::App, "Frontend", "Qt");
     return true;
 }
 

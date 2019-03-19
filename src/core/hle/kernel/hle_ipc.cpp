@@ -86,7 +86,7 @@ HLERequestContext::~HLERequestContext() = default;
 void HLERequestContext::ParseCommandBuffer(const HandleTable& handle_table, u32_le* src_cmdbuf,
                                            bool incoming) {
     IPC::RequestParser rp(src_cmdbuf);
-    command_header = std::make_shared<IPC::CommandHeader>(rp.PopRaw<IPC::CommandHeader>());
+    command_header = rp.PopRaw<IPC::CommandHeader>();
 
     if (command_header->type == IPC::CommandType::Close) {
         // Close does not populate the rest of the IPC header
@@ -95,8 +95,7 @@ void HLERequestContext::ParseCommandBuffer(const HandleTable& handle_table, u32_
 
     // If handle descriptor is present, add size of it
     if (command_header->enable_handle_descriptor) {
-        handle_descriptor_header =
-            std::make_shared<IPC::HandleDescriptorHeader>(rp.PopRaw<IPC::HandleDescriptorHeader>());
+        handle_descriptor_header = rp.PopRaw<IPC::HandleDescriptorHeader>();
         if (handle_descriptor_header->send_current_pid) {
             rp.Skip(2, false);
         }
@@ -140,16 +139,15 @@ void HLERequestContext::ParseCommandBuffer(const HandleTable& handle_table, u32_
         // If this is an incoming message, only CommandType "Request" has a domain header
         // All outgoing domain messages have the domain header, if only incoming has it
         if (incoming || domain_message_header) {
-            domain_message_header =
-                std::make_shared<IPC::DomainMessageHeader>(rp.PopRaw<IPC::DomainMessageHeader>());
+            domain_message_header = rp.PopRaw<IPC::DomainMessageHeader>();
         } else {
-            if (Session()->IsDomain())
+            if (Session()->IsDomain()) {
                 LOG_WARNING(IPC, "Domain request has no DomainMessageHeader!");
+            }
         }
     }
 
-    data_payload_header =
-        std::make_shared<IPC::DataPayloadHeader>(rp.PopRaw<IPC::DataPayloadHeader>());
+    data_payload_header = rp.PopRaw<IPC::DataPayloadHeader>();
 
     data_payload_offset = rp.GetCurrentOffset();
 
@@ -264,11 +262,11 @@ ResultCode HLERequestContext::WriteToOutgoingCommandBuffer(Thread& thread) {
         // Write the domain objects to the command buffer, these go after the raw untranslated data.
         // TODO(Subv): This completely ignores C buffers.
         std::size_t domain_offset = size - domain_message_header->num_objects;
-        auto& request_handlers = server_session->domain_request_handlers;
 
-        for (auto& object : domain_objects) {
-            request_handlers.emplace_back(object);
-            dst_cmdbuf[domain_offset++] = static_cast<u32_le>(request_handlers.size());
+        for (const auto& object : domain_objects) {
+            server_session->AppendDomainRequestHandler(object);
+            dst_cmdbuf[domain_offset++] =
+                static_cast<u32_le>(server_session->NumDomainRequestHandlers());
         }
     }
 

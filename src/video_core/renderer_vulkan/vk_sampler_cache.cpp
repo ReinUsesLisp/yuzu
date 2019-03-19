@@ -29,12 +29,13 @@ static std::optional<vk::BorderColor> TryConvertBorderColor(std::array<float, 4>
 }
 
 std::size_t SamplerCacheKey::Hash() const {
+    static_assert(sizeof(raw) % sizeof(u64) == 0);
     return static_cast<std::size_t>(
-        Common::CityHash64(reinterpret_cast<const char*>(raw.data()), raw.size() / sizeof(u64)));
+        Common::CityHash64(reinterpret_cast<const char*>(raw.data()), sizeof(raw) / sizeof(u64)));
 }
 
 bool SamplerCacheKey::operator==(const SamplerCacheKey& rhs) const {
-    return std::memcmp(raw.data(), rhs.raw.data(), sizeof(raw)) == 0;
+    return raw == rhs.raw;
 }
 
 VKSamplerCache::VKSamplerCache(const VKDevice& device) : device{device} {}

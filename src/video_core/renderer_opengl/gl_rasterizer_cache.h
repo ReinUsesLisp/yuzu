@@ -296,7 +296,7 @@ struct SurfaceParams {
     bool is_array;
     bool srgb_conversion;
     // Parameters used for caching
-    VAddr addr;
+    u8* host_ptr;
     Tegra::GPUVAddr gpu_addr;
     std::size_t size_in_bytes;
     std::size_t size_in_bytes_gl;
@@ -345,10 +345,10 @@ class RasterizerOpenGL;
 
 class CachedSurface final : public RasterizerCacheObject {
 public:
-    CachedSurface(const SurfaceParams& params);
+    explicit CachedSurface(const SurfaceParams& params);
 
-    VAddr GetAddr() const override {
-        return params.addr;
+    VAddr GetCpuAddr() const override {
+        return cpu_addr;
     }
 
     std::size_t GetSizeInBytes() const override {
@@ -367,29 +367,17 @@ public:
         return texture;
     }
 
-    const OGLTexture& TextureLayer() {
-        if (params.is_array) {
-            return Texture();
+    const OGLTexture& Texture(bool as_array) {
+        if (params.is_array == as_array) {
+            return texture;
+        } else {
+            EnsureTextureDiscrepantView();
+            return discrepant_view;
         }
-        EnsureTextureView();
-        return texture_view;
     }
 
     GLenum Target() const {
         return gl_target;
-    }
-
-    GLenum TargetLayer() const {
-        using VideoCore::Surface::SurfaceTarget;
-        switch (params.target) {
-        case SurfaceTarget::Texture1D:
-            return GL_TEXTURE_1D_ARRAY;
-        case SurfaceTarget::Texture2D:
-            return GL_TEXTURE_2D_ARRAY;
-        case SurfaceTarget::TextureCubemap:
-            return GL_TEXTURE_CUBE_MAP_ARRAY;
-        }
-        return Target();
     }
 
     const SurfaceParams& GetSurfaceParams() const {
@@ -431,10 +419,10 @@ public:
 private:
     void UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle, GLuint draw_fb_handle);
 
-    void EnsureTextureView();
+    void EnsureTextureDiscrepantView();
 
     OGLTexture texture;
-    OGLTexture texture_view;
+    OGLTexture discrepant_view;
     std::vector<std::vector<u8>> gl_buffer;
     SurfaceParams params{};
     GLenum gl_target{};
@@ -444,6 +432,7 @@ private:
     std::size_t memory_size;
     bool reinterpreted = false;
     bool must_reload = false;
+    VAddr cpu_addr{};
 };
 
 class RasterizerCacheOpenGL final : public RasterizerCache<Surface> {
@@ -461,7 +450,7 @@ public:
     Surface GetColorBufferSurface(std::size_t index, bool preserve_contents);
 
     /// Tries to find a framebuffer using on the provided CPU address
-    Surface TryFindFramebufferSurface(VAddr addr) const;
+    Surface TryFindFramebufferSurface(const u8* host_ptr) const;
 
     /// Copies the contents of one surface to another
     void FermiCopySurface(const Tegra::Engines::Fermi2D::Regs::Surface& src_config,
@@ -518,12 +507,12 @@ private:
     std::array<Surface, Maxwell::NumRenderTargets> current_color_buffers;
     Surface last_depth_buffer;
 
-    using SurfaceIntervalCache = boost::icl::interval_map<VAddr, Surface>;
+    using SurfaceIntervalCache = boost::icl::interval_map<CacheAddr, Surface>;
     using SurfaceInterval = typename SurfaceIntervalCache::interval_type;
 
     static auto GetReinterpretInterval(const Surface& object) {
-        return SurfaceInterval::right_open(object->GetAddr() + 1,
-                                           object->GetAddr() + object->GetMemorySize() - 1);
+        return SurfaceInterval::right_open(object->GetCacheAddr() + 1,
+                                           object->GetCacheAddr() + object->GetMemorySize() - 1);
     }
 
     // Reinterpreted surfaces are very fragil as the game may keep rendering into them.
@@ -535,7 +524,7 @@ private:
         reinterpret_surface->MarkReinterpreted();
     }
 
-    Surface CollideOnReinterpretedSurface(VAddr addr) const {
+    Surface CollideOnReinterpretedSurface(CacheAddr addr) const {
         const SurfaceInterval interval{addr};
         for (auto& pair :
              boost::make_iterator_range(reinterpreted_surfaces.equal_range(interval))) {

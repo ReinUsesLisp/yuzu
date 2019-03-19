@@ -217,6 +217,7 @@ add_library(core STATIC
     hle/service/audio/audren_u.h
     hle/service/audio/codecctl.cpp
     hle/service/audio/codecctl.h
+    hle/service/audio/errors.h
     hle/service/audio/hwopus.cpp
     hle/service/audio/hwopus.h
     hle/service/bcat/bcat.cpp
@@ -436,8 +437,6 @@ add_library(core STATIC
     loader/xci.h
     memory.cpp
     memory.h
-    memory_hook.cpp
-    memory_hook.h
     memory_setup.h
     perf_stats.cpp
     perf_stats.h

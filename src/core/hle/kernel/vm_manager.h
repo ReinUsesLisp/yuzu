@@ -9,9 +9,10 @@
 #include <tuple>
 #include <vector>
 #include "common/common_types.h"
+#include "common/memory_hook.h"
+#include "common/page_table.h"
 #include "core/hle/result.h"
 #include "core/memory.h"
-#include "core/memory_hook.h"
 
 namespace FileSys {
 enum class ProgramAddressSpaceType : u8;
@@ -290,7 +291,7 @@ struct VirtualMemoryArea {
     // Settings for type = MMIO
     /// Physical address of the register area this VMA maps to.
     PAddr paddr = 0;
-    Memory::MemoryHookPointer mmio_handler = nullptr;
+    Common::MemoryHookPointer mmio_handler = nullptr;
 
     /// Tests if this area can be merged to the right with `next`.
     bool CanBeMergedWith(const VirtualMemoryArea& next) const;
@@ -368,7 +369,7 @@ public:
      * @param mmio_handler The handler that will implement read and write for this MMIO region.
      */
     ResultVal<VMAHandle> MapMMIO(VAddr target, PAddr paddr, u64 size, MemoryState state,
-                                 Memory::MemoryHookPointer mmio_handler);
+                                 Common::MemoryHookPointer mmio_handler);
 
     /// Unmaps a range of addresses, splitting VMAs as necessary.
     ResultCode UnmapRange(VAddr target, u64 size);
@@ -432,17 +433,20 @@ public:
     /// Gets the address space width in bits.
     u64 GetAddressSpaceWidth() const;
 
+    /// Determines whether or not the given address range lies within the address space.
+    bool IsWithinAddressSpace(VAddr address, u64 size) const;
+
     /// Gets the base address of the ASLR region.
     VAddr GetASLRRegionBaseAddress() const;
 
     /// Gets the end address of the ASLR region.
     VAddr GetASLRRegionEndAddress() const;
 
-    /// Determines whether or not the specified address range is within the ASLR region.
-    bool IsWithinASLRRegion(VAddr address, u64 size) const;
-
     /// Gets the size of the ASLR region
     u64 GetASLRRegionSize() const;
+
+    /// Determines whether or not the specified address range is within the ASLR region.
+    bool IsWithinASLRRegion(VAddr address, u64 size) const;
 
     /// Gets the base address of the code region.
     VAddr GetCodeRegionBaseAddress() const;
@@ -453,6 +457,9 @@ public:
     /// Gets the total size of the code region in bytes.
     u64 GetCodeRegionSize() const;
 
+    /// Determines whether or not the specified range is within the code region.
+    bool IsWithinCodeRegion(VAddr address, u64 size) const;
+
     /// Gets the base address of the heap region.
     VAddr GetHeapRegionBaseAddress() const;
 
@@ -461,6 +468,9 @@ public:
 
     /// Gets the total size of the heap region in bytes.
     u64 GetHeapRegionSize() const;
+
+    /// Determines whether or not the specified range is within the heap region.
+    bool IsWithinHeapRegion(VAddr address, u64 size) const;
 
     /// Gets the base address of the map region.
     VAddr GetMapRegionBaseAddress() const;
@@ -471,6 +481,9 @@ public:
     /// Gets the total size of the map region in bytes.
     u64 GetMapRegionSize() const;
 
+    /// Determines whether or not the specified range is within the map region.
+    bool IsWithinMapRegion(VAddr address, u64 size) const;
+
     /// Gets the base address of the new map region.
     VAddr GetNewMapRegionBaseAddress() const;
 
@@ -479,6 +492,9 @@ public:
 
     /// Gets the total size of the new map region in bytes.
     u64 GetNewMapRegionSize() const;
+
+    /// Determines whether or not the given address range is within the new map region
+    bool IsWithinNewMapRegion(VAddr address, u64 size) const;
 
     /// Gets the base address of the TLS IO region.
     VAddr GetTLSIORegionBaseAddress() const;
@@ -489,9 +505,12 @@ public:
     /// Gets the total size of the TLS IO region in bytes.
     u64 GetTLSIORegionSize() const;
 
+    /// Determines if the given address range is within the TLS IO region.
+    bool IsWithinTLSIORegion(VAddr address, u64 size) const;
+
     /// Each VMManager has its own page table, which is set as the main one when the owning process
     /// is scheduled.
-    Memory::PageTable page_table;
+    Common::PageTable page_table{Memory::PAGE_BITS};
 
 private:
     using VMAIter = VMAMap::iterator;

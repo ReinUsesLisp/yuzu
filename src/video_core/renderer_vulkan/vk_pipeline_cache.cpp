@@ -12,6 +12,7 @@
 #include "common/static_vector.h"
 #include "core/core.h"
 #include "core/memory.h"
+#include "video_core/memory_manager.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
@@ -30,13 +31,10 @@ MICROPROFILE_DECLARE(Vulkan_PipelineCache);
 static constexpr std::size_t SETS_PER_POOL = 0x400;
 
 /// Gets the address for the specified shader stage program
-static VAddr GetShaderAddress(Core::System& system, Maxwell::ShaderProgram program) {
-    const auto& gpu = system.GPU().Maxwell3D();
-    const auto& shader_config = gpu.regs.shader_config[static_cast<std::size_t>(program)];
-    const auto cpu_addr = gpu.memory_manager.GpuToCpuAddress(gpu.regs.code_address.CodeAddress() +
-                                                             shader_config.offset);
-    ASSERT(cpu_addr);
-    return *cpu_addr;
+static Tegra::GPUVAddr GetShaderAddress(Core::System& system, Maxwell::ShaderProgram program) {
+    const auto& gpu{Core::System::GetInstance().GPU().Maxwell3D()};
+    const auto& shader_config{gpu.regs.shader_config[static_cast<std::size_t>(program)]};
+    return gpu.regs.code_address.CodeAddress() + shader_config.offset;
 }
 
 static std::size_t GetStageFromProgram(std::size_t program) {
@@ -49,9 +47,9 @@ static Maxwell::ShaderStage GetStageFromProgram(Maxwell::ShaderProgram program) 
 }
 
 /// Gets the shader program code from memory for the specified address
-static VKShader::ProgramCode GetShaderCode(VAddr addr) {
+static VKShader::ProgramCode GetShaderCode(u8* host_ptr) {
     VKShader::ProgramCode program_code(VKShader::MAX_PROGRAM_CODE_LENGTH);
-    Memory::ReadBlock(addr, program_code.data(), program_code.size() * sizeof(u64));
+    std::memcpy(program_code.data(), host_ptr, program_code.size() * sizeof(u64));
     return program_code;
 }
 
@@ -271,17 +269,22 @@ void DescriptorPool::Allocate(std::size_t begin, std::size_t end) {
         descriptor_set_ai, dld));
 }
 
-CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr addr,
-                           Maxwell::ShaderProgram program_type)
-    : device{device}, addr{addr}, program_type{program_type}, setup{GetShaderCode(addr)} {
+CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr cpu_addr,
+                           u8* host_ptr, Maxwell::ShaderProgram program_type)
+    : device{device}, program_type{program_type}, cpu_addr{cpu_addr}, host_ptr{host_ptr},
+      setup{GetShaderCode(host_ptr)}, RasterizerCacheObject{host_ptr} {
     VKShader::ProgramResult program_result = [&]() {
         switch (program_type) {
-        case Maxwell::ShaderProgram::VertexA:
+        case Maxwell::ShaderProgram::VertexA: {
             // VertexB is always enabled, so when VertexA is enabled, we have two vertex shaders.
             // Conventional HW does not support this, so we combine VertexA and VertexB into one
             // stage here.
-            setup.SetProgramB(
-                GetShaderCode(GetShaderAddress(system, Maxwell::ShaderProgram::VertexB)));
+            const Tegra::GPUVAddr program_addr{
+                GetShaderAddress(system, Maxwell::ShaderProgram::VertexB)};
+            const auto host_ptr{system.GPU().MemoryManager().GetPointer(program_addr)};
+            setup.SetProgramB(GetShaderCode(host_ptr));
+            [[fallthrough]];
+        }
         case Maxwell::ShaderProgram::VertexB:
             return VKShader::GenerateVertexShader(device, setup);
         case Maxwell::ShaderProgram::Fragment:
@@ -342,15 +345,18 @@ VKPipelineCache::GetShaders() {
             continue;
         }
 
-        const VAddr program_addr{GetShaderAddress(system, program)};
+        auto& memory_manager{system.GPU().MemoryManager()};
+        const Tegra::GPUVAddr program_addr{GetShaderAddress(system, program)};
+        const auto cpu_addr{*memory_manager.GpuToCpuAddress(program_addr)};
+        const auto host_ptr{memory_manager.GetPointer(program_addr)};
         shader_addresses[index] = program_addr;
 
         // Look up shader in the cache based on address
-        Shader shader{TryGet(program_addr)};
+        Shader shader{TryGet(host_ptr)};
 
         if (!shader) {
             // No shader found - create a new one
-            shader = std::make_shared<CachedShader>(system, device, program_addr, program);
+            shader = std::make_shared<CachedShader>(system, device, cpu_addr, host_ptr, program);
             Register(shader);
         }
 
@@ -400,7 +406,7 @@ Pipeline VKPipelineCache::GetPipeline(const FixedPipelineState& fixed_state,
 }
 
 void VKPipelineCache::ObjectInvalidated(const Shader& shader) {
-    const VAddr invalidated_addr = shader->GetAddr();
+    const CacheAddr invalidated_addr{shader->GetCacheAddr()};
     for (auto it = cache.begin(); it != cache.end();) {
         auto& entry = it->first;
         const bool has_addr = [&]() {

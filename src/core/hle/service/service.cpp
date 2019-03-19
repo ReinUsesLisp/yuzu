@@ -11,7 +11,6 @@
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/server_port.h"
@@ -76,7 +75,8 @@ namespace Service {
  * Creates a function string for logging, complete with the name (or header code, depending
  * on what's passed in) the port name, and all the cmd_buff arguments.
  */
-[[maybe_unused]] static std::string MakeFunctionString(const char* name, const char* port_name,
+[[maybe_unused]] static std::string MakeFunctionString(std::string_view name,
+                                                       std::string_view port_name,
                                                        const u32* cmd_buff) {
     // Number of params == bits 0-5 + bits 6-11
     int num_params = (cmd_buff[0] & 0x3F) + ((cmd_buff[0] >> 6) & 0x3F);
@@ -158,9 +158,7 @@ void ServiceFrameworkBase::InvokeRequest(Kernel::HLERequestContext& ctx) {
         return ReportUnimplementedFunction(ctx, info);
     }
 
-    LOG_TRACE(
-        Service, "{}",
-        MakeFunctionString(info->name, GetServiceName().c_str(), ctx.CommandBuffer()).c_str());
+    LOG_TRACE(Service, "{}", MakeFunctionString(info->name, GetServiceName(), ctx.CommandBuffer()));
     handler_invoker(this, info->handler_callback, ctx);
 }
 
@@ -169,7 +167,7 @@ ResultCode ServiceFrameworkBase::HandleSyncRequest(Kernel::HLERequestContext& co
     case IPC::CommandType::Close: {
         IPC::ResponseBuilder rb{context, 2};
         rb.Push(RESULT_SUCCESS);
-        return ResultCode(ErrorModule::HIPC, ErrorDescription::RemoteProcessDead);
+        return IPC::ERR_REMOTE_PROCESS_DEAD;
     }
     case IPC::CommandType::ControlWithContext:
     case IPC::CommandType::Control: {

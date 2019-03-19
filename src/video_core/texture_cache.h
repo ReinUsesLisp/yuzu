@@ -15,6 +15,7 @@
 
 #include "common/assert.h"
 #include "common/common_types.h"
+#include "core/memory.h"
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/gpu.h"
@@ -166,13 +167,13 @@ public:
 
     virtual TExecutionContext UploadTexture(TExecutionContext exctx) = 0;
 
-    TView* TryGetView(VAddr view_address, const SurfaceParams& view_params) {
-        if (view_address < address || !params.IsFamiliar(view_params)) {
+    TView* TryGetView(VAddr view_addr, const SurfaceParams& view_params) {
+        if (view_addr < cpu_addr || !params.IsFamiliar(view_params)) {
             // It can't be a view if it's in a prior address.
             return {};
         }
 
-        const auto relative_offset = static_cast<u64>(view_address - address);
+        const auto relative_offset = static_cast<u64>(view_addr - cpu_addr);
         const auto it = view_offset_map.find(relative_offset);
         if (it == view_offset_map.end()) {
             // Couldn't find an aligned view.
@@ -187,8 +188,19 @@ public:
         return GetView(layer, view_params.num_layers, level, view_params.num_levels);
     }
 
-    VAddr GetAddress() const {
-        return address;
+    VAddr GetCpuAddr() const {
+        ASSERT(is_registered);
+        return cpu_addr;
+    }
+
+    u8* GetHostPtr() const {
+        ASSERT(is_registered);
+        return host_ptr;
+    }
+
+    CacheAddr GetCacheAddr() const {
+        ASSERT(is_registered);
+        return cache_addr;
     }
 
     std::size_t GetSizeInBytes() const {
@@ -203,16 +215,22 @@ public:
         return params;
     }
 
-    TView* GetView(VAddr view_address, const SurfaceParams& view_params) {
-        TView* view = TryGetView(view_address, view_params);
+    TView* GetView(VAddr view_addr, const SurfaceParams& view_params) {
+        TView* view = TryGetView(view_addr, view_params);
         ASSERT(view != nullptr);
         return view;
     }
 
-    void Register(VAddr address_) {
+    void Register(VAddr cpu_addr_, u8* host_ptr_) {
         ASSERT(!is_registered);
         is_registered = true;
-        address = address_;
+        cpu_addr = cpu_addr_;
+        host_ptr = host_ptr_;
+        cache_addr = ToCacheAddr(host_ptr_);
+    }
+
+    void Register(VAddr cpu_addr_) {
+        Register(cpu_addr_, Memory::GetPointer(cpu_addr_));
     }
 
     void Unregister() {
@@ -248,25 +266,26 @@ private:
 
     std::unordered_map<ViewKey, std::unique_ptr<TView>> views;
 
-    VAddr address{};
+    VAddr cpu_addr{};
+    u8* host_ptr{};
+    CacheAddr cache_addr{};
     bool is_modified{};
     bool is_registered{};
 };
 
 template <typename TSurface, typename TView, typename TExecutionContext>
 class TextureCache {
-    static_assert(std::is_trivially_copyable<TExecutionContext>::value);
+    static_assert(std::is_trivially_copyable_v<TExecutionContext>);
     using ResultType = std::tuple<TView*, TExecutionContext>;
-    using IntervalMap = boost::icl::interval_map<VAddr, std::set<TSurface*>>;
+    using IntervalMap = boost::icl::interval_map<CacheAddr, std::set<TSurface*>>;
     using IntervalType = typename IntervalMap::interval_type;
 
 public:
     TextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer)
         : system{system}, rasterizer{rasterizer} {}
-    ~TextureCache() = default;
 
-    void InvalidateRegion(VAddr address, std::size_t size) {
-        for (TSurface* surface : GetSurfacesInRegion(address, size)) {
+    void InvalidateRegion(CacheAddr addr, std::size_t size) {
+        for (TSurface* surface : GetSurfacesInRegion(addr, size)) {
             if (!surface->IsRegistered()) {
                 // Skip duplicates
                 continue;
@@ -302,15 +321,14 @@ public:
             system, regs.zeta_width, regs.zeta_height, regs.zeta.format,
             regs.zeta.memory_layout.block_width, regs.zeta.memory_layout.block_height,
             regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type);
-
         return GetSurfaceView(exctx, *cpu_addr, depth_params, preserve_contents);
     }
 
     ResultType GetColorBufferSurface(TExecutionContext exctx, std::size_t index,
                                      bool preserve_contents) {
-        const auto& regs{system.GPU().Maxwell3D().regs};
         ASSERT(index < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets);
 
+        const auto& regs{system.GPU().Maxwell3D().regs};
         if (index >= regs.rt_control.count || regs.rt[index].Address() == 0 ||
             regs.rt[index].format == Tegra::RenderTargetFormat::NONE) {
             return {{}, exctx};
@@ -336,28 +354,28 @@ public:
                               true);
     }
 
-    TSurface* TryFindFramebufferSurface(VAddr address) const {
-        const auto it = registered_surfaces.find(address);
+    TSurface* TryFindFramebufferSurface(const u8* host_ptr) const {
+        const auto it = registered_surfaces.find(ToCacheAddr(host_ptr));
         return it != registered_surfaces.end() ? *it->second.begin() : nullptr;
     }
 
 protected:
-    virtual ResultType TryFastGetSurfaceView(TExecutionContext exctx, VAddr address,
+    virtual ResultType TryFastGetSurfaceView(TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr,
                                              const SurfaceParams& params, bool preserve_contents,
                                              const std::vector<TSurface*>& overlaps) = 0;
 
     virtual std::unique_ptr<TSurface> CreateSurface(const SurfaceParams& params) = 0;
 
-    void Register(TSurface* surface, VAddr address) {
-        surface->Register(address);
+    void Register(TSurface* surface, VAddr cpu_addr, u8* host_ptr) {
+        surface->Register(cpu_addr, host_ptr);
         registered_surfaces.add({GetSurfaceInterval(surface), {surface}});
-        rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), 1);
+        rasterizer.UpdatePagesCachedCount(surface->GetCpuAddr(), surface->GetSizeInBytes(), 1);
     }
 
     void Unregister(TSurface* surface) {
-        surface->Unregister();
         registered_surfaces.subtract({GetSurfaceInterval(surface), {surface}});
-        rasterizer.UpdatePagesCachedCount(surface->GetAddress(), surface->GetSizeInBytes(), -1);
+        rasterizer.UpdatePagesCachedCount(surface->GetCpuAddr(), surface->GetSizeInBytes(), -1);
+        surface->Unregister();
     }
 
     TSurface* GetUncachedSurface(const SurfaceParams& params) {
@@ -373,22 +391,23 @@ protected:
     Core::System& system;
 
 private:
-    ResultType GetSurfaceView(TExecutionContext exctx, VAddr address, const SurfaceParams& params,
+    ResultType GetSurfaceView(TExecutionContext exctx, VAddr cpu_addr, const SurfaceParams& params,
                               bool preserve_contents) {
-        const std::vector<TSurface*> overlaps =
-            GetSurfacesInRegion(address, params.guest_size_in_bytes);
+        const auto host_ptr = Memory::GetPointer(cpu_addr);
+        const auto cache_addr = ToCacheAddr(host_ptr);
+        const auto overlaps = GetSurfacesInRegion(cache_addr, params.guest_size_in_bytes);
         if (overlaps.empty()) {
-            return LoadSurfaceView(exctx, address, params, preserve_contents);
+            return LoadSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents);
         }
 
         if (overlaps.size() == 1) {
-            if (TView* view = overlaps[0]->TryGetView(address, params); view)
+            if (TView* view = overlaps[0]->TryGetView(cpu_addr, params); view)
                 return {view, exctx};
         }
 
         TView* fast_view;
         std::tie(fast_view, exctx) =
-            TryFastGetSurfaceView(exctx, address, params, preserve_contents, overlaps);
+            TryFastGetSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents, overlaps);
 
         for (TSurface* surface : overlaps) {
             if (!fast_view) {
@@ -403,17 +422,17 @@ private:
             return {fast_view, exctx};
         }
 
-        return LoadSurfaceView(exctx, address, params, preserve_contents);
+        return LoadSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents);
     }
 
-    ResultType LoadSurfaceView(TExecutionContext exctx, VAddr address, const SurfaceParams& params,
-                               bool preserve_contents) {
+    ResultType LoadSurfaceView(TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr,
+                               const SurfaceParams& params, bool preserve_contents) {
         TSurface* new_surface = GetUncachedSurface(params);
-        Register(new_surface, address);
+        Register(new_surface, cpu_addr, host_ptr);
         if (preserve_contents) {
             exctx = LoadSurface(exctx, new_surface);
         }
-        return {new_surface->GetView(address, params), exctx};
+        return {new_surface->GetView(cpu_addr, params), exctx};
     }
 
     TExecutionContext LoadSurface(TExecutionContext exctx, TSurface* surface) {
@@ -423,11 +442,11 @@ private:
         return exctx;
     }
 
-    std::vector<TSurface*> GetSurfacesInRegion(VAddr address, std::size_t size) const {
+    std::vector<TSurface*> GetSurfacesInRegion(CacheAddr cache_addr, std::size_t size) const {
         if (size == 0) {
             return {};
         }
-        const IntervalType interval{address, address + size};
+        const IntervalType interval{cache_addr, cache_addr + size};
 
         std::vector<TSurface*> surfaces;
         for (auto& pair : boost::make_iterator_range(registered_surfaces.equal_range(interval))) {
@@ -454,8 +473,8 @@ private:
     }
 
     IntervalType GetSurfaceInterval(TSurface* surface) const {
-        return IntervalType::right_open(surface->GetAddress(),
-                                        surface->GetAddress() + surface->GetSizeInBytes());
+        return IntervalType::right_open(surface->GetCacheAddr(),
+                                        surface->GetCacheAddr() + surface->GetSizeInBytes());
     }
 
     VideoCore::RasterizerInterface& rasterizer;

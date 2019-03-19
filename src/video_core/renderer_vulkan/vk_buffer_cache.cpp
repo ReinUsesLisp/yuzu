@@ -8,14 +8,20 @@
 #include <tuple>
 
 #include "common/alignment.h"
+#include "common/assert.h"
 #include "core/core.h"
 #include "core/memory.h"
+#include "video_core/memory_manager.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
 
 namespace Vulkan {
+
+CachedBufferEntry::CachedBufferEntry(VAddr cpu_addr, std::size_t size, u64 offset,
+                                     std::size_t alignment, u8* host_ptr)
+    : cpu_addr{cpu_addr}, offset{offset}, alignment{alignment}, RasterizerCacheObject{host_ptr} {}
 
 VKBufferCache::VKBufferCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
                              const VKDevice& device, VKMemoryManager& memory_manager,
@@ -43,10 +49,12 @@ u64 VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size, u64 
     // TODO: Figure out which size is the best for given games.
     cache &= size >= 2048;
 
+    const auto host_ptr{Memory::GetPointer(*cpu_addr)};
     if (cache) {
-        if (auto entry = TryGet(*cpu_addr); entry) {
-            if (entry->size >= size && entry->alignment == alignment) {
-                return entry->offset;
+        auto entry = TryGet(host_ptr);
+        if (entry) {
+            if (entry->GetSize() >= size && entry->GetAlignment() == alignment) {
+                return entry->GetOffset();
             }
             Unregister(entry);
         }
@@ -55,18 +63,17 @@ u64 VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size, u64 
     AlignBuffer(alignment);
     const u64 uploaded_offset = buffer_offset;
 
-    Memory::ReadBlock(*cpu_addr, buffer_ptr, size);
+    if (!host_ptr) {
+        return uploaded_offset;
+    }
 
+    std::memcpy(buffer_ptr, host_ptr, size);
     buffer_ptr += size;
     buffer_offset += size;
 
     if (cache) {
-        auto entry = std::make_shared<CachedBufferEntry>();
-        entry->offset = uploaded_offset;
-        entry->size = size;
-        entry->alignment = alignment;
-        entry->addr = *cpu_addr;
-        Register(entry);
+        Register(std::make_shared<CachedBufferEntry>(*cpu_addr, size, uploaded_offset, alignment,
+                                                     host_ptr));
     }
 
     return uploaded_offset;

@@ -383,6 +383,9 @@ public:
 
     void SetActivity(ThreadActivity value);
 
+    /// Sleeps this thread for the given amount of nanoseconds.
+    void Sleep(s64 nanoseconds);
+
 private:
     explicit Thread(KernelCore& kernel);
     ~Thread() override;
@@ -398,8 +401,14 @@ private:
     VAddr entry_point = 0;
     VAddr stack_top = 0;
 
-    u32 nominal_priority = 0; ///< Nominal thread priority, as set by the emulated application
-    u32 current_priority = 0; ///< Current thread priority, can be temporarily changed
+    /// Nominal thread priority, as set by the emulated application.
+    /// The nominal priority is the thread priority without priority
+    /// inheritance taken into account.
+    u32 nominal_priority = 0;
+
+    /// Current thread priority. This may change over the course of the
+    /// thread's lifetime in order to facilitate priority inheritance.
+    u32 current_priority = 0;
 
     u64 total_cpu_time_ticks = 0; ///< Total CPU running ticks.
     u64 last_running_ticks = 0;   ///< CPU tick when thread was last running
@@ -459,15 +468,5 @@ private:
  * Gets the current thread
  */
 Thread* GetCurrentThread();
-
-/**
- * Waits the current thread on a sleep
- */
-void WaitCurrentThread_Sleep();
-
-/**
- * Stops the current thread and removes it from the thread_list
- */
-void ExitCurrentThread();
 
 } // namespace Kernel

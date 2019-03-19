@@ -39,7 +39,7 @@ bool DmaPusher::Step() {
     }
 
     const CommandList& command_list{dma_pushbuffer.front()};
-    const CommandListHeader& command_list_header{command_list[dma_pushbuffer_subindex++]};
+    const CommandListHeader command_list_header{command_list[dma_pushbuffer_subindex++]};
     GPUVAddr dma_get = command_list_header.addr;
     GPUVAddr dma_put = dma_get + command_list_header.size * sizeof(u32);
     bool non_main = command_list_header.is_non_main;
@@ -55,12 +55,9 @@ bool DmaPusher::Step() {
     }
 
     // Push buffer non-empty, read a word
-    const auto address = gpu.MemoryManager().GpuToCpuAddress(dma_get);
-    ASSERT_MSG(address, "Invalid GPU address");
-
     command_headers.resize(command_list_header.size);
-
-    Memory::ReadBlock(*address, command_headers.data(), command_list_header.size * sizeof(u32));
+    gpu.MemoryManager().ReadBlock(dma_get, command_headers.data(),
+                                  command_list_header.size * sizeof(u32));
 
     for (const CommandHeader& command_header : command_headers) {
 

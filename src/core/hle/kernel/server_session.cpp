@@ -63,42 +63,71 @@ void ServerSession::Acquire(Thread* thread) {
     pending_requesting_threads.pop_back();
 }
 
-ResultCode ServerSession::HandleDomainSyncRequest(Kernel::HLERequestContext& context) {
-    auto* const domain_message_header = context.GetDomainMessageHeader();
-    if (domain_message_header) {
-        // Set domain handlers in HLE context, used for domain objects (IPC interfaces) as inputs
-        context.SetDomainRequestHandlers(domain_request_handlers);
-
-        // If there is a DomainMessageHeader, then this is CommandType "Request"
-        const u32 object_id{context.GetDomainMessageHeader()->object_id};
-        switch (domain_message_header->command) {
-        case IPC::DomainMessageHeader::CommandType::SendMessage:
-            if (object_id > domain_request_handlers.size()) {
-                LOG_CRITICAL(IPC,
-                             "object_id {} is too big! This probably means a recent service call "
-                             "to {} needed to return a new interface!",
-                             object_id, name);
-                UNREACHABLE();
-                return RESULT_SUCCESS; // Ignore error if asserts are off
-            }
-            return domain_request_handlers[object_id - 1]->HandleSyncRequest(context);
-
-        case IPC::DomainMessageHeader::CommandType::CloseVirtualHandle: {
-            LOG_DEBUG(IPC, "CloseVirtualHandle, object_id=0x{:08X}", object_id);
-
-            domain_request_handlers[object_id - 1] = nullptr;
-
-            IPC::ResponseBuilder rb{context, 2};
-            rb.Push(RESULT_SUCCESS);
-            return RESULT_SUCCESS;
-        }
-        }
-
-        LOG_CRITICAL(IPC, "Unknown domain command={}",
-                     static_cast<int>(domain_message_header->command.Value()));
-        ASSERT(false);
+void ServerSession::ClientDisconnected() {
+    // We keep a shared pointer to the hle handler to keep it alive throughout
+    // the call to ClientDisconnected, as ClientDisconnected invalidates the
+    // hle_handler member itself during the course of the function executing.
+    std::shared_ptr<SessionRequestHandler> handler = hle_handler;
+    if (handler) {
+        // Note that after this returns, this server session's hle_handler is
+        // invalidated (set to null).
+        handler->ClientDisconnected(this);
     }
 
+    // TODO(Subv): Force a wake up of all the ServerSession's waiting threads and set
+    // their WaitSynchronization result to 0xC920181A.
+
+    // Clean up the list of client threads with pending requests, they are unneeded now that the
+    // client endpoint is closed.
+    pending_requesting_threads.clear();
+    currently_handling = nullptr;
+}
+
+void ServerSession::AppendDomainRequestHandler(std::shared_ptr<SessionRequestHandler> handler) {
+    domain_request_handlers.push_back(std::move(handler));
+}
+
+std::size_t ServerSession::NumDomainRequestHandlers() const {
+    return domain_request_handlers.size();
+}
+
+ResultCode ServerSession::HandleDomainSyncRequest(Kernel::HLERequestContext& context) {
+    if (!context.HasDomainMessageHeader()) {
+        return RESULT_SUCCESS;
+    }
+
+    // Set domain handlers in HLE context, used for domain objects (IPC interfaces) as inputs
+    context.SetDomainRequestHandlers(domain_request_handlers);
+
+    // If there is a DomainMessageHeader, then this is CommandType "Request"
+    const auto& domain_message_header = context.GetDomainMessageHeader();
+    const u32 object_id{domain_message_header.object_id};
+    switch (domain_message_header.command) {
+    case IPC::DomainMessageHeader::CommandType::SendMessage:
+        if (object_id > domain_request_handlers.size()) {
+            LOG_CRITICAL(IPC,
+                         "object_id {} is too big! This probably means a recent service call "
+                         "to {} needed to return a new interface!",
+                         object_id, name);
+            UNREACHABLE();
+            return RESULT_SUCCESS; // Ignore error if asserts are off
+        }
+        return domain_request_handlers[object_id - 1]->HandleSyncRequest(context);
+
+    case IPC::DomainMessageHeader::CommandType::CloseVirtualHandle: {
+        LOG_DEBUG(IPC, "CloseVirtualHandle, object_id=0x{:08X}", object_id);
+
+        domain_request_handlers[object_id - 1] = nullptr;
+
+        IPC::ResponseBuilder rb{context, 2};
+        rb.Push(RESULT_SUCCESS);
+        return RESULT_SUCCESS;
+    }
+    }
+
+    LOG_CRITICAL(IPC, "Unknown domain command={}",
+                 static_cast<int>(domain_message_header.command.Value()));
+    ASSERT(false);
     return RESULT_SUCCESS;
 }
 

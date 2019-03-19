@@ -28,10 +28,7 @@
 EmuThread::EmuThread(GRenderWindow* render_window) : render_window(render_window) {}
 
 void EmuThread::run() {
-    if (!Settings::values.use_multi_core) {
-        // Single core mode must acquire OpenGL context for entire emulation session
-        render_window->MakeCurrent();
-    }
+    render_window->MakeCurrent();
 
     MicroProfileOnThreadCreate("EmuThread");
 
@@ -45,6 +42,11 @@ void EmuThread::run() {
         });
 
     emit LoadProgress(VideoCore::LoadCallbackStage::Complete, 0, 0);
+
+    if (Settings::values.use_asynchronous_gpu_emulation) {
+        // Release OpenGL context for the GPU thread
+        render_window->DoneCurrent();
+    }
 
     // holds whether the cpu was running during the last iteration,
     // so that the DebugModeLeft signal can be emitted before the
@@ -181,7 +183,6 @@ GRenderWindow::GRenderWindow(QWidget* parent, EmuThread* emu_thread)
     setAttribute(Qt::WA_AcceptTouchEvents);
 
     InputCommon::Init();
-    InputCommon::StartJoystickEventHandler();
     connect(this, &GRenderWindow::FirstFrameDisplayed, static_cast<GMainWindow*>(parent),
             &GMainWindow::OnLoadComplete);
 }

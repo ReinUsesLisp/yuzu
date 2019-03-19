@@ -4,6 +4,7 @@
 
 #include <array>
 #include <vector>
+#include "common/assert.h"
 #include "common/common_types.h"
 #include "common/math_util.h"
 #include "core/frontend/emu_window.h"
@@ -215,8 +216,7 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
         const u32 bytes_per_pixel{
             Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
         const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
-        Memory::RasterizerFlushVirtualRegion(framebuffer_addr, size_in_bytes,
-                                             Memory::FlushMode::Flush);
+        rasterizer.FlushRegion(ToCacheAddr(Memory::GetPointer(framebuffer_addr)), size_in_bytes);
 
         VideoCore::MortonCopyPixels128(framebuffer.width, framebuffer.height, bytes_per_pixel, 4,
                                        Memory::GetPointer(framebuffer_addr), data + image_offset,

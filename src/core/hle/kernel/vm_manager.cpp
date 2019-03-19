@@ -7,18 +7,18 @@
 #include <utility>
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/memory_hook.h"
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
 #include "core/file_sys/program_metadata.h"
 #include "core/hle/kernel/errors.h"
 #include "core/hle/kernel/vm_manager.h"
 #include "core/memory.h"
-#include "core/memory_hook.h"
 #include "core/memory_setup.h"
 
 namespace Kernel {
-
-static const char* GetMemoryStateName(MemoryState state) {
+namespace {
+const char* GetMemoryStateName(MemoryState state) {
     static constexpr const char* names[] = {
         "Unmapped",         "Io",
         "Normal",           "CodeStatic",
@@ -34,6 +34,14 @@ static const char* GetMemoryStateName(MemoryState state) {
 
     return names[ToSvcMemoryState(state)];
 }
+
+// Checks if a given address range lies within a larger address range.
+constexpr bool IsInsideAddressRange(VAddr address, u64 size, VAddr address_range_begin,
+                                    VAddr address_range_end) {
+    const VAddr end_address = address + size - 1;
+    return address_range_begin <= address && end_address <= address_range_end - 1;
+}
+} // Anonymous namespace
 
 bool VirtualMemoryArea::CanBeMergedWith(const VirtualMemoryArea& next) const {
     ASSERT(base + size == next.base);
@@ -169,7 +177,7 @@ ResultVal<VAddr> VMManager::FindFreeRegion(u64 size) const {
 
 ResultVal<VMManager::VMAHandle> VMManager::MapMMIO(VAddr target, PAddr paddr, u64 size,
                                                    MemoryState state,
-                                                   Memory::MemoryHookPointer mmio_handler) {
+                                                   Common::MemoryHookPointer mmio_handler) {
     // This is the appropriately sized VMA that will turn into our allocation.
     CASCADE_RESULT(VMAIter vma_handle, CarveVMA(target, size));
     VirtualMemoryArea& final_vma = vma_handle->second;
@@ -249,8 +257,7 @@ ResultCode VMManager::ReprotectRange(VAddr target, u64 size, VMAPermission new_p
 }
 
 ResultVal<VAddr> VMManager::HeapAllocate(VAddr target, u64 size, VMAPermission perms) {
-    if (target < GetHeapRegionBaseAddress() || target + size > GetHeapRegionEndAddress() ||
-        target + size < target) {
+    if (!IsWithinHeapRegion(target, size)) {
         return ERR_INVALID_ADDRESS;
     }
 
@@ -285,8 +292,7 @@ ResultVal<VAddr> VMManager::HeapAllocate(VAddr target, u64 size, VMAPermission p
 }
 
 ResultCode VMManager::HeapFree(VAddr target, u64 size) {
-    if (target < GetHeapRegionBaseAddress() || target + size > GetHeapRegionEndAddress() ||
-        target + size < target) {
+    if (!IsWithinHeapRegion(target, size)) {
         return ERR_INVALID_ADDRESS;
     }
 
@@ -618,7 +624,7 @@ void VMManager::ClearPageTable() {
     std::fill(page_table.pointers.begin(), page_table.pointers.end(), nullptr);
     page_table.special_regions.clear();
     std::fill(page_table.attributes.begin(), page_table.attributes.end(),
-              Memory::PageType::Unmapped);
+              Common::PageType::Unmapped);
 }
 
 VMManager::CheckResults VMManager::CheckRangeState(VAddr address, u64 size, MemoryState state_mask,
@@ -706,6 +712,11 @@ u64 VMManager::GetAddressSpaceWidth() const {
     return address_space_width;
 }
 
+bool VMManager::IsWithinAddressSpace(VAddr address, u64 size) const {
+    return IsInsideAddressRange(address, size, GetAddressSpaceBaseAddress(),
+                                GetAddressSpaceEndAddress());
+}
+
 VAddr VMManager::GetASLRRegionBaseAddress() const {
     return aslr_region_base;
 }
@@ -750,6 +761,11 @@ u64 VMManager::GetCodeRegionSize() const {
     return code_region_end - code_region_base;
 }
 
+bool VMManager::IsWithinCodeRegion(VAddr address, u64 size) const {
+    return IsInsideAddressRange(address, size, GetCodeRegionBaseAddress(),
+                                GetCodeRegionEndAddress());
+}
+
 VAddr VMManager::GetHeapRegionBaseAddress() const {
     return heap_region_base;
 }
@@ -760,6 +776,11 @@ VAddr VMManager::GetHeapRegionEndAddress() const {
 
 u64 VMManager::GetHeapRegionSize() const {
     return heap_region_end - heap_region_base;
+}
+
+bool VMManager::IsWithinHeapRegion(VAddr address, u64 size) const {
+    return IsInsideAddressRange(address, size, GetHeapRegionBaseAddress(),
+                                GetHeapRegionEndAddress());
 }
 
 VAddr VMManager::GetMapRegionBaseAddress() const {
@@ -774,6 +795,10 @@ u64 VMManager::GetMapRegionSize() const {
     return map_region_end - map_region_base;
 }
 
+bool VMManager::IsWithinMapRegion(VAddr address, u64 size) const {
+    return IsInsideAddressRange(address, size, GetMapRegionBaseAddress(), GetMapRegionEndAddress());
+}
+
 VAddr VMManager::GetNewMapRegionBaseAddress() const {
     return new_map_region_base;
 }
@@ -786,6 +811,11 @@ u64 VMManager::GetNewMapRegionSize() const {
     return new_map_region_end - new_map_region_base;
 }
 
+bool VMManager::IsWithinNewMapRegion(VAddr address, u64 size) const {
+    return IsInsideAddressRange(address, size, GetNewMapRegionBaseAddress(),
+                                GetNewMapRegionEndAddress());
+}
+
 VAddr VMManager::GetTLSIORegionBaseAddress() const {
     return tls_io_region_base;
 }
@@ -796,6 +826,11 @@ VAddr VMManager::GetTLSIORegionEndAddress() const {
 
 u64 VMManager::GetTLSIORegionSize() const {
     return tls_io_region_end - tls_io_region_base;
+}
+
+bool VMManager::IsWithinTLSIORegion(VAddr address, u64 size) const {
+    return IsInsideAddressRange(address, size, GetTLSIORegionBaseAddress(),
+                                GetTLSIORegionEndAddress());
 }
 
 } // namespace Kernel

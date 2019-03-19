@@ -10,6 +10,7 @@
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "common/logging/log.h"
+#include "common/page_table.h"
 #include "common/swap.h"
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
@@ -18,13 +19,14 @@
 #include "core/hle/lock.h"
 #include "core/memory.h"
 #include "core/memory_setup.h"
+#include "video_core/gpu.h"
 #include "video_core/renderer_base.h"
 
 namespace Memory {
 
-static PageTable* current_page_table = nullptr;
+static Common::PageTable* current_page_table = nullptr;
 
-void SetCurrentPageTable(PageTable* page_table) {
+void SetCurrentPageTable(Common::PageTable* page_table) {
     current_page_table = page_table;
 
     auto& system = Core::System::GetInstance();
@@ -36,39 +38,20 @@ void SetCurrentPageTable(PageTable* page_table) {
     }
 }
 
-PageTable* GetCurrentPageTable() {
+Common::PageTable* GetCurrentPageTable() {
     return current_page_table;
 }
 
-PageTable::PageTable() = default;
-
-PageTable::PageTable(std::size_t address_space_width_in_bits) {
-    Resize(address_space_width_in_bits);
-}
-
-PageTable::~PageTable() = default;
-
-void PageTable::Resize(std::size_t address_space_width_in_bits) {
-    const std::size_t num_page_table_entries = 1ULL << (address_space_width_in_bits - PAGE_BITS);
-
-    pointers.resize(num_page_table_entries);
-    attributes.resize(num_page_table_entries);
-
-    // The default is a 39-bit address space, which causes an initial 1GB allocation size. If the
-    // vector size is subsequently decreased (via resize), the vector might not automatically
-    // actually reallocate/resize its underlying allocation, which wastes up to ~800 MB for
-    // 36-bit titles. Call shrink_to_fit to reduce capacity to what's actually in use.
-
-    pointers.shrink_to_fit();
-    attributes.shrink_to_fit();
-}
-
-static void MapPages(PageTable& page_table, VAddr base, u64 size, u8* memory, PageType type) {
+static void MapPages(Common::PageTable& page_table, VAddr base, u64 size, u8* memory,
+                     Common::PageType type) {
     LOG_DEBUG(HW_Memory, "Mapping {} onto {:016X}-{:016X}", fmt::ptr(memory), base * PAGE_SIZE,
               (base + size) * PAGE_SIZE);
 
-    RasterizerFlushVirtualRegion(base << PAGE_BITS, size * PAGE_SIZE,
-                                 FlushMode::FlushAndInvalidate);
+    // During boot, current_page_table might not be set yet, in which case we need not flush
+    if (current_page_table) {
+        Core::System::GetInstance().GPU().FlushAndInvalidateRegion(base << PAGE_BITS,
+                                                                   size * PAGE_SIZE);
+    }
 
     VAddr end = base + size;
     ASSERT_MSG(end <= page_table.pointers.size(), "out of range mapping at {:016X}",
@@ -88,41 +71,47 @@ static void MapPages(PageTable& page_table, VAddr base, u64 size, u8* memory, Pa
     }
 }
 
-void MapMemoryRegion(PageTable& page_table, VAddr base, u64 size, u8* target) {
+void MapMemoryRegion(Common::PageTable& page_table, VAddr base, u64 size, u8* target) {
     ASSERT_MSG((size & PAGE_MASK) == 0, "non-page aligned size: {:016X}", size);
     ASSERT_MSG((base & PAGE_MASK) == 0, "non-page aligned base: {:016X}", base);
-    MapPages(page_table, base / PAGE_SIZE, size / PAGE_SIZE, target, PageType::Memory);
+    MapPages(page_table, base / PAGE_SIZE, size / PAGE_SIZE, target, Common::PageType::Memory);
 }
 
-void MapIoRegion(PageTable& page_table, VAddr base, u64 size, MemoryHookPointer mmio_handler) {
+void MapIoRegion(Common::PageTable& page_table, VAddr base, u64 size,
+                 Common::MemoryHookPointer mmio_handler) {
     ASSERT_MSG((size & PAGE_MASK) == 0, "non-page aligned size: {:016X}", size);
     ASSERT_MSG((base & PAGE_MASK) == 0, "non-page aligned base: {:016X}", base);
-    MapPages(page_table, base / PAGE_SIZE, size / PAGE_SIZE, nullptr, PageType::Special);
+    MapPages(page_table, base / PAGE_SIZE, size / PAGE_SIZE, nullptr, Common::PageType::Special);
 
     auto interval = boost::icl::discrete_interval<VAddr>::closed(base, base + size - 1);
-    SpecialRegion region{SpecialRegion::Type::IODevice, std::move(mmio_handler)};
-    page_table.special_regions.add(std::make_pair(interval, std::set<SpecialRegion>{region}));
+    Common::SpecialRegion region{Common::SpecialRegion::Type::IODevice, std::move(mmio_handler)};
+    page_table.special_regions.add(
+        std::make_pair(interval, std::set<Common::SpecialRegion>{region}));
 }
 
-void UnmapRegion(PageTable& page_table, VAddr base, u64 size) {
+void UnmapRegion(Common::PageTable& page_table, VAddr base, u64 size) {
     ASSERT_MSG((size & PAGE_MASK) == 0, "non-page aligned size: {:016X}", size);
     ASSERT_MSG((base & PAGE_MASK) == 0, "non-page aligned base: {:016X}", base);
-    MapPages(page_table, base / PAGE_SIZE, size / PAGE_SIZE, nullptr, PageType::Unmapped);
+    MapPages(page_table, base / PAGE_SIZE, size / PAGE_SIZE, nullptr, Common::PageType::Unmapped);
 
     auto interval = boost::icl::discrete_interval<VAddr>::closed(base, base + size - 1);
     page_table.special_regions.erase(interval);
 }
 
-void AddDebugHook(PageTable& page_table, VAddr base, u64 size, MemoryHookPointer hook) {
+void AddDebugHook(Common::PageTable& page_table, VAddr base, u64 size,
+                  Common::MemoryHookPointer hook) {
     auto interval = boost::icl::discrete_interval<VAddr>::closed(base, base + size - 1);
-    SpecialRegion region{SpecialRegion::Type::DebugHook, std::move(hook)};
-    page_table.special_regions.add(std::make_pair(interval, std::set<SpecialRegion>{region}));
+    Common::SpecialRegion region{Common::SpecialRegion::Type::DebugHook, std::move(hook)};
+    page_table.special_regions.add(
+        std::make_pair(interval, std::set<Common::SpecialRegion>{region}));
 }
 
-void RemoveDebugHook(PageTable& page_table, VAddr base, u64 size, MemoryHookPointer hook) {
+void RemoveDebugHook(Common::PageTable& page_table, VAddr base, u64 size,
+                     Common::MemoryHookPointer hook) {
     auto interval = boost::icl::discrete_interval<VAddr>::closed(base, base + size - 1);
-    SpecialRegion region{SpecialRegion::Type::DebugHook, std::move(hook)};
-    page_table.special_regions.subtract(std::make_pair(interval, std::set<SpecialRegion>{region}));
+    Common::SpecialRegion region{Common::SpecialRegion::Type::DebugHook, std::move(hook)};
+    page_table.special_regions.subtract(
+        std::make_pair(interval, std::set<Common::SpecialRegion>{region}));
 }
 
 /**
@@ -171,22 +160,19 @@ T Read(const VAddr vaddr) {
         return value;
     }
 
-    // The memory access might do an MMIO or cached access, so we have to lock the HLE kernel state
-    std::lock_guard<std::recursive_mutex> lock(HLE::g_hle_lock);
-
-    PageType type = current_page_table->attributes[vaddr >> PAGE_BITS];
+    Common::PageType type = current_page_table->attributes[vaddr >> PAGE_BITS];
     switch (type) {
-    case PageType::Unmapped:
+    case Common::PageType::Unmapped:
         LOG_ERROR(HW_Memory, "Unmapped Read{} @ 0x{:08X}", sizeof(T) * 8, vaddr);
         return 0;
-    case PageType::Memory:
+    case Common::PageType::Memory:
         ASSERT_MSG(false, "Mapped memory page without a pointer @ {:016X}", vaddr);
         break;
-    case PageType::RasterizerCachedMemory: {
-        RasterizerFlushVirtualRegion(vaddr, sizeof(T), FlushMode::Flush);
-
+    case Common::PageType::RasterizerCachedMemory: {
+        auto host_ptr{GetPointerFromVMA(vaddr)};
+        Core::System::GetInstance().GPU().FlushRegion(ToCacheAddr(host_ptr), sizeof(T));
         T value;
-        std::memcpy(&value, GetPointerFromVMA(vaddr), sizeof(T));
+        std::memcpy(&value, host_ptr, sizeof(T));
         return value;
     }
     default:
@@ -204,21 +190,19 @@ void Write(const VAddr vaddr, const T data) {
         return;
     }
 
-    // The memory access might do an MMIO or cached access, so we have to lock the HLE kernel state
-    std::lock_guard<std::recursive_mutex> lock(HLE::g_hle_lock);
-
-    PageType type = current_page_table->attributes[vaddr >> PAGE_BITS];
+    Common::PageType type = current_page_table->attributes[vaddr >> PAGE_BITS];
     switch (type) {
-    case PageType::Unmapped:
+    case Common::PageType::Unmapped:
         LOG_ERROR(HW_Memory, "Unmapped Write{} 0x{:08X} @ 0x{:016X}", sizeof(data) * 8,
                   static_cast<u32>(data), vaddr);
         return;
-    case PageType::Memory:
+    case Common::PageType::Memory:
         ASSERT_MSG(false, "Mapped memory page without a pointer @ {:016X}", vaddr);
         break;
-    case PageType::RasterizerCachedMemory: {
-        RasterizerFlushVirtualRegion(vaddr, sizeof(T), FlushMode::Invalidate);
-        std::memcpy(GetPointerFromVMA(vaddr), &data, sizeof(T));
+    case Common::PageType::RasterizerCachedMemory: {
+        auto host_ptr{GetPointerFromVMA(vaddr)};
+        Core::System::GetInstance().GPU().InvalidateRegion(ToCacheAddr(host_ptr), sizeof(T));
+        std::memcpy(host_ptr, &data, sizeof(T));
         break;
     }
     default:
@@ -233,10 +217,10 @@ bool IsValidVirtualAddress(const Kernel::Process& process, const VAddr vaddr) {
     if (page_pointer)
         return true;
 
-    if (page_table.attributes[vaddr >> PAGE_BITS] == PageType::RasterizerCachedMemory)
+    if (page_table.attributes[vaddr >> PAGE_BITS] == Common::PageType::RasterizerCachedMemory)
         return true;
 
-    if (page_table.attributes[vaddr >> PAGE_BITS] != PageType::Special)
+    if (page_table.attributes[vaddr >> PAGE_BITS] != Common::PageType::Special)
         return false;
 
     return false;
@@ -256,7 +240,8 @@ u8* GetPointer(const VAddr vaddr) {
         return page_pointer + (vaddr & PAGE_MASK);
     }
 
-    if (current_page_table->attributes[vaddr >> PAGE_BITS] == PageType::RasterizerCachedMemory) {
+    if (current_page_table->attributes[vaddr >> PAGE_BITS] ==
+        Common::PageType::RasterizerCachedMemory) {
         return GetPointerFromVMA(vaddr);
     }
 
@@ -290,20 +275,20 @@ void RasterizerMarkRegionCached(VAddr vaddr, u64 size, bool cached) {
 
     u64 num_pages = ((vaddr + size - 1) >> PAGE_BITS) - (vaddr >> PAGE_BITS) + 1;
     for (unsigned i = 0; i < num_pages; ++i, vaddr += PAGE_SIZE) {
-        PageType& page_type = current_page_table->attributes[vaddr >> PAGE_BITS];
+        Common::PageType& page_type = current_page_table->attributes[vaddr >> PAGE_BITS];
 
         if (cached) {
             // Switch page type to cached if now cached
             switch (page_type) {
-            case PageType::Unmapped:
+            case Common::PageType::Unmapped:
                 // It is not necessary for a process to have this region mapped into its address
                 // space, for example, a system module need not have a VRAM mapping.
                 break;
-            case PageType::Memory:
-                page_type = PageType::RasterizerCachedMemory;
+            case Common::PageType::Memory:
+                page_type = Common::PageType::RasterizerCachedMemory;
                 current_page_table->pointers[vaddr >> PAGE_BITS] = nullptr;
                 break;
-            case PageType::RasterizerCachedMemory:
+            case Common::PageType::RasterizerCachedMemory:
                 // There can be more than one GPU region mapped per CPU region, so it's common that
                 // this area is already marked as cached.
                 break;
@@ -313,23 +298,23 @@ void RasterizerMarkRegionCached(VAddr vaddr, u64 size, bool cached) {
         } else {
             // Switch page type to uncached if now uncached
             switch (page_type) {
-            case PageType::Unmapped:
+            case Common::PageType::Unmapped:
                 // It is not necessary for a process to have this region mapped into its address
                 // space, for example, a system module need not have a VRAM mapping.
                 break;
-            case PageType::Memory:
+            case Common::PageType::Memory:
                 // There can be more than one GPU region mapped per CPU region, so it's common that
                 // this area is already unmarked as cached.
                 break;
-            case PageType::RasterizerCachedMemory: {
+            case Common::PageType::RasterizerCachedMemory: {
                 u8* pointer = GetPointerFromVMA(vaddr & ~PAGE_MASK);
                 if (pointer == nullptr) {
                     // It's possible that this function has been called while updating the pagetable
                     // after unmapping a VMA. In that case the underlying VMA will no longer exist,
                     // and we should just leave the pagetable entry blank.
-                    page_type = PageType::Unmapped;
+                    page_type = Common::PageType::Unmapped;
                 } else {
-                    page_type = PageType::Memory;
+                    page_type = Common::PageType::Memory;
                     current_page_table->pointers[vaddr >> PAGE_BITS] = pointer;
                 }
                 break;
@@ -339,47 +324,6 @@ void RasterizerMarkRegionCached(VAddr vaddr, u64 size, bool cached) {
             }
         }
     }
-}
-
-void RasterizerFlushVirtualRegion(VAddr start, u64 size, FlushMode mode) {
-    auto& system_instance = Core::System::GetInstance();
-
-    // Since pages are unmapped on shutdown after video core is shutdown, the renderer may be
-    // null here
-    if (!system_instance.IsPoweredOn()) {
-        return;
-    }
-
-    const VAddr end = start + size;
-
-    const auto CheckRegion = [&](VAddr region_start, VAddr region_end) {
-        if (start >= region_end || end <= region_start) {
-            // No overlap with region
-            return;
-        }
-
-        const VAddr overlap_start = std::max(start, region_start);
-        const VAddr overlap_end = std::min(end, region_end);
-        const VAddr overlap_size = overlap_end - overlap_start;
-
-        auto& rasterizer = system_instance.Renderer().Rasterizer();
-        switch (mode) {
-        case FlushMode::Flush:
-            rasterizer.FlushRegion(overlap_start, overlap_size);
-            break;
-        case FlushMode::Invalidate:
-            rasterizer.InvalidateRegion(overlap_start, overlap_size);
-            break;
-        case FlushMode::FlushAndInvalidate:
-            rasterizer.FlushAndInvalidateRegion(overlap_start, overlap_size);
-            break;
-        }
-    };
-
-    const auto& vm_manager = Core::CurrentProcess()->VMManager();
-
-    CheckRegion(vm_manager.GetCodeRegionBaseAddress(), vm_manager.GetCodeRegionEndAddress());
-    CheckRegion(vm_manager.GetHeapRegionBaseAddress(), vm_manager.GetHeapRegionEndAddress());
 }
 
 u8 Read8(const VAddr addr) {
@@ -412,24 +356,24 @@ void ReadBlock(const Kernel::Process& process, const VAddr src_addr, void* dest_
         const VAddr current_vaddr = static_cast<VAddr>((page_index << PAGE_BITS) + page_offset);
 
         switch (page_table.attributes[page_index]) {
-        case PageType::Unmapped: {
+        case Common::PageType::Unmapped: {
             LOG_ERROR(HW_Memory,
                       "Unmapped ReadBlock @ 0x{:016X} (start address = 0x{:016X}, size = {})",
                       current_vaddr, src_addr, size);
             std::memset(dest_buffer, 0, copy_amount);
             break;
         }
-        case PageType::Memory: {
+        case Common::PageType::Memory: {
             DEBUG_ASSERT(page_table.pointers[page_index]);
 
             const u8* src_ptr = page_table.pointers[page_index] + page_offset;
             std::memcpy(dest_buffer, src_ptr, copy_amount);
             break;
         }
-        case PageType::RasterizerCachedMemory: {
-            RasterizerFlushVirtualRegion(current_vaddr, static_cast<u32>(copy_amount),
-                                         FlushMode::Flush);
-            std::memcpy(dest_buffer, GetPointerFromVMA(process, current_vaddr), copy_amount);
+        case Common::PageType::RasterizerCachedMemory: {
+            const auto& host_ptr{GetPointerFromVMA(process, current_vaddr)};
+            Core::System::GetInstance().GPU().FlushRegion(ToCacheAddr(host_ptr), copy_amount);
+            std::memcpy(dest_buffer, host_ptr, copy_amount);
             break;
         }
         default:
@@ -476,23 +420,23 @@ void WriteBlock(const Kernel::Process& process, const VAddr dest_addr, const voi
         const VAddr current_vaddr = static_cast<VAddr>((page_index << PAGE_BITS) + page_offset);
 
         switch (page_table.attributes[page_index]) {
-        case PageType::Unmapped: {
+        case Common::PageType::Unmapped: {
             LOG_ERROR(HW_Memory,
                       "Unmapped WriteBlock @ 0x{:016X} (start address = 0x{:016X}, size = {})",
                       current_vaddr, dest_addr, size);
             break;
         }
-        case PageType::Memory: {
+        case Common::PageType::Memory: {
             DEBUG_ASSERT(page_table.pointers[page_index]);
 
             u8* dest_ptr = page_table.pointers[page_index] + page_offset;
             std::memcpy(dest_ptr, src_buffer, copy_amount);
             break;
         }
-        case PageType::RasterizerCachedMemory: {
-            RasterizerFlushVirtualRegion(current_vaddr, static_cast<u32>(copy_amount),
-                                         FlushMode::Invalidate);
-            std::memcpy(GetPointerFromVMA(process, current_vaddr), src_buffer, copy_amount);
+        case Common::PageType::RasterizerCachedMemory: {
+            const auto& host_ptr{GetPointerFromVMA(process, current_vaddr)};
+            Core::System::GetInstance().GPU().InvalidateRegion(ToCacheAddr(host_ptr), copy_amount);
+            std::memcpy(host_ptr, src_buffer, copy_amount);
             break;
         }
         default:
@@ -522,23 +466,23 @@ void ZeroBlock(const Kernel::Process& process, const VAddr dest_addr, const std:
         const VAddr current_vaddr = static_cast<VAddr>((page_index << PAGE_BITS) + page_offset);
 
         switch (page_table.attributes[page_index]) {
-        case PageType::Unmapped: {
+        case Common::PageType::Unmapped: {
             LOG_ERROR(HW_Memory,
                       "Unmapped ZeroBlock @ 0x{:016X} (start address = 0x{:016X}, size = {})",
                       current_vaddr, dest_addr, size);
             break;
         }
-        case PageType::Memory: {
+        case Common::PageType::Memory: {
             DEBUG_ASSERT(page_table.pointers[page_index]);
 
             u8* dest_ptr = page_table.pointers[page_index] + page_offset;
             std::memset(dest_ptr, 0, copy_amount);
             break;
         }
-        case PageType::RasterizerCachedMemory: {
-            RasterizerFlushVirtualRegion(current_vaddr, static_cast<u32>(copy_amount),
-                                         FlushMode::Invalidate);
-            std::memset(GetPointerFromVMA(process, current_vaddr), 0, copy_amount);
+        case Common::PageType::RasterizerCachedMemory: {
+            const auto& host_ptr{GetPointerFromVMA(process, current_vaddr)};
+            Core::System::GetInstance().GPU().InvalidateRegion(ToCacheAddr(host_ptr), copy_amount);
+            std::memset(host_ptr, 0, copy_amount);
             break;
         }
         default:
@@ -564,23 +508,23 @@ void CopyBlock(const Kernel::Process& process, VAddr dest_addr, VAddr src_addr,
         const VAddr current_vaddr = static_cast<VAddr>((page_index << PAGE_BITS) + page_offset);
 
         switch (page_table.attributes[page_index]) {
-        case PageType::Unmapped: {
+        case Common::PageType::Unmapped: {
             LOG_ERROR(HW_Memory,
                       "Unmapped CopyBlock @ 0x{:016X} (start address = 0x{:016X}, size = {})",
                       current_vaddr, src_addr, size);
             ZeroBlock(process, dest_addr, copy_amount);
             break;
         }
-        case PageType::Memory: {
+        case Common::PageType::Memory: {
             DEBUG_ASSERT(page_table.pointers[page_index]);
             const u8* src_ptr = page_table.pointers[page_index] + page_offset;
             WriteBlock(process, dest_addr, src_ptr, copy_amount);
             break;
         }
-        case PageType::RasterizerCachedMemory: {
-            RasterizerFlushVirtualRegion(current_vaddr, static_cast<u32>(copy_amount),
-                                         FlushMode::Flush);
-            WriteBlock(process, dest_addr, GetPointerFromVMA(process, current_vaddr), copy_amount);
+        case Common::PageType::RasterizerCachedMemory: {
+            const auto& host_ptr{GetPointerFromVMA(process, current_vaddr)};
+            Core::System::GetInstance().GPU().FlushRegion(ToCacheAddr(host_ptr), copy_amount);
+            WriteBlock(process, dest_addr, host_ptr, copy_amount);
             break;
         }
         default:

@@ -32,12 +32,12 @@ using GlobalRegion = std::shared_ptr<CachedGlobalRegion>;
 
 class CachedGlobalRegion final : public RasterizerCacheObject {
 public:
-    explicit CachedGlobalRegion(const VKDevice& device, VKMemoryManager& memory_manager, VAddr addr,
-                                u64 size_);
+    explicit CachedGlobalRegion(const VKDevice& device, VKMemoryManager& memory_manager,
+                                VAddr cpu_addr, u8* host_ptr, u64 size_);
     ~CachedGlobalRegion();
 
-    VAddr GetAddr() const {
-        return addr;
+    VAddr GetCpuAddr() const {
+        return cpu_addr;
     }
 
     std::size_t GetSizeInBytes() const {
@@ -55,7 +55,8 @@ public:
 private:
     const VKDevice& device;
 
-    VAddr addr{};
+    VAddr cpu_addr{};
+    u8* host_ptr{};
     u64 size{};
 
     UniqueBuffer buffer;
@@ -75,8 +76,8 @@ public:
 
 private:
     GlobalRegion TryGetReservedGlobalRegion(VAddr addr, u64 size) const;
-    GlobalRegion GetUncachedGlobalRegion(VAddr addr, u64 size);
-    void ReserveGlobalRegion(const GlobalRegion& region);
+    GlobalRegion GetUncachedGlobalRegion(VAddr addr, u8* host_ptr, u64 size);
+    void ReserveGlobalRegion(GlobalRegion region);
 
     Core::System& system;
 

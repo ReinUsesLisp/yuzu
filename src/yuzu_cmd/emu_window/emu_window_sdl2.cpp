@@ -104,22 +104,18 @@ void EmuWindow_SDL2::Fullscreen() {
 }
 
 EmuWindow_SDL2::EmuWindow_SDL2(bool fullscreen) {
-    InputCommon::Init();
-
-    SDL_SetMainReady();
-
     // Initialize the window
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0) {
         LOG_CRITICAL(Frontend, "Failed to initialize SDL2! Exiting...");
         exit(1);
     }
+    InputCommon::Init();
+    SDL_SetMainReady();
 }
 
 EmuWindow_SDL2::~EmuWindow_SDL2() {
-    InputCommon::SDL::CloseSDLJoysticks();
-    SDL_Quit();
-
     InputCommon::Shutdown();
+    SDL_Quit();
 }
 
 void EmuWindow_SDL2::PollEvents() {
@@ -176,7 +172,6 @@ void EmuWindow_SDL2::PollEvents() {
             is_open = false;
             break;
         default:
-            InputCommon::SDL::HandleGameControllerEvent(event);
             break;
         }
     }

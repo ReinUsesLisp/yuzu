@@ -12,7 +12,7 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/engines/maxwell_dma.h"
 #include "video_core/gpu.h"
-#include "video_core/rasterizer_interface.h"
+#include "video_core/renderer_base.h"
 
 namespace Tegra {
 
@@ -28,7 +28,8 @@ u32 FramebufferConfig::BytesPerPixel(PixelFormat format) {
     UNREACHABLE();
 }
 
-GPU::GPU(Core::System& system, VideoCore::RasterizerInterface& rasterizer) {
+GPU::GPU(Core::System& system, VideoCore::RendererBase& renderer) : renderer{renderer} {
+    auto& rasterizer{renderer.Rasterizer()};
     memory_manager = std::make_unique<Tegra::MemoryManager>();
     dma_pusher = std::make_unique<Tegra::DmaPusher>(*this);
     maxwell_3d = std::make_unique<Engines::Maxwell3D>(system, rasterizer, *memory_manager);
@@ -273,7 +274,6 @@ void GPU::ProcessSemaphoreTriggerMethod() {
     const auto op =
         static_cast<GpuSemaphoreOperation>(regs.semaphore_trigger & semaphoreOperationMask);
     if (op == GpuSemaphoreOperation::WriteLong) {
-        auto address = memory_manager->GpuToCpuAddress(regs.smaphore_address.SmaphoreAddress());
         struct Block {
             u32 sequence;
             u32 zeros = 0;
@@ -285,11 +285,9 @@ void GPU::ProcessSemaphoreTriggerMethod() {
         // TODO(Kmather73): Generate a real GPU timestamp and write it here instead of
         // CoreTiming
         block.timestamp = Core::System::GetInstance().CoreTiming().GetTicks();
-        Memory::WriteBlock(*address, &block, sizeof(block));
+        memory_manager->WriteBlock(regs.smaphore_address.SmaphoreAddress(), &block, sizeof(block));
     } else {
-        const auto address =
-            memory_manager->GpuToCpuAddress(regs.smaphore_address.SmaphoreAddress());
-        const u32 word = Memory::Read32(*address);
+        const u32 word{memory_manager->Read32(regs.smaphore_address.SmaphoreAddress())};
         if ((op == GpuSemaphoreOperation::AcquireEqual && word == regs.semaphore_sequence) ||
             (op == GpuSemaphoreOperation::AcquireGequal &&
              static_cast<s32>(word - regs.semaphore_sequence) > 0) ||
@@ -316,13 +314,11 @@ void GPU::ProcessSemaphoreTriggerMethod() {
 }
 
 void GPU::ProcessSemaphoreRelease() {
-    const auto address = memory_manager->GpuToCpuAddress(regs.smaphore_address.SmaphoreAddress());
-    Memory::Write32(*address, regs.semaphore_release);
+    memory_manager->Write32(regs.smaphore_address.SmaphoreAddress(), regs.semaphore_release);
 }
 
 void GPU::ProcessSemaphoreAcquire() {
-    const auto address = memory_manager->GpuToCpuAddress(regs.smaphore_address.SmaphoreAddress());
-    const u32 word = Memory::Read32(*address);
+    const u32 word = memory_manager->Read32(regs.smaphore_address.SmaphoreAddress());
     const auto value = regs.semaphore_acquire;
     if (word != value) {
         regs.acquire_active = true;

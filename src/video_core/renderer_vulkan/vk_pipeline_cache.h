@@ -189,13 +189,13 @@ struct Pipeline {
 
 class CachedShader final : public RasterizerCacheObject {
 public:
-    CachedShader(Core::System& system, const VKDevice& device, VAddr addr,
+    CachedShader(Core::System& system, const VKDevice& device, VAddr cpu_addr, u8* host_ptr,
                  Maxwell::ShaderProgram program_type);
 
     void FillDescriptorLayout(std::vector<vk::DescriptorSetLayoutBinding>& bindings) const;
 
-    VAddr GetAddr() const override {
-        return addr;
+    VAddr GetCpuAddr() const override {
+        return cpu_addr;
     }
 
     std::size_t GetSizeInBytes() const override {
@@ -217,8 +217,9 @@ public:
 
 private:
     const VKDevice& device;
-    const VAddr addr;
-    const Maxwell::ShaderProgram program_type;
+    Maxwell::ShaderProgram program_type{};
+    u8* host_ptr{};
+    VAddr cpu_addr{};
 
     VKShader::ShaderSetup setup;
     VKShader::ShaderEntries entries;
