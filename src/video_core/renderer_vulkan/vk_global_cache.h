@@ -4,8 +4,10 @@
 
 #pragma once
 
+#include <list>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 #include "common/common_types.h"
 #include "video_core/engines/maxwell_3d.h"
@@ -24,6 +26,8 @@ class GlobalBufferEntry;
 }
 
 class VKDevice;
+class VKFence;
+class VKFenceWatch;
 class VKMemoryManager;
 
 class CachedGlobalRegion;
@@ -36,11 +40,11 @@ public:
                                 VAddr cpu_addr, u8* host_ptr, u64 size_);
     ~CachedGlobalRegion();
 
-    VAddr GetCpuAddr() const {
+    VAddr GetCpuAddr() const override {
         return cpu_addr;
     }
 
-    std::size_t GetSizeInBytes() const {
+    std::size_t GetSizeInBytes() const override {
         return static_cast<std::size_t>(size);
     }
 
@@ -48,11 +52,15 @@ public:
         return *buffer;
     }
 
-    void Upload(u64 size_);
+    void CommitRead(VKFence& fence);
+
+    void Upload();
 
     void Flush() override;
 
 private:
+    void ReserveWatchBucket();
+
     const VKDevice& device;
 
     VAddr cpu_addr{};
@@ -62,6 +70,9 @@ private:
     UniqueBuffer buffer;
     VKMemoryCommit commit;
     u8* memory{};
+
+    std::vector<VKFenceWatch*> read_watches;
+    std::vector<std::unique_ptr<VKFenceWatch>> watches_allocation;
 };
 
 class VKGlobalCache : public RasterizerCache<GlobalRegion> {
@@ -75,7 +86,7 @@ public:
                                  Tegra::Engines::Maxwell3D::Regs::ShaderStage stage);
 
 private:
-    GlobalRegion TryGetReservedGlobalRegion(VAddr addr, u64 size) const;
+    GlobalRegion TryGetReservedGlobalRegion(u64 size) const;
     GlobalRegion GetUncachedGlobalRegion(VAddr addr, u8* host_ptr, u64 size);
     void ReserveGlobalRegion(GlobalRegion region);
 
@@ -84,7 +95,7 @@ private:
     const VKDevice& device;
     VKMemoryManager& memory_manager;
 
-    std::unordered_map<VAddr, GlobalRegion> reserve;
+    std::unordered_map<u64, std::list<GlobalRegion>> reserve;
 };
 
 } // namespace Vulkan

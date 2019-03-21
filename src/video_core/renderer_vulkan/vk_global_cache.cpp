@@ -2,6 +2,9 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
+#include <memory>
+
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "core/core.h"
@@ -9,6 +12,7 @@
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_global_cache.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 
 namespace Vulkan {
@@ -38,13 +42,35 @@ CachedGlobalRegion::CachedGlobalRegion(const VKDevice& device, VKMemoryManager& 
 
 CachedGlobalRegion::~CachedGlobalRegion() = default;
 
-void CachedGlobalRegion::Upload(u64 size_) {
-    UNIMPLEMENTED_IF(size != size_);
+void CachedGlobalRegion::CommitRead(VKFence& fence) {
+    const std::size_t watch_iterator{read_watches.size()};
+    if (watch_iterator >= watches_allocation.size()) {
+        ReserveWatchBucket();
+    }
+    const auto watch = watches_allocation[watch_iterator].get();
+    read_watches[watch_iterator] = watch;
+    watch->Watch(fence);
+}
+
+void CachedGlobalRegion::Upload() {
+    for (const auto watch : read_watches) {
+        watch->Wait();
+    }
+    read_watches.clear();
+
     std::memcpy(memory, host_ptr, static_cast<std::size_t>(size));
 }
 
 void CachedGlobalRegion::Flush() {
     UNIMPLEMENTED();
+}
+
+void CachedGlobalRegion::ReserveWatchBucket() {
+    constexpr std::size_t bucket_size{4};
+    const auto old_end = watches_allocation.end();
+    watches_allocation.resize(watches_allocation.size() + bucket_size);
+    std::generate(old_end, watches_allocation.end(),
+                  []() { return std::make_unique<VKFenceWatch>(); });
 }
 
 VKGlobalCache::VKGlobalCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer,
@@ -53,24 +79,30 @@ VKGlobalCache::VKGlobalCache(Core::System& system, VideoCore::RasterizerInterfac
 
 VKGlobalCache::~VKGlobalCache() = default;
 
-GlobalRegion VKGlobalCache::TryGetReservedGlobalRegion(VAddr addr, u64 size) const {
-    if (const auto search{reserve.find(addr)}; search != reserve.end())
-        return search->second;
+GlobalRegion VKGlobalCache::TryGetReservedGlobalRegion(u64 size) const {
+    if (const auto search{reserve.find(size)}; search != reserve.end()) {
+        for (const auto& region : search->second) {
+            if (!region->IsRegistered()) {
+                return region;
+            }
+        }
+    }
     return {};
 }
 
 GlobalRegion VKGlobalCache::GetUncachedGlobalRegion(VAddr addr, u8* host_ptr, u64 size) {
-    GlobalRegion region{TryGetReservedGlobalRegion(addr, size)};
+    GlobalRegion region{TryGetReservedGlobalRegion(size)};
     if (!region) {
         region = std::make_shared<CachedGlobalRegion>(device, memory_manager, addr, host_ptr, size);
         ReserveGlobalRegion(region);
     }
-    region->Upload(size);
+    region->Upload();
     return region;
 }
 
 void VKGlobalCache::ReserveGlobalRegion(GlobalRegion region) {
-    reserve.insert_or_assign(region->GetCacheAddr(), std::move(region));
+    const auto [it, is_allocated] = reserve.try_emplace(static_cast<u64>(region->GetSizeInBytes()));
+    it->second.push_back(std::move(region));
 }
 
 GlobalRegion VKGlobalCache::GetGlobalRegion(const VKShader::GlobalBufferEntry& descriptor,
@@ -78,9 +110,9 @@ GlobalRegion VKGlobalCache::GetGlobalRegion(const VKShader::GlobalBufferEntry& d
     auto& gpu{system.GPU()};
     auto& emu_memory_manager{gpu.MemoryManager()};
 
-    const auto& cbufs = gpu.Maxwell3D().state.shader_stages[static_cast<std::size_t>(stage)];
-    const auto addr =
-        cbufs.const_buffers[descriptor.GetCbufIndex()].address + descriptor.GetCbufOffset();
+    const auto& cbufs{gpu.Maxwell3D().state.shader_stages[static_cast<std::size_t>(stage)]};
+    const auto addr{cbufs.const_buffers[descriptor.GetCbufIndex()].address +
+                    descriptor.GetCbufOffset()};
     const auto actual_addr{emu_memory_manager.Read64(addr)};
     const auto size{emu_memory_manager.Read64(addr + 8)};
 
