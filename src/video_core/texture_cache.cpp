@@ -2,10 +2,9 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <boost/functional/hash.hpp>
-
 #include "common/alignment.h"
 #include "common/assert.h"
+#include "common/cityhash.h"
 #include "common/common_types.h"
 #include "core/core.h"
 #include "video_core/surface.h"
@@ -157,7 +156,7 @@ std::map<u64, std::pair<u32, u32>> SurfaceParams::CreateViewOffsetMap() const {
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray: {
-        const std::size_t layer_size = GetGuestLayerMemorySize();
+        const std::size_t layer_size = GetGuestLayerSize();
         for (u32 level = 0; level < num_levels; ++level) {
             const std::size_t level_offset = GetGuestMipmapLevelOffset(level);
             for (u32 layer = 0; layer < num_layers; ++layer) {
@@ -246,7 +245,7 @@ std::size_t SurfaceParams::GetHostMipmapLevelOffset(u32 level) const {
     return offset;
 }
 
-std::size_t SurfaceParams::GetGuestLayerMemorySize() const {
+std::size_t SurfaceParams::GetGuestLayerSize() const {
     return GetInnerMemorySize(false, true, false);
 }
 
@@ -361,23 +360,8 @@ bool SurfaceParams::IsInBounds(const SurfaceParams& view_params, u32 layer, u32 
 }
 
 std::size_t SurfaceParams::Hash() const {
-    std::size_t hash = 0;
-    boost::hash_combine(hash, is_tiled);
-    boost::hash_combine(hash, block_width);
-    boost::hash_combine(hash, block_height);
-    boost::hash_combine(hash, block_depth);
-    boost::hash_combine(hash, tile_width_spacing);
-    boost::hash_combine(hash, pixel_format);
-    boost::hash_combine(hash, component_type);
-    boost::hash_combine(hash, type);
-    boost::hash_combine(hash, target);
-    boost::hash_combine(hash, width);
-    boost::hash_combine(hash, height);
-    boost::hash_combine(hash, depth);
-    boost::hash_combine(hash, pitch);
-    boost::hash_combine(hash, unaligned_height);
-    boost::hash_combine(hash, num_levels);
-    return hash;
+    return static_cast<std::size_t>(
+        Common::CityHash64(reinterpret_cast<const char*>(this), sizeof(*this)));
 }
 
 bool SurfaceParams::operator==(const SurfaceParams& rhs) const {
@@ -391,12 +375,8 @@ bool SurfaceParams::operator==(const SurfaceParams& rhs) const {
 }
 
 std::size_t ViewKey::Hash() const {
-    std::size_t hash = 0;
-    boost::hash_combine(hash, base_layer);
-    boost::hash_combine(hash, num_layers);
-    boost::hash_combine(hash, base_level);
-    boost::hash_combine(hash, num_levels);
-    return hash;
+    return static_cast<std::size_t>(
+        Common::CityHash64(reinterpret_cast<const char*>(this), sizeof(*this)));
 }
 
 bool ViewKey::operator==(const ViewKey& rhs) const {

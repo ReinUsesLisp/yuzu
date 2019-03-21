@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/cityhash.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
@@ -12,6 +13,16 @@
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 
 namespace Vulkan {
+
+std::size_t RenderPassParams::ColorAttachment::Hash() const {
+    return static_cast<std::size_t>(
+        Common::CityHash64(reinterpret_cast<const char*>(this), sizeof(*this)));
+}
+
+bool RenderPassParams::ColorAttachment::operator==(const ColorAttachment& rhs) const {
+    return std::tie(index, pixel_format, component_type, is_texception) ==
+           std::tie(rhs.index, rhs.pixel_format, rhs.component_type, rhs.is_texception);
+}
 
 VKRenderPassCache::VKRenderPassCache(const VKDevice& device) : device{device} {}
 

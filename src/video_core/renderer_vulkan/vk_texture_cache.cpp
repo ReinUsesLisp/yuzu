@@ -111,7 +111,7 @@ static void SwizzleFunc(MortonSwizzleMode mode, u8* memory, const SurfaceParams&
     std::size_t guest_offset = params.GetGuestMipmapLevelOffset(level);
     if (params.IsLayered()) {
         std::size_t host_offset = 0;
-        const std::size_t guest_stride = params.GetGuestLayerMemorySize();
+        const std::size_t guest_stride = params.GetGuestLayerSize();
         const std::size_t host_stride = params.GetHostLayerSize(level);
         for (u32 layer = 0; layer < params.num_layers; layer++) {
             MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth, 1,

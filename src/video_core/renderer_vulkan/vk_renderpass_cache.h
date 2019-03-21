@@ -27,19 +27,8 @@ struct RenderPassParams {
             VideoCore::Surface::ComponentType::Invalid;
         bool is_texception = false;
 
-        std::size_t Hash() const {
-            std::size_t hash = 0;
-            boost::hash_combine(hash, index);
-            boost::hash_combine(hash, pixel_format);
-            boost::hash_combine(hash, component_type);
-            boost::hash_combine(hash, is_texception);
-            return hash;
-        }
-
-        bool operator==(const ColorAttachment& rhs) const {
-            return std::tie(index, pixel_format, component_type, is_texception) ==
-                   std::tie(rhs.index, rhs.pixel_format, rhs.component_type, rhs.is_texception);
-        }
+        std::size_t Hash() const;
+        bool operator==(const ColorAttachment& rhs) const;
     };
 
     StaticVector<ColorAttachment, Tegra::Engines::Maxwell3D::Regs::NumRenderTargets>

@@ -37,47 +37,62 @@ class RasterizerInterface;
 namespace VideoCommon {
 
 struct SurfaceParams {
-    /// Creates SurfaceParams from a texture configuration
+    /// Creates SurfaceParams from a texture configuration.
     static SurfaceParams CreateForTexture(Core::System& system,
                                           const Tegra::Texture::FullTextureInfo& config);
 
-    /// Creates SurfaceParams for a depth buffer configuration
+    /// Creates SurfaceParams for a depth buffer configuration.
     static SurfaceParams CreateForDepthBuffer(
         Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::DepthFormat format,
         u32 block_width, u32 block_height, u32 block_depth,
         Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
 
-    /// Creates SurfaceParams from a framebuffer configuration
+    /// Creates SurfaceParams from a framebuffer configuration.
     static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
 
-    /// Creates SurfaceParams from a Fermi2D surface configuration
+    /// Creates SurfaceParams from a Fermi2D surface configuration.
     static SurfaceParams CreateForFermiCopySurface(
         const Tegra::Engines::Fermi2D::Regs::Surface& config);
 
+    /// Creates a map that redirects an address difference to a layer and mipmap level.
     std::map<u64, std::pair<u32, u32>> CreateViewOffsetMap() const;
 
+    /// Returns the width of a given mipmap level.
     u32 GetMipWidth(u32 level) const;
 
+    /// Returns the height of a given mipmap level.
     u32 GetMipHeight(u32 level) const;
 
+    /// Returns the depth of a given mipmap level.
     u32 GetMipDepth(u32 level) const;
 
+    /// Returns true if these parameters are from a layered surface.
     bool IsLayered() const;
 
+    /// Returns the block height of a given mipmap level.
     u32 GetMipBlockHeight(u32 level) const;
 
+    /// Returns the block depth of a given mipmap level.
     u32 GetMipBlockDepth(u32 level) const;
 
+    /// Returns the offset in bytes in guest memory of a given mipmap level.
     std::size_t GetGuestMipmapLevelOffset(u32 level) const;
 
+    /// Returns the offset in bytes in host memory (linear) of a given mipmap level.
     std::size_t GetHostMipmapLevelOffset(u32 level) const;
 
-    std::size_t GetGuestLayerMemorySize() const;
+    /// Returns the size of a layer in bytes in guest memory.
+    std::size_t GetGuestLayerSize() const;
 
+    /// Returns the size of a layer in bytes in host memory for a given mipmap level.
     std::size_t GetHostLayerSize(u32 level) const;
 
+    /// Returns true if another surface can be familiar with this. This is a loosely defined term
+    /// that reflects the possibility of these two surface parameters potentially being part of a
+    /// bigger superset.
     bool IsFamiliar(const SurfaceParams& view_params) const;
 
+    /// Returns true if the passed surface view parameters is equal or a valid subset of this.
     bool IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const;
 
     std::size_t Hash() const;
