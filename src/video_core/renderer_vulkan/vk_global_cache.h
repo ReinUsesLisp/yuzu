@@ -6,6 +6,7 @@
 
 #include <list>
 #include <memory>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_vulkan/declarations.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 
 namespace Core {
 class System;
@@ -26,8 +28,7 @@ class GlobalBufferEntry;
 }
 
 class VKDevice;
-class VKFence;
-class VKFenceWatch;
+class VKExecutionContext;
 class VKMemoryManager;
 
 class CachedGlobalRegion;
@@ -49,12 +50,12 @@ public:
     }
 
     vk::Buffer GetBufferHandle() const {
-        return *buffer;
+        return *staging_buffer;
     }
 
     void CommitRead(VKFence& fence);
 
-    void Upload();
+    [[nodiscard]] VKExecutionContext Upload(VKExecutionContext exctx);
 
     void Flush() override;
 
@@ -67,10 +68,11 @@ private:
     u8* host_ptr{};
     u64 size{};
 
-    UniqueBuffer buffer;
-    VKMemoryCommit commit;
+    UniqueBuffer staging_buffer;
+    VKMemoryCommit staging_commit;
     u8* memory{};
 
+    VKFenceWatch write_watch;
     std::vector<VKFenceWatch*> read_watches;
     std::vector<std::unique_ptr<VKFenceWatch>> watches_allocation;
 };
@@ -82,12 +84,16 @@ public:
     ~VKGlobalCache();
 
     /// Gets the current specified shader stage program.
-    GlobalRegion GetGlobalRegion(const VKShader::GlobalBufferEntry& descriptor,
-                                 Tegra::Engines::Maxwell3D::Regs::ShaderStage stage);
+    [[nodiscard]] std::tuple<GlobalRegion, VKExecutionContext> GetGlobalRegion(
+        VKExecutionContext exctx, const VKShader::GlobalBufferEntry& descriptor,
+        Tegra::Engines::Maxwell3D::Regs::ShaderStage stage);
 
 private:
+    [[nodiscard]] std::tuple<GlobalRegion, VKExecutionContext> GetUncachedGlobalRegion(
+        VKExecutionContext exctx, VAddr addr, u8* host_ptr, u64 size);
+
     GlobalRegion TryGetReservedGlobalRegion(u64 size) const;
-    GlobalRegion GetUncachedGlobalRegion(VAddr addr, u8* host_ptr, u64 size);
+
     void ReserveGlobalRegion(GlobalRegion region);
 
     Core::System& system;

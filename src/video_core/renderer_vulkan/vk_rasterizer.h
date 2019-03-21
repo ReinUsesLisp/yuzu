@@ -184,7 +184,9 @@ private:
 
     void SetupConstBuffers(const Shader& shader, Maxwell::ShaderStage stage);
 
-    void SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage);
+    [[nodiscard]] VKExecutionContext SetupGlobalBuffers(VKExecutionContext exctx,
+                                                        const Shader& shader,
+                                                        Maxwell::ShaderStage stage);
 
     [[nodiscard]] std::tuple<Texceptions, VKExecutionContext> SetupTextures(
         VKExecutionContext exctx,

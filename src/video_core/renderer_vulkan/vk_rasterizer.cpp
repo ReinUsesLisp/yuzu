@@ -431,7 +431,7 @@ RasterizerVulkan::SetupShaderDescriptors(
 
         const auto stage = static_cast<Maxwell::ShaderStage>(index);
         SetupConstBuffers(shader, stage);
-        SetupGlobalBuffers(shader, stage);
+        exctx = SetupGlobalBuffers(exctx, shader, stage);
         std::tie(texceptions, exctx) =
             SetupTextures(exctx, color_attachments, zeta_attachment, texceptions, shader, stage);
     }
@@ -601,17 +601,21 @@ void RasterizerVulkan::SetupConstBuffers(const Shader& shader, Maxwell::ShaderSt
     }
 }
 
-void RasterizerVulkan::SetupGlobalBuffers(const Shader& shader, Maxwell::ShaderStage stage) {
+VKExecutionContext RasterizerVulkan::SetupGlobalBuffers(VKExecutionContext exctx,
+                                                        const Shader& shader,
+                                                        Maxwell::ShaderStage stage) {
     MICROPROFILE_SCOPE(Vulkan_GlobalBuffers);
     const auto& entries = shader->GetEntries().global_buffers;
     for (u32 bindpoint = 0; bindpoint < static_cast<u32>(entries.size()); ++bindpoint) {
         const auto& entry = entries[bindpoint];
         const u32 current_bindpoint = shader->GetEntries().global_buffers_base_binding;
-        const auto region = global_cache->GetGlobalRegion(entry, stage);
+        GlobalRegion region;
+        std::tie(region, exctx) = global_cache->GetGlobalRegion(exctx, entry, stage);
 
         state.AddDescriptor(current_bindpoint, vk::DescriptorType::eStorageBuffer,
                             region->GetBufferHandle(), 0, region->GetSizeInBytes());
     }
+    return exctx;
 }
 
 std::tuple<RasterizerVulkan::Texceptions, VKExecutionContext> RasterizerVulkan::SetupTextures(
