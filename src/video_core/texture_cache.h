@@ -36,26 +36,111 @@ class RasterizerInterface;
 
 namespace VideoCommon {
 
-struct SurfaceParams {
-    /// Creates SurfaceParams from a texture configuration.
+class HasheableSurfaceParams {
+public:
+    std::size_t Hash() const;
+
+    bool operator==(const HasheableSurfaceParams& rhs) const;
+
+protected:
+    // Avoid creation outside of a managed environment.
+    HasheableSurfaceParams() = default;
+
+    bool is_tiled;
+    u32 block_width;
+    u32 block_height;
+    u32 block_depth;
+    u32 tile_width_spacing;
+    u32 width;
+    u32 height;
+    u32 depth;
+    u32 pitch;
+    u32 unaligned_height;
+    u32 num_levels;
+    VideoCore::Surface::PixelFormat pixel_format;
+    VideoCore::Surface::ComponentType component_type;
+    VideoCore::Surface::SurfaceType type;
+    VideoCore::Surface::SurfaceTarget target;
+};
+
+class SurfaceParams final : public HasheableSurfaceParams {
+public:
+    /// Creates SurfaceCachedParams from a texture configuration.
     static SurfaceParams CreateForTexture(Core::System& system,
                                           const Tegra::Texture::FullTextureInfo& config);
 
-    /// Creates SurfaceParams for a depth buffer configuration.
+    /// Creates SurfaceCachedParams for a depth buffer configuration.
     static SurfaceParams CreateForDepthBuffer(
         Core::System& system, u32 zeta_width, u32 zeta_height, Tegra::DepthFormat format,
         u32 block_width, u32 block_height, u32 block_depth,
         Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
 
-    /// Creates SurfaceParams from a framebuffer configuration.
+    /// Creates SurfaceCachedParams from a framebuffer configuration.
     static SurfaceParams CreateForFramebuffer(Core::System& system, std::size_t index);
 
-    /// Creates SurfaceParams from a Fermi2D surface configuration.
+    /// Creates SurfaceCachedParams from a Fermi2D surface configuration.
     static SurfaceParams CreateForFermiCopySurface(
         const Tegra::Engines::Fermi2D::Regs::Surface& config);
 
-    /// Creates a map that redirects an address difference to a layer and mipmap level.
-    std::map<u64, std::pair<u32, u32>> CreateViewOffsetMap() const;
+    bool IsTiled() const {
+        return is_tiled;
+    }
+
+    u32 GetBlockWidth() const {
+        return block_width;
+    }
+
+    u32 GetTileWidthSpacing() const {
+        return tile_width_spacing;
+    }
+
+    u32 GetWidth() const {
+        return width;
+    }
+
+    u32 GetHeight() const {
+        return height;
+    }
+
+    u32 GetDepth() const {
+        return depth;
+    }
+
+    u32 GetPitch() const {
+        return pitch;
+    }
+
+    u32 GetNumLevels() const {
+        return num_levels;
+    }
+
+    VideoCore::Surface::PixelFormat GetPixelFormat() const {
+        return pixel_format;
+    }
+
+    VideoCore::Surface::ComponentType GetComponentType() const {
+        return component_type;
+    }
+
+    VideoCore::Surface::SurfaceTarget GetTarget() const {
+        return target;
+    }
+
+    VideoCore::Surface::SurfaceType GetType() const {
+        return type;
+    }
+
+    std::size_t GetGuestSizeInBytes() const {
+        return guest_size_in_bytes;
+    }
+
+    std::size_t GetHostSizeInBytes() const {
+        return host_size_in_bytes;
+    }
+
+    u32 GetNumLayers() const {
+        return num_layers;
+    }
 
     /// Returns the width of a given mipmap level.
     u32 GetMipWidth(u32 level) const;
@@ -92,47 +177,39 @@ struct SurfaceParams {
     /// bigger superset.
     bool IsFamiliar(const SurfaceParams& view_params) const;
 
+    /// Returns true if the pixel format is a depth and/or stencil format.
+    bool IsPixelFormatZeta() const;
+
+    /// Creates a map that redirects an address difference to a layer and mipmap level.
+    std::map<u64, std::pair<u32, u32>> CreateViewOffsetMap() const;
+
     /// Returns true if the passed surface view parameters is equal or a valid subset of this.
     bool IsViewValid(const SurfaceParams& view_params, u32 layer, u32 level) const;
 
-    std::size_t Hash() const;
-
-    bool operator==(const SurfaceParams& rhs) const;
-
-    bool is_tiled;
-    u32 block_width;
-    u32 block_height;
-    u32 block_depth;
-    u32 tile_width_spacing;
-    u32 width;
-    u32 height;
-    u32 depth;
-    u32 pitch;
-    u32 unaligned_height;
-    u32 num_levels;
-    VideoCore::Surface::PixelFormat pixel_format;
-    VideoCore::Surface::ComponentType component_type;
-    VideoCore::Surface::SurfaceType type;
-    VideoCore::Surface::SurfaceTarget target;
-
-    // Cached data
-    std::size_t guest_size_in_bytes;
-    std::size_t host_size_in_bytes;
-    u32 num_layers;
-
 private:
+    /// Calculates values that can be deduced from HasheableSurfaceParams.
     void CalculateCachedValues();
 
+    /// Returns the size of a given mipmap level.
     std::size_t GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
                                          bool uncompressed) const;
 
+    /// Returns the size of all mipmap levels and aligns as needed.
     std::size_t GetInnerMemorySize(bool as_host_size, bool layer_only, bool uncompressed) const;
 
+    /// Returns true if the passed view width and height match the size of this params in a given
+    /// mipmap level.
     bool IsDimensionValid(const SurfaceParams& view_params, u32 level) const;
 
+    /// Returns true if the passed view depth match the size of this params in a given mipmap level.
     bool IsDepthValid(const SurfaceParams& view_params, u32 level) const;
 
+    /// Returns true if the passed view layers and mipmap levels are in bounds.
     bool IsInBounds(const SurfaceParams& view_params, u32 layer, u32 level) const;
+
+    std::size_t guest_size_in_bytes;
+    std::size_t host_size_in_bytes;
+    u32 num_layers;
 };
 
 struct ViewKey {
@@ -170,7 +247,7 @@ namespace VideoCommon {
 
 template <typename TView, typename TExecutionContext>
 class SurfaceBase {
-    static_assert(std::is_trivially_copyable<TExecutionContext>::value);
+    static_assert(std::is_trivially_copyable_v<TExecutionContext>);
 
 public:
     SurfaceBase(const SurfaceParams& params)
@@ -188,8 +265,8 @@ public:
             return {};
         }
 
-        const auto relative_offset = static_cast<u64>(view_addr - cpu_addr);
-        const auto it = view_offset_map.find(relative_offset);
+        const auto relative_offset{static_cast<u64>(view_addr - cpu_addr)};
+        const auto it{view_offset_map.find(relative_offset)};
         if (it == view_offset_map.end()) {
             // Couldn't find an aligned view.
             return {};
@@ -200,7 +277,7 @@ public:
             return {};
         }
 
-        return GetView(layer, view_params.num_layers, level, view_params.num_levels);
+        return GetView(layer, view_params.GetNumLayers(), level, view_params.GetNumLevels());
     }
 
     VAddr GetCpuAddr() const {
@@ -219,7 +296,7 @@ public:
     }
 
     std::size_t GetSizeInBytes() const {
-        return params.guest_size_in_bytes;
+        return params.GetGuestSizeInBytes();
     }
 
     void MarkAsModified(bool is_modified_) {
@@ -231,7 +308,7 @@ public:
     }
 
     TView* GetView(VAddr view_addr, const SurfaceParams& view_params) {
-        TView* view = TryGetView(view_addr, view_params);
+        TView* view{TryGetView(view_addr, view_params)};
         ASSERT(view != nullptr);
         return view;
     }
@@ -270,7 +347,7 @@ private:
     TView* GetView(u32 base_layer, u32 num_layers, u32 base_level, u32 num_levels) {
         const ViewKey key{base_layer, num_layers, base_level, num_levels};
         const auto [entry, is_cache_miss] = views.try_emplace(key);
-        auto& view = entry->second;
+        auto& view{entry->second};
         if (is_cache_miss) {
             view = CreateView(key);
         }
@@ -279,13 +356,12 @@ private:
 
     const std::map<u64, std::pair<u32, u32>> view_offset_map;
 
-    std::unordered_map<ViewKey, std::unique_ptr<TView>> views;
-
     VAddr cpu_addr{};
     u8* host_ptr{};
     CacheAddr cache_addr{};
     bool is_modified{};
     bool is_registered{};
+    std::unordered_map<ViewKey, std::unique_ptr<TView>> views;
 };
 
 template <typename TSurface, typename TView, typename TExecutionContext>
@@ -316,7 +392,7 @@ public:
         if (!cpu_addr) {
             return {{}, exctx};
         }
-        const auto params = SurfaceParams::CreateForTexture(system, config);
+        const auto params{SurfaceParams::CreateForTexture(system, config)};
         return GetSurfaceView(exctx, *cpu_addr, params, true);
     }
 
@@ -332,10 +408,10 @@ public:
             return {{}, exctx};
         }
 
-        const auto depth_params = SurfaceParams::CreateForDepthBuffer(
+        const auto depth_params{SurfaceParams::CreateForDepthBuffer(
             system, regs.zeta_width, regs.zeta_height, regs.zeta.format,
             regs.zeta.memory_layout.block_width, regs.zeta.memory_layout.block_height,
-            regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type);
+            regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type)};
         return GetSurfaceView(exctx, *cpu_addr, depth_params, preserve_contents);
     }
 
@@ -370,7 +446,7 @@ public:
     }
 
     TSurface* TryFindFramebufferSurface(const u8* host_ptr) const {
-        const auto it = registered_surfaces.find(ToCacheAddr(host_ptr));
+        const auto it{registered_surfaces.find(ToCacheAddr(host_ptr))};
         return it != registered_surfaces.end() ? *it->second.begin() : nullptr;
     }
 
@@ -397,8 +473,8 @@ protected:
         if (TSurface* surface = TryGetReservedSurface(params); surface)
             return surface;
         // No reserved surface available, create a new one and reserve it
-        auto new_surface = CreateSurface(params);
-        TSurface* surface = new_surface.get();
+        auto new_surface{CreateSurface(params)};
+        TSurface* surface{new_surface.get()};
         ReserveSurface(params, std::move(new_surface));
         return surface;
     }
@@ -408,9 +484,9 @@ protected:
 private:
     ResultType GetSurfaceView(TExecutionContext exctx, VAddr cpu_addr, const SurfaceParams& params,
                               bool preserve_contents) {
-        const auto host_ptr = Memory::GetPointer(cpu_addr);
-        const auto cache_addr = ToCacheAddr(host_ptr);
-        const auto overlaps = GetSurfacesInRegion(cache_addr, params.guest_size_in_bytes);
+        const auto host_ptr{Memory::GetPointer(cpu_addr)};
+        const auto cache_addr{ToCacheAddr(host_ptr)};
+        const auto overlaps{GetSurfacesInRegion(cache_addr, params.GetGuestSizeInBytes())};
         if (overlaps.empty()) {
             return LoadSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents);
         }
@@ -442,7 +518,7 @@ private:
 
     ResultType LoadSurfaceView(TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr,
                                const SurfaceParams& params, bool preserve_contents) {
-        TSurface* new_surface = GetUncachedSurface(params);
+        TSurface* new_surface{GetUncachedSurface(params)};
         Register(new_surface, cpu_addr, host_ptr);
         if (preserve_contents) {
             exctx = LoadSurface(exctx, new_surface);
@@ -475,7 +551,7 @@ private:
     }
 
     TSurface* TryGetReservedSurface(const SurfaceParams& params) {
-        auto search = surface_reserve.find(params);
+        auto search{surface_reserve.find(params)};
         if (search == surface_reserve.end()) {
             return {};
         }

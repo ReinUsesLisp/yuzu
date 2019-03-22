@@ -63,20 +63,18 @@ static vk::ImageCreateInfo GenerateImageCreateInfo(const VKDevice& device,
     constexpr auto tiling = vk::ImageTiling::eOptimal;
 
     const auto [format, attachable] = MaxwellToVK::SurfaceFormat(
-        device, FormatType::Optimal, params.pixel_format, params.component_type);
+        device, FormatType::Optimal, params.GetPixelFormat(), params.GetComponentType());
 
     auto image_usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
                        vk::ImageUsageFlagBits::eTransferSrc;
     if (attachable) {
-        const bool is_zeta = params.pixel_format >= PixelFormat::MaxColorFormat &&
-                             params.pixel_format < PixelFormat::MaxDepthStencilFormat;
-        image_usage |= is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
-                               : vk::ImageUsageFlagBits::eColorAttachment;
+        image_usage |= params.IsPixelFormatZeta() ? vk::ImageUsageFlagBits::eDepthStencilAttachment
+                                                  : vk::ImageUsageFlagBits::eColorAttachment;
     }
 
     vk::ImageCreateFlags flags;
     vk::Extent3D extent;
-    switch (params.target) {
+    switch (params.GetTarget()) {
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray:
         flags |= vk::ImageCreateFlagBits::eCubeCompatible;
@@ -85,18 +83,18 @@ static vk::ImageCreateInfo GenerateImageCreateInfo(const VKDevice& device,
     case SurfaceTarget::Texture1DArray:
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture2DArray:
-        extent = vk::Extent3D(params.width, params.height, 1);
+        extent = vk::Extent3D(params.GetWidth(), params.GetHeight(), 1);
         break;
     case SurfaceTarget::Texture3D:
-        extent = vk::Extent3D(params.width, params.height, params.depth);
+        extent = vk::Extent3D(params.GetWidth(), params.GetHeight(), params.GetDepth());
         break;
     default:
-        UNREACHABLE_MSG("Unknown surface target={}", static_cast<u32>(params.target));
+        UNREACHABLE_MSG("Unknown surface target={}", static_cast<u32>(params.GetTarget()));
         break;
     }
 
-    return vk::ImageCreateInfo(flags, SurfaceTargetToImageVK(params.target), format, extent,
-                               params.num_levels, params.num_layers, sample_count, tiling,
+    return vk::ImageCreateInfo(flags, SurfaceTargetToImageVK(params.GetTarget()), format, extent,
+                               params.GetNumLevels(), params.GetNumLayers(), sample_count, tiling,
                                image_usage, vk::SharingMode::eExclusive, 0, nullptr,
                                vk::ImageLayout::eUndefined);
 }
@@ -113,15 +111,16 @@ static void SwizzleFunc(MortonSwizzleMode mode, u8* memory, const SurfaceParams&
         std::size_t host_offset = 0;
         const std::size_t guest_stride = params.GetGuestLayerSize();
         const std::size_t host_stride = params.GetHostLayerSize(level);
-        for (u32 layer = 0; layer < params.num_layers; layer++) {
-            MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth, 1,
-                          params.tile_width_spacing, buffer + host_offset, memory + guest_offset);
+        for (u32 layer = 0; layer < params.GetNumLayers(); layer++) {
+            MortonSwizzle(mode, params.GetPixelFormat(), width, block_height, height, block_depth,
+                          1, params.GetTileWidthSpacing(), buffer + host_offset,
+                          memory + guest_offset);
             guest_offset += guest_stride;
             host_offset += host_stride;
         }
     } else {
-        MortonSwizzle(mode, params.pixel_format, width, block_height, height, block_depth,
-                      params.GetMipDepth(level), params.tile_width_spacing, buffer,
+        MortonSwizzle(mode, params.GetPixelFormat(), width, block_height, height, block_depth,
+                      params.GetMipDepth(level), params.GetTileWidthSpacing(), buffer,
                       memory + guest_offset);
     }
 }
@@ -130,7 +129,7 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
                              VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
                              VKScheduler& scheduler, const SurfaceParams& params)
     : VKImage(device, GenerateImageCreateInfo(device, params),
-              PixelFormatToImageAspect(params.pixel_format)),
+              PixelFormatToImageAspect(params.GetPixelFormat())),
       SurfaceBase(params), system{system}, device{device}, resource_manager{resource_manager},
       memory_manager{memory_manager}, scheduler{scheduler} {
     const auto dev = device.GetLogical();
@@ -139,7 +138,7 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
     image_commit = memory_manager.Commit(GetHandle(), false);
 
     const vk::BufferCreateInfo buffer_ci(
-        {}, std::max(params.guest_size_in_bytes, params.host_size_in_bytes),
+        {}, std::max(params.GetGuestSizeInBytes(), params.GetHostSizeInBytes()),
         vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
         vk::SharingMode::eExclusive, 0, nullptr);
     buffer = dev.createBufferUnique(buffer_ci, nullptr, dld);
@@ -150,37 +149,37 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
 CachedSurface::~CachedSurface() = default;
 
 void CachedSurface::LoadBuffer() {
-    if (params.is_tiled) {
-        ASSERT_MSG(params.block_width == 1, "Block width is defined as {} on texture target {}",
-                   params.block_width, static_cast<u32>(params.target));
-        for (u32 level = 0; level < params.num_levels; ++level) {
+    if (params.IsTiled()) {
+        ASSERT_MSG(params.GetBlockWidth() == 1, "Block width is defined as {} on texture target {}",
+                   params.GetBlockWidth(), static_cast<u32>(params.GetTarget()));
+        for (u32 level = 0; level < params.GetNumLevels(); ++level) {
             u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
             SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetHostPtr(), params, buffer, level);
         }
     } else {
-        ASSERT_MSG(params.num_levels == 1, "Linear mipmap loading is not implemented");
-        const u32 bpp = GetFormatBpp(params.pixel_format) / CHAR_BIT;
-        const u32 copy_size = params.width * bpp;
-        if (params.pitch == copy_size) {
-            std::memcpy(vk_buffer, GetHostPtr(), params.host_size_in_bytes);
+        ASSERT_MSG(params.GetNumLevels() == 1, "Linear mipmap loading is not implemented");
+        const u32 bpp = GetFormatBpp(params.GetPixelFormat()) / CHAR_BIT;
+        const u32 copy_size = params.GetWidth() * bpp;
+        if (params.GetPitch() == copy_size) {
+            std::memcpy(vk_buffer, GetHostPtr(), params.GetHostSizeInBytes());
         } else {
             const u8* start = GetHostPtr();
             u8* write_to = vk_buffer;
-            for (u32 h = params.height; h > 0; h--) {
+            for (u32 h = params.GetHeight(); h > 0; h--) {
                 std::memcpy(write_to, start, copy_size);
-                start += params.pitch;
+                start += params.GetPitch();
                 write_to += copy_size;
             }
         }
     }
 
-    for (u32 level = 0; level < params.num_levels; ++level) {
+    for (u32 level = 0; level < params.GetNumLevels(); ++level) {
         // Convert ASTC just when the format is not supported
-        const bool convert_astc = VideoCore::Surface::IsPixelFormatASTC(params.pixel_format) &&
+        const bool convert_astc = VideoCore::Surface::IsPixelFormatASTC(params.GetPixelFormat()) &&
                                   GetFormat() == vk::Format::eA8B8G8R8UnormPack32;
 
         Tegra::Texture::ConvertFromGuestToHost(vk_buffer + params.GetHostMipmapLevelOffset(level),
-                                               params.pixel_format, params.GetMipWidth(level),
+                                               params.GetPixelFormat(), params.GetMipWidth(level),
                                                params.GetMipHeight(level),
                                                params.GetMipDepth(level), convert_astc, true);
     }
@@ -197,15 +196,15 @@ VKExecutionContext CachedSurface::FlushBuffer(VKExecutionContext exctx) {
 
     const auto& dld = device.GetDispatchLoader();
     // TODO(Rodrigo): Do this in a single copy
-    for (u32 level = 0; level < params.num_levels; ++level) {
+    for (u32 level = 0; level < params.GetNumLevels(); ++level) {
         cmdbuf.copyImageToBuffer(GetHandle(), vk::ImageLayout::eTransferSrcOptimal, *buffer,
                                  {GetBufferImageCopy(level)}, dld);
     }
     exctx = scheduler.Finish();
 
-    UNIMPLEMENTED_IF(!params.is_tiled);
-    ASSERT_MSG(params.block_width == 1, "Block width is defined as {}", params.block_width);
-    for (u32 level = 0; level < params.num_levels; ++level) {
+    UNIMPLEMENTED_IF(!params.IsTiled());
+    ASSERT_MSG(params.GetBlockWidth() == 1, "Block width is defined as {}", params.GetBlockWidth());
+    for (u32 level = 0; level < params.GetNumLevels(); ++level) {
         u8* buffer = vk_buffer + params.GetHostMipmapLevelOffset(level);
         SwizzleFunc(MortonSwizzleMode::LinearToMorton, GetHostPtr(), params, buffer, level);
     }
@@ -218,7 +217,7 @@ VKExecutionContext CachedSurface::UploadTexture(VKExecutionContext exctx) {
     FullTransition(cmdbuf, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite,
                    vk::ImageLayout::eTransferDstOptimal);
 
-    for (u32 level = 0; level < params.num_levels; ++level) {
+    for (u32 level = 0; level < params.GetNumLevels(); ++level) {
         vk::BufferImageCopy copy = GetBufferImageCopy(level);
         const auto& dld = device.GetDispatchLoader();
         if (GetAspectMask() ==
@@ -242,14 +241,15 @@ std::unique_ptr<CachedView> CachedSurface::CreateView(const ViewKey& view_key) {
 }
 
 vk::BufferImageCopy CachedSurface::GetBufferImageCopy(u32 level) const {
-    const u32 vk_depth = params.target == SurfaceTarget::Texture3D ? params.GetMipDepth(level) : 1;
+    const u32 vk_depth =
+        params.GetTarget() == SurfaceTarget::Texture3D ? params.GetMipDepth(level) : 1;
     return vk::BufferImageCopy(params.GetHostMipmapLevelOffset(level), 0, 0,
-                               {GetAspectMask(), level, 0, params.num_layers}, {0, 0, 0},
+                               {GetAspectMask(), level, 0, params.GetNumLayers()}, {0, 0, 0},
                                {params.GetMipWidth(level), params.GetMipHeight(level), vk_depth});
 }
 
 vk::ImageSubresourceRange CachedSurface::GetImageSubresourceRange() const {
-    return {GetAspectMask(), 0, params.num_levels, 0, params.num_layers};
+    return {GetAspectMask(), 0, params.GetNumLevels(), 0, params.GetNumLayers()};
 }
 
 CachedView::CachedView(const VKDevice& device, Surface surface, const ViewKey& key)
@@ -346,9 +346,9 @@ std::tuple<View, VKExecutionContext> VKTextureCache::TryFastGetSurfaceView(
     const Surface old_surface = overlaps[0];
     const auto& old_params = old_surface->GetSurfaceParams();
 
-    if (old_params.target == params.target && old_params.type == params.type &&
-        old_params.depth == params.depth && params.depth == 1 &&
-        GetFormatBpp(old_params.pixel_format) == GetFormatBpp(params.pixel_format)) {
+    if (old_params.GetTarget() == params.GetTarget() && old_params.GetType() == params.GetType() &&
+        old_params.GetDepth() == params.GetDepth() && params.GetDepth() == 1 &&
+        GetFormatBpp(old_params.GetPixelFormat()) == GetFormatBpp(params.GetPixelFormat())) {
         return FastCopySurface(exctx, old_surface, cpu_addr, host_ptr, params);
     }
 
@@ -364,8 +364,8 @@ std::tuple<View, VKExecutionContext> VKTextureCache::FastCopySurface(
     VKExecutionContext exctx, Surface src_surface, VAddr cpu_addr, u8* host_ptr,
     const SurfaceParams& dst_params) {
     const auto& src_params = src_surface->GetSurfaceParams();
-    const u32 width{std::min(src_params.width, dst_params.width)};
-    const u32 height{std::min(src_params.height, dst_params.height)};
+    const u32 width{std::min(src_params.GetWidth(), dst_params.GetWidth())};
+    const u32 height{std::min(src_params.GetHeight(), dst_params.GetHeight())};
 
     const Surface dst_surface = GetUncachedSurface(dst_params);
     Register(dst_surface, cpu_addr, host_ptr);
