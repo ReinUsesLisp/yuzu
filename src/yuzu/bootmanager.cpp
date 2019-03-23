@@ -159,7 +159,7 @@ public:
     }
 
     std::pair<unsigned, unsigned> GetSize() const override {
-        return std::make_pair(QPaintDevice::width(), QPaintDevice::height());
+        return std::make_pair(QWindow::width(), QWindow::height());
     }
 };
 
@@ -176,7 +176,7 @@ public:
 };
 
 GRenderWindow::GRenderWindow(QWidget* parent, EmuThread* emu_thread)
-    : QWidget(parent), emu_thread(emu_thread) {
+    : QWidget(parent), emu_thread(emu_thread), pare(parent) {
 
     setWindowTitle(QStringLiteral("yuzu %1 | %2-%3")
                        .arg(Common::g_build_name, Common::g_scm_branch, Common::g_scm_desc));
@@ -470,12 +470,18 @@ void GRenderWindow::InitRenderTarget() {
     container = QWidget::createWindowContainer(child, this);
     QBoxLayout* layout = new QHBoxLayout(this);
 
-    resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
-    child->resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
-    container->resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
     layout->addWidget(container);
     layout->setMargin(0);
     setLayout(layout);
+
+    // Show causes the window to actually be created and the gl context as well, but we don't want
+    // the widget to be shown yet, so immediately hide it.
+    show();
+    hide();
+
+    resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
+    child->resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
+    container->resize(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
 
     OnMinimalClientAreaChangeRequest(GetActiveConfig().min_client_area_size);
 
@@ -483,10 +489,6 @@ void GRenderWindow::InitRenderTarget() {
     NotifyClientAreaSizeChanged(child->GetSize());
 
     BackupGeometry();
-    // show causes the window to actually be created and the gl context as well
-    show();
-    // but we don't want the widget to be shown yet, so immediately hide it
-    hide();
 }
 
 void GRenderWindow::CaptureScreenshot(u16 res_scale, const QString& screenshot_path) {

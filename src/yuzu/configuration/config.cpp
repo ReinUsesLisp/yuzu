@@ -373,10 +373,6 @@ void Config::ReadValues() {
     Settings::values.use_frame_limit = ReadSetting("use_frame_limit", true).toBool();
     Settings::values.frame_limit = ReadSetting("frame_limit", 100).toInt();
     Settings::values.use_disk_shader_cache = ReadSetting("use_disk_shader_cache", true).toBool();
-    Settings::values.resolution_factor = ReadSetting("resolution_factor", 1.0).toFloat();
-    Settings::values.use_frame_limit = ReadSetting("use_frame_limit", true).toBool();
-    Settings::values.frame_limit = ReadSetting("frame_limit", 100).toInt();
-    Settings::values.use_disk_shader_cache = ReadSetting("use_disk_shader_cache", true).toBool();
     Settings::values.use_accurate_gpu_emulation =
         ReadSetting("use_accurate_gpu_emulation", false).toBool();
     Settings::values.use_asynchronous_gpu_emulation =

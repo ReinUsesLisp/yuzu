@@ -179,6 +179,8 @@ private:
     void OnMinimalClientAreaChangeRequest(
         const std::pair<unsigned, unsigned>& minimal_size) override;
 
+    QWidget* pare;
+
     QWidget* container = nullptr;
 
     GWidgetInternal* child = nullptr;
