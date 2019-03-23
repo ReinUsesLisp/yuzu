@@ -7,9 +7,11 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+
 #include <QImage>
 #include <QThread>
 #include <QWidget>
+
 #include "common/thread.h"
 #include "core/core.h"
 #include "core/frontend/emu_window.h"
@@ -17,16 +19,17 @@
 class QKeyEvent;
 class QScreen;
 class QTouchEvent;
+class QStringList;
+class QSurface;
+class QOpenGLContext;
+class QVulkanInstance;
+class QVulkanWindow;
 
 class GWidgetInternal;
 class GGLWidgetInternal;
 class GVKWidgetInternal;
 class GMainWindow;
 class GRenderWindow;
-class QSurface;
-class QOpenGLContext;
-class QVulkanInstance;
-class QVulkanWindow;
 
 namespace VideoCore {
 enum class LoadCallbackStage;
@@ -154,7 +157,7 @@ public:
 
     void OnClientAreaResized(unsigned width, unsigned height);
 
-    void InitRenderTarget();
+    bool InitRenderTarget();
 
     void CaptureScreenshot(u16 res_scale, const QString& screenshot_path);
 
@@ -179,7 +182,10 @@ private:
     void OnMinimalClientAreaChangeRequest(
         const std::pair<unsigned, unsigned>& minimal_size) override;
 
-    QWidget* pare;
+    bool InitializeOpenGL();
+    bool InitializeVulkan();
+    bool LoadOpenGL();
+    QStringList GetUnsupportedGLExtensions() const;
 
     QWidget* container = nullptr;
 

@@ -128,7 +128,6 @@ private:
     void ConnectWidgetEvents();
     void ConnectMenuEvents();
 
-    QStringList GetUnsupportedGLExtensions();
     bool LoadROM(const QString& filename);
     void BootGame(const QString& filename);
     void ShutdownGame();

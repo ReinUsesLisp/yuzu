@@ -2,20 +2,30 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <glad/glad.h>
+
 #include <QApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QMessageBox>
 #include <QOffscreenSurface>
 #include <QOpenGLWindow>
 #include <QPainter>
 #include <QScreen>
-#include <QVulkanWindow>
+#include <QStringList>
 #include <QWindow>
+#ifdef HAS_VULKAN
+#include <QVulkanWindow>
+#endif
+
 #include <fmt/format.h>
+
+#include "common/assert.h"
 #include "common/microprofile.h"
 #include "common/scm_rev.h"
 #include "core/core.h"
 #include "core/frontend/framebuffer_layout.h"
+#include "core/frontend/scope_acquire_window_context.h"
 #include "core/settings.h"
 #include "input_common/keyboard.h"
 #include "input_common/main.h"
@@ -176,8 +186,7 @@ public:
 };
 
 GRenderWindow::GRenderWindow(QWidget* parent, EmuThread* emu_thread)
-    : QWidget(parent), emu_thread(emu_thread), pare(parent) {
-
+    : QWidget(parent), emu_thread(emu_thread) {
     setWindowTitle(QStringLiteral("yuzu %1 | %2-%3")
                        .arg(Common::g_build_name, Common::g_scm_branch, Common::g_scm_desc));
     setAttribute(Qt::WA_AcceptTouchEvents);
@@ -242,10 +251,14 @@ bool GRenderWindow::IsShown() const {
 
 void GRenderWindow::RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
                                            void** surface) const {
+#ifdef ENABLE_VULKAN
     *get_instance_proc_addr =
         static_cast<void*>(this->instance->getInstanceProcAddr("vkGetInstanceProcAddr"));
     *instance = static_cast<void*>(this->instance->vkInstance());
     *surface = this->instance->surfaceForWindow(child);
+#else
+    UNREACHABLE_MSG("Executing Vulkan code without compiling Vulkan");
+#endif
 }
 
 // On Qt 5.0+, this correctly gets the size of the framebuffer (pixels).
@@ -398,7 +411,7 @@ std::unique_ptr<Core::Frontend::GraphicsContext> GRenderWindow::CreateSharedCont
     return std::make_unique<GGLContext>(shared_context.get());
 }
 
-void GRenderWindow::InitRenderTarget() {
+bool GRenderWindow::InitRenderTarget() {
     if (shared_context) {
         shared_context.reset();
     }
@@ -422,49 +435,14 @@ void GRenderWindow::InitRenderTarget() {
     first_frame = false;
 
     switch (Settings::values.renderer_backend) {
-    case Settings::RendererBackend::OpenGL: {
-        // TODO: One of these flags might be interesting: WA_OpaquePaintEvent, WA_NoBackground,
-        // WA_DontShowOnScreen, WA_DeleteOnClose
-        QSurfaceFormat fmt;
-        fmt.setVersion(4, 3);
-        fmt.setProfile(QSurfaceFormat::CoreProfile);
-        // TODO: expose a setting for buffer value (ie default/single/double/triple)
-        fmt.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
-        shared_context = std::make_unique<QOpenGLContext>();
-        shared_context->setFormat(fmt);
-        shared_context->create();
-        context = std::make_unique<QOpenGLContext>();
-        context->setShareContext(shared_context.get());
-        context->setFormat(fmt);
-        context->create();
-        fmt.setSwapInterval(false);
-
-        child = new GGLWidgetInternal(this, shared_context.get());
+    case Settings::RendererBackend::OpenGL:
+        if (!InitializeOpenGL())
+            return false;
         break;
-    }
-    case Settings::RendererBackend::Vulkan: {
-        instance = new QVulkanInstance();
-        instance->setApiVersion(QVersionNumber(1, 1, 0));
-        instance->setFlags(QVulkanInstance::Flag::NoDebugOutputRedirect);
-        if (Settings::values.renderer_debug) {
-            const auto supported_layers = instance->supportedLayers();
-            const bool found = std::find_if(
-                supported_layers.begin(), supported_layers.end(), [](const auto& layer) {
-                    constexpr const char searched_layer[] = "VK_LAYER_LUNARG_standard_validation";
-                    return layer.name == searched_layer;
-                });
-            if (found) {
-                instance->setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
-                instance->setExtensions(QByteArrayList() << VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-            }
-        }
-        if (!instance->create()) {
-            abort();
-        }
-
-        child = new GVKWidgetInternal(this, instance);
+    case Settings::RendererBackend::Vulkan:
+        if (!InitializeVulkan())
+            return false;
         break;
-    }
     }
 
     container = QWidget::createWindowContainer(child, this);
@@ -489,6 +467,14 @@ void GRenderWindow::InitRenderTarget() {
     NotifyClientAreaSizeChanged(child->GetSize());
 
     BackupGeometry();
+
+    if (Settings::values.renderer_backend == Settings::RendererBackend::OpenGL) {
+        if (!LoadOpenGL()) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 void GRenderWindow::CaptureScreenshot(u16 res_scale, const QString& screenshot_path) {
@@ -510,6 +496,108 @@ void GRenderWindow::CaptureScreenshot(u16 res_scale, const QString& screenshot_p
 void GRenderWindow::OnMinimalClientAreaChangeRequest(
     const std::pair<unsigned, unsigned>& minimal_size) {
     setMinimumSize(minimal_size.first, minimal_size.second);
+}
+
+bool GRenderWindow::InitializeOpenGL() {
+    // TODO: One of these flags might be interesting: WA_OpaquePaintEvent, WA_NoBackground,
+    // WA_DontShowOnScreen, WA_DeleteOnClose
+    QSurfaceFormat fmt;
+    fmt.setVersion(4, 3);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    // TODO: expose a setting for buffer value (ie default/single/double/triple)
+    fmt.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
+    shared_context = std::make_unique<QOpenGLContext>();
+    shared_context->setFormat(fmt);
+    shared_context->create();
+    context = std::make_unique<QOpenGLContext>();
+    context->setShareContext(shared_context.get());
+    context->setFormat(fmt);
+    context->create();
+    fmt.setSwapInterval(false);
+
+    child = new GGLWidgetInternal(this, shared_context.get());
+    return true;
+}
+
+bool GRenderWindow::InitializeVulkan() {
+#ifdef ENABLE_VULKAN
+    instance = new QVulkanInstance();
+    instance->setApiVersion(QVersionNumber(1, 1, 0));
+    instance->setFlags(QVulkanInstance::Flag::NoDebugOutputRedirect);
+    if (Settings::values.renderer_debug) {
+        const auto supported_layers = instance->supportedLayers();
+        const bool found =
+            std::find_if(supported_layers.begin(), supported_layers.end(), [](const auto& layer) {
+                constexpr const char searched_layer[] = "VK_LAYER_LUNARG_standard_validation";
+                return layer.name == searched_layer;
+            });
+        if (found) {
+            instance->setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
+            instance->setExtensions(QByteArrayList() << VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+        }
+    }
+    if (!instance->create()) {
+        QMessageBox::critical(
+            this, tr("Error while initializing Vulkan 1.1!"),
+            tr("Your OS doesn't seem to support Vulkan 1.1 instances, or you do not have the "
+               "latest graphics drivers."));
+        return false;
+    }
+
+    child = new GVKWidgetInternal(this, instance);
+    return true;
+#else
+    QMessageBox::critical(this, tr("Vulkan not available!"),
+                          tr("yuzu has not been compiled with Vulkan support."));
+    return false;
+#endif
+}
+
+bool GRenderWindow::LoadOpenGL() {
+    Core::Frontend::ScopeAcquireWindowContext acquire_context{*this};
+    if (!gladLoadGL()) {
+        QMessageBox::critical(this, tr("Error while initializing OpenGL 4.3 Core!"),
+                              tr("Your GPU may not support OpenGL 4.3, or you do not have the "
+                                 "latest graphics driver."));
+        return false;
+    }
+
+    QStringList unsupported_gl_extensions = GetUnsupportedGLExtensions();
+    if (!unsupported_gl_extensions.empty()) {
+        QMessageBox::critical(
+            this, tr("Error while initializing OpenGL Core!"),
+            tr("Your GPU may not support one or more required OpenGL extensions. Please ensure you "
+               "have the latest graphics driver.<br><br>Unsupported extensions:<br>") +
+                unsupported_gl_extensions.join("<br>"));
+        return false;
+    }
+    return true;
+}
+
+QStringList GRenderWindow::GetUnsupportedGLExtensions() const {
+    QStringList unsupported_ext;
+
+    if (!GLAD_GL_ARB_direct_state_access)
+        unsupported_ext.append("ARB_direct_state_access");
+    if (!GLAD_GL_ARB_vertex_type_10f_11f_11f_rev)
+        unsupported_ext.append("ARB_vertex_type_10f_11f_11f_rev");
+    if (!GLAD_GL_ARB_texture_mirror_clamp_to_edge)
+        unsupported_ext.append("ARB_texture_mirror_clamp_to_edge");
+    if (!GLAD_GL_ARB_multi_bind)
+        unsupported_ext.append("ARB_multi_bind");
+
+    // Extensions required to support some texture formats.
+    if (!GLAD_GL_EXT_texture_compression_s3tc)
+        unsupported_ext.append("EXT_texture_compression_s3tc");
+    if (!GLAD_GL_ARB_texture_compression_rgtc)
+        unsupported_ext.append("ARB_texture_compression_rgtc");
+    if (!GLAD_GL_ARB_depth_buffer_float)
+        unsupported_ext.append("ARB_depth_buffer_float");
+
+    for (const QString& ext : unsupported_ext)
+        LOG_CRITICAL(Frontend, "Unsupported GL extension: {}", ext.toStdString());
+
+    return unsupported_ext;
 }
 
 void GRenderWindow::OnEmulationStarting(EmuThread* emu_thread) {
