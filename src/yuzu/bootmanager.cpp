@@ -251,7 +251,7 @@ bool GRenderWindow::IsShown() const {
 
 void GRenderWindow::RetrieveVulkanHandlers(void** get_instance_proc_addr, void** instance,
                                            void** surface) const {
-#ifdef ENABLE_VULKAN
+#ifdef HAS_VULKAN
     *get_instance_proc_addr =
         static_cast<void*>(this->instance->getInstanceProcAddr("vkGetInstanceProcAddr"));
     *instance = static_cast<void*>(this->instance->vkInstance());
@@ -504,7 +504,7 @@ bool GRenderWindow::InitializeOpenGL() {
     QSurfaceFormat fmt;
     fmt.setVersion(4, 3);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
-    // TODO: expose a setting for buffer value (ie default/single/double/triple)
+    // TODO: Expose a setting for buffer value (ie default/single/double/triple)
     fmt.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
     shared_context = std::make_unique<QOpenGLContext>();
     shared_context->setFormat(fmt);
@@ -520,12 +520,12 @@ bool GRenderWindow::InitializeOpenGL() {
 }
 
 bool GRenderWindow::InitializeVulkan() {
-#ifdef ENABLE_VULKAN
+#ifdef HAS_VULKAN
     instance = new QVulkanInstance();
     instance->setApiVersion(QVersionNumber(1, 1, 0));
     instance->setFlags(QVulkanInstance::Flag::NoDebugOutputRedirect);
     if (Settings::values.renderer_debug) {
-        const auto supported_layers = instance->supportedLayers();
+        const auto supported_layers{instance->supportedLayers()};
         const bool found =
             std::find_if(supported_layers.begin(), supported_layers.end(), [](const auto& layer) {
                 constexpr const char searched_layer[] = "VK_LAYER_LUNARG_standard_validation";
