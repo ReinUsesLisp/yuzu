@@ -135,7 +135,7 @@ protected:
     }
 
     /// Register an object into the cache
-    void Register(const T& object) {
+    virtual void Register(const T& object) {
         std::lock_guard<std::recursive_mutex> lock{mutex};
 
         object->SetIsRegistered(true);
@@ -145,7 +145,7 @@ protected:
     }
 
     /// Unregisters an object from the cache
-    void Unregister(const T& object) {
+    virtual void Unregister(const T& object) {
         std::lock_guard<std::recursive_mutex> lock{mutex};
 
         object->SetIsRegistered(false);

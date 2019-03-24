@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstring>
 
+#include "common/file_util.h"
 #include "common/hex_util.h"
 #include "common/logging/log.h"
 #include "core/file_sys/content_archive.h"
@@ -19,6 +20,7 @@
 #include "core/file_sys/vfs_vector.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/loader/loader.h"
+#include "core/loader/nso.h"
 #include "core/settings.h"
 
 namespace FileSys {
@@ -30,14 +32,6 @@ constexpr std::array<const char*, 14> EXEFS_FILE_NAMES{
     "main",    "main.npdm", "rtld",    "sdk",     "subsdk0", "subsdk1", "subsdk2",
     "subsdk3", "subsdk4",   "subsdk5", "subsdk6", "subsdk7", "subsdk8", "subsdk9",
 };
-
-struct NSOBuildHeader {
-    u32_le magic;
-    INSERT_PADDING_BYTES(0x3C);
-    std::array<u8, 0x20> build_id;
-    INSERT_PADDING_BYTES(0xA0);
-};
-static_assert(sizeof(NSOBuildHeader) == 0x100, "NSOBuildHeader has incorrect size.");
 
 std::string FormatTitleVersion(u32 version, TitleVersionFormat format) {
     std::array<u8, sizeof(u32)> bytes{};
@@ -162,14 +156,16 @@ std::vector<VirtualFile> PatchManager::CollectPatches(const std::vector<VirtualD
 }
 
 std::vector<u8> PatchManager::PatchNSO(const std::vector<u8>& nso) const {
-    if (nso.size() < 0x100)
+    if (nso.size() < sizeof(Loader::NSOHeader)) {
         return nso;
+    }
 
-    NSOBuildHeader header;
-    std::memcpy(&header, nso.data(), sizeof(NSOBuildHeader));
+    Loader::NSOHeader header;
+    std::memcpy(&header, nso.data(), sizeof(header));
 
-    if (header.magic != Common::MakeMagic('N', 'S', 'O', '0'))
+    if (header.magic != Common::MakeMagic('N', 'S', 'O', '0')) {
         return nso;
+    }
 
     const auto build_id_raw = Common::HexArrayToString(header.build_id);
     const auto build_id = build_id_raw.substr(0, build_id_raw.find_last_not_of('0') + 1);
@@ -212,9 +208,11 @@ std::vector<u8> PatchManager::PatchNSO(const std::vector<u8>& nso) const {
         }
     }
 
-    if (out.size() < 0x100)
+    if (out.size() < sizeof(Loader::NSOHeader)) {
         return nso;
-    std::memcpy(out.data(), &header, sizeof(NSOBuildHeader));
+    }
+
+    std::memcpy(out.data(), &header, sizeof(header));
     return out;
 }
 
@@ -230,6 +228,57 @@ bool PatchManager::HasNSOPatch(const std::array<u8, 32>& build_id_) const {
               [](const VirtualDir& l, const VirtualDir& r) { return l->GetName() < r->GetName(); });
 
     return !CollectPatches(patch_dirs, build_id).empty();
+}
+
+static std::optional<CheatList> ReadCheatFileFromFolder(const Core::System& system, u64 title_id,
+                                                        const std::array<u8, 0x20>& build_id_,
+                                                        const VirtualDir& base_path, bool upper) {
+    const auto build_id_raw = Common::HexArrayToString(build_id_, upper);
+    const auto build_id = build_id_raw.substr(0, sizeof(u64) * 2);
+    const auto file = base_path->GetFile(fmt::format("{}.txt", build_id));
+
+    if (file == nullptr) {
+        LOG_INFO(Common_Filesystem, "No cheats file found for title_id={:016X}, build_id={}",
+                 title_id, build_id);
+        return std::nullopt;
+    }
+
+    std::vector<u8> data(file->GetSize());
+    if (file->Read(data.data(), data.size()) != data.size()) {
+        LOG_INFO(Common_Filesystem, "Failed to read cheats file for title_id={:016X}, build_id={}",
+                 title_id, build_id);
+        return std::nullopt;
+    }
+
+    TextCheatParser parser;
+    return parser.Parse(system, data);
+}
+
+std::vector<CheatList> PatchManager::CreateCheatList(const Core::System& system,
+                                                     const std::array<u8, 32>& build_id_) const {
+    const auto load_dir = Service::FileSystem::GetModificationLoadRoot(title_id);
+    auto patch_dirs = load_dir->GetSubdirectories();
+    std::sort(patch_dirs.begin(), patch_dirs.end(),
+              [](const VirtualDir& l, const VirtualDir& r) { return l->GetName() < r->GetName(); });
+
+    std::vector<CheatList> out;
+    out.reserve(patch_dirs.size());
+    for (const auto& subdir : patch_dirs) {
+        auto cheats_dir = subdir->GetSubdirectory("cheats");
+        if (cheats_dir != nullptr) {
+            auto res = ReadCheatFileFromFolder(system, title_id, build_id_, cheats_dir, true);
+            if (res.has_value()) {
+                out.push_back(std::move(*res));
+                continue;
+            }
+
+            res = ReadCheatFileFromFolder(system, title_id, build_id_, cheats_dir, false);
+            if (res.has_value())
+                out.push_back(std::move(*res));
+        }
+    }
+
+    return out;
 }
 
 static void ApplyLayeredFS(VirtualFile& romfs, u64 title_id, ContentRecordType type) {
@@ -403,6 +452,8 @@ std::map<std::string, std::string, std::less<>> PatchManager::GetPatchVersionNam
             }
             if (IsDirValidAndNonEmpty(mod->GetSubdirectory("romfs")))
                 AppendCommaIfNotEmpty(types, "LayeredFS");
+            if (IsDirValidAndNonEmpty(mod->GetSubdirectory("cheats")))
+                AppendCommaIfNotEmpty(types, "Cheats");
 
             if (types.empty())
                 continue;

@@ -7,13 +7,13 @@
 #include <array>
 #include <bitset>
 #include <cstddef>
-#include <memory>
 #include <string>
 #include <vector>
 #include <boost/container/static_vector.hpp>
 #include "common/common_types.h"
 #include "core/hle/kernel/address_arbiter.h"
 #include "core/hle/kernel/handle_table.h"
+#include "core/hle/kernel/mutex.h"
 #include "core/hle/kernel/process_capability.h"
 #include "core/hle/kernel/vm_manager.h"
 #include "core/hle/kernel/wait_object.h"
@@ -32,6 +32,8 @@ namespace Kernel {
 class KernelCore;
 class ResourceLimit;
 class Thread;
+
+struct CodeSet;
 
 struct AddressMapping {
     // Address and size must be page-aligned
@@ -63,46 +65,6 @@ enum class ProcessStatus {
     Exiting,
     Exited,
     DebugBreak,
-};
-
-struct CodeSet final {
-    struct Segment {
-        std::size_t offset = 0;
-        VAddr addr = 0;
-        u32 size = 0;
-    };
-
-    explicit CodeSet();
-    ~CodeSet();
-
-    Segment& CodeSegment() {
-        return segments[0];
-    }
-
-    const Segment& CodeSegment() const {
-        return segments[0];
-    }
-
-    Segment& RODataSegment() {
-        return segments[1];
-    }
-
-    const Segment& RODataSegment() const {
-        return segments[1];
-    }
-
-    Segment& DataSegment() {
-        return segments[2];
-    }
-
-    const Segment& DataSegment() const {
-        return segments[2];
-    }
-
-    std::shared_ptr<std::vector<u8>> memory;
-
-    std::array<Segment, 3> segments;
-    VAddr entrypoint = 0;
 };
 
 class Process final : public WaitObject {
@@ -163,6 +125,16 @@ public:
     /// Gets a const reference to the process' address arbiter.
     const AddressArbiter& GetAddressArbiter() const {
         return address_arbiter;
+    }
+
+    /// Gets a reference to the process' mutex lock.
+    Mutex& GetMutex() {
+        return mutex;
+    }
+
+    /// Gets a const reference to the process' mutex lock
+    const Mutex& GetMutex() const {
+        return mutex;
     }
 
     /// Gets the current status of the process
@@ -326,6 +298,11 @@ private:
 
     /// Per-process address arbiter.
     AddressArbiter address_arbiter;
+
+    /// The per-process mutex lock instance used for handling various
+    /// forms of services, such as lock arbitration, and condition
+    /// variable related facilities.
+    Mutex mutex;
 
     /// Random values for svcGetInfo RandomEntropy
     std::array<u64, RANDOM_ENTROPY_SIZE> random_entropy;

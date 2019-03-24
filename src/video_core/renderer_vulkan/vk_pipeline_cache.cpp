@@ -31,7 +31,7 @@ MICROPROFILE_DECLARE(Vulkan_PipelineCache);
 static constexpr std::size_t SETS_PER_POOL = 0x400;
 
 /// Gets the address for the specified shader stage program
-static Tegra::GPUVAddr GetShaderAddress(Core::System& system, Maxwell::ShaderProgram program) {
+static GPUVAddr GetShaderAddress(Core::System& system, Maxwell::ShaderProgram program) {
     const auto& gpu{Core::System::GetInstance().GPU().Maxwell3D()};
     const auto& shader_config{gpu.regs.shader_config[static_cast<std::size_t>(program)]};
     return gpu.regs.code_address.CodeAddress() + shader_config.offset;
@@ -279,8 +279,7 @@ CachedShader::CachedShader(Core::System& system, const VKDevice& device, VAddr c
             // VertexB is always enabled, so when VertexA is enabled, we have two vertex shaders.
             // Conventional HW does not support this, so we combine VertexA and VertexB into one
             // stage here.
-            const Tegra::GPUVAddr program_addr{
-                GetShaderAddress(system, Maxwell::ShaderProgram::VertexB)};
+            const GPUVAddr program_addr{GetShaderAddress(system, Maxwell::ShaderProgram::VertexB)};
             const auto host_ptr{system.GPU().MemoryManager().GetPointer(program_addr)};
             setup.SetProgramB(GetShaderCode(host_ptr));
             [[fallthrough]];
@@ -346,7 +345,7 @@ VKPipelineCache::GetShaders() {
         }
 
         auto& memory_manager{system.GPU().MemoryManager()};
-        const Tegra::GPUVAddr program_addr{GetShaderAddress(system, program)};
+        const GPUVAddr program_addr{GetShaderAddress(system, program)};
         const auto cpu_addr{*memory_manager.GpuToCpuAddress(program_addr)};
         const auto host_ptr{memory_manager.GetPointer(program_addr)};
         shader_addresses[index] = program_addr;

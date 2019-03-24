@@ -97,8 +97,8 @@ std::tuple<GlobalRegion, VKExecutionContext> VKGlobalCache::GetGlobalRegion(
     const auto& cbufs{gpu.Maxwell3D().state.shader_stages[static_cast<std::size_t>(stage)]};
     const auto addr{cbufs.const_buffers[descriptor.GetCbufIndex()].address +
                     descriptor.GetCbufOffset()};
-    const auto actual_addr{emu_memory_manager.Read64(addr)};
-    const auto size{emu_memory_manager.Read64(addr + 8)};
+    const auto actual_addr{emu_memory_manager.Read<u64>(addr)};
+    const auto size{emu_memory_manager.Read<u64>(addr + 8)};
 
     const auto host_ptr{emu_memory_manager.GetPointer(actual_addr)};
     GlobalRegion region = TryGet(host_ptr);

@@ -31,6 +31,8 @@ add_library(core STATIC
     file_sys/bis_factory.h
     file_sys/card_image.cpp
     file_sys/card_image.h
+    file_sys/cheat_engine.cpp
+    file_sys/cheat_engine.h
     file_sys/content_archive.cpp
     file_sys/content_archive.h
     file_sys/control_metadata.cpp
@@ -68,6 +70,8 @@ add_library(core STATIC
     file_sys/system_archive/ng_word.h
     file_sys/system_archive/system_archive.cpp
     file_sys/system_archive/system_archive.h
+    file_sys/system_archive/system_version.cpp
+    file_sys/system_archive/system_version.h
     file_sys/vfs.cpp
     file_sys/vfs.h
     file_sys/vfs_concat.cpp
@@ -107,6 +111,8 @@ add_library(core STATIC
     hle/kernel/client_port.h
     hle/kernel/client_session.cpp
     hle/kernel/client_session.h
+    hle/kernel/code_set.cpp
+    hle/kernel/code_set.h
     hle/kernel/errors.h
     hle/kernel/handle_table.cpp
     hle/kernel/handle_table.h
@@ -419,8 +425,6 @@ add_library(core STATIC
     loader/deconstructed_rom_directory.h
     loader/elf.cpp
     loader/elf.h
-    loader/linker.cpp
-    loader/linker.h
     loader/loader.cpp
     loader/loader.h
     loader/nax.cpp

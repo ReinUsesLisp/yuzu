@@ -40,8 +40,7 @@ VKBufferCache::VKBufferCache(Core::System& system, VideoCore::RasterizerInterfac
 
 VKBufferCache::~VKBufferCache() = default;
 
-u64 VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size, u64 alignment,
-                                bool cache) {
+u64 VKBufferCache::UploadMemory(GPUVAddr gpu_addr, std::size_t size, u64 alignment, bool cache) {
     const auto cpu_addr{system.GPU().MemoryManager().GpuToCpuAddress(gpu_addr)};
     ASSERT(cpu_addr);
 
