@@ -166,6 +166,8 @@ private:
     bool ConfirmClose();
     bool ConfirmChangeGame();
     void closeEvent(QCloseEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
 
 private slots:
     void OnStartGame();

@@ -1924,6 +1924,18 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     QWidget::closeEvent(event);
 }
 
+void GMainWindow::keyPressEvent(QKeyEvent* event) {
+    if (render_window) {
+        render_window->ForwardKeyPressEvent(event);
+    }
+}
+
+void GMainWindow::keyReleaseEvent(QKeyEvent* event) {
+    if (render_window) {
+        render_window->ForwardKeyReleaseEvent(event);
+    }
+}
+
 static bool IsSingleFileDropEvent(QDropEvent* event) {
     const QMimeData* mimeData = event->mimeData();
     return mimeData->hasUrls() && mimeData->urls().length() == 1;

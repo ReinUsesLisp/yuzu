@@ -135,6 +135,9 @@ public:
                                 void** surface) const override;
     std::unique_ptr<Core::Frontend::GraphicsContext> CreateSharedContext() const override;
 
+    void ForwardKeyPressEvent(QKeyEvent* event);
+    void ForwardKeyReleaseEvent(QKeyEvent* event);
+
     void BackupGeometry();
     void RestoreGeometry();
     void restoreGeometry(const QByteArray& geometry); // overridden

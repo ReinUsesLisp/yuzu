@@ -313,6 +313,18 @@ void GRenderWindow::OnFramebufferSizeChanged() {
     UpdateCurrentFramebufferLayout(size.first * pixelRatio, size.second * pixelRatio);
 }
 
+void GRenderWindow::ForwardKeyPressEvent(QKeyEvent* event) {
+    if (child) {
+        child->keyPressEvent(event);
+    }
+}
+
+void GRenderWindow::ForwardKeyReleaseEvent(QKeyEvent* event) {
+    if (child) {
+        child->keyReleaseEvent(event);
+    }
+}
+
 void GRenderWindow::BackupGeometry() {
     geometry = ((QWidget*)this)->saveGeometry();
 }
