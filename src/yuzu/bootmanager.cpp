@@ -462,6 +462,9 @@ bool GRenderWindow::InitRenderTarget() {
     layout->setMargin(0);
     setLayout(layout);
 
+    // Reset minimum required size to avoid resizing issues on the main window after restarting.
+    setMinimumSize(1, 1);
+
     // Show causes the window to actually be created and the gl context as well, but we don't want
     // the widget to be shown yet, so immediately hide it.
     show();
