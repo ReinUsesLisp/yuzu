@@ -22,8 +22,9 @@ class QTouchEvent;
 class QStringList;
 class QSurface;
 class QOpenGLContext;
+#ifdef HAS_VULKAN
 class QVulkanInstance;
-class QVulkanWindow;
+#endif
 
 class GWidgetInternal;
 class GGLWidgetInternal;
@@ -181,10 +182,7 @@ private:
     QStringList GetUnsupportedGLExtensions() const;
 
     QWidget* container = nullptr;
-
     GWidgetInternal* child = nullptr;
-
-    QByteArray geometry;
 
     EmuThread* emu_thread;
     // Context that backs the GGLWidgetInternal (and will be used by core to render)
@@ -193,11 +191,12 @@ private:
     // current
     std::unique_ptr<QOpenGLContext> shared_context;
 
-    QVulkanInstance* instance;
+    std::unique_ptr<QVulkanInstance> vk_instance;
 
     /// Temporary storage of the screenshot taken
     QImage screenshot_image;
 
+    QByteArray geometry;
     bool first_frame = false;
 
 protected:

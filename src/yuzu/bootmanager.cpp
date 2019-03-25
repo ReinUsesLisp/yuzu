@@ -237,6 +237,11 @@ GRenderWindow::GRenderWindow(QWidget* parent, EmuThread* emu_thread)
 
 GRenderWindow::~GRenderWindow() {
     InputCommon::Shutdown();
+
+    // Avoid an unordered destruction that generates a segfault
+    if (child) {
+        delete child;
+    }
 }
 
 void GRenderWindow::moveContext() {
@@ -292,9 +297,9 @@ void GRenderWindow::RetrieveVulkanHandlers(void** get_instance_proc_addr, void**
                                            void** surface) const {
 #ifdef HAS_VULKAN
     *get_instance_proc_addr =
-        static_cast<void*>(this->instance->getInstanceProcAddr("vkGetInstanceProcAddr"));
-    *instance = static_cast<void*>(this->instance->vkInstance());
-    *surface = this->instance->surfaceForWindow(child);
+        static_cast<void*>(vk_instance->getInstanceProcAddr("vkGetInstanceProcAddr"));
+    *instance = static_cast<void*>(vk_instance->vkInstance());
+    *surface = vk_instance->surfaceForWindow(child);
 #else
     UNREACHABLE_MSG("Executing Vulkan code without compiling Vulkan");
 #endif
@@ -534,22 +539,22 @@ bool GRenderWindow::InitializeOpenGL() {
 
 bool GRenderWindow::InitializeVulkan() {
 #ifdef HAS_VULKAN
-    instance = new QVulkanInstance();
-    instance->setApiVersion(QVersionNumber(1, 1, 0));
-    instance->setFlags(QVulkanInstance::Flag::NoDebugOutputRedirect);
+    vk_instance = std::make_unique<QVulkanInstance>();
+    vk_instance->setApiVersion(QVersionNumber(1, 1, 0));
+    vk_instance->setFlags(QVulkanInstance::Flag::NoDebugOutputRedirect);
     if (Settings::values.renderer_debug) {
-        const auto supported_layers{instance->supportedLayers()};
+        const auto supported_layers{vk_instance->supportedLayers()};
         const bool found =
             std::find_if(supported_layers.begin(), supported_layers.end(), [](const auto& layer) {
                 constexpr const char searched_layer[] = "VK_LAYER_LUNARG_standard_validation";
                 return layer.name == searched_layer;
             });
         if (found) {
-            instance->setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
-            instance->setExtensions(QByteArrayList() << VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+            vk_instance->setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
+            vk_instance->setExtensions(QByteArrayList() << VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
         }
     }
-    if (!instance->create()) {
+    if (!vk_instance->create()) {
         QMessageBox::critical(
             this, tr("Error while initializing Vulkan 1.1!"),
             tr("Your OS doesn't seem to support Vulkan 1.1 instances, or you do not have the "
@@ -557,7 +562,7 @@ bool GRenderWindow::InitializeVulkan() {
         return false;
     }
 
-    child = new GVKWidgetInternal(this, instance);
+    child = new GVKWidgetInternal(this, vk_instance.get());
     return true;
 #else
     QMessageBox::critical(this, tr("Vulkan not available!"),
