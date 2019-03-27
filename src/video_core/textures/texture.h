@@ -334,8 +334,8 @@ struct TSCEntry {
 
     std::array<float, 4> GetBorderColor() const {
         if (srgb_conversion) {
-            return {srgb_border_color_r / 255.0f, srgb_border_color_g / 255.0f,
-                    srgb_border_color_b / 255.0f, border_color[3]};
+            return {srgb_border_color_r / 253.0f, srgb_border_color_g / 253.0f,
+                    srgb_border_color_b / 253.0f, border_color[3]};
         }
         return border_color;
     }
