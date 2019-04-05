@@ -28,6 +28,7 @@
 #include "video_core/renderer_opengl/gl_shader_cache.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
 #include "video_core/renderer_opengl/gl_state.h"
+#include "video_core/renderer_opengl/gl_vertex_array_state.h"
 
 namespace Core {
 class System;
@@ -213,10 +214,12 @@ private:
     ScreenInfo& screen_info;
 
     std::unique_ptr<GLShader::ProgramManager> shader_program_manager;
+
     std::map<std::array<Tegra::Engines::Maxwell3D::Regs::VertexAttribute,
                         Tegra::Engines::Maxwell3D::Regs::NumVertexAttributes>,
-             OGLVertexArray>
+             OGLVertexArrayState>
         vertex_array_cache;
+    OGLVertexArrayState* last_vertex_array{};
 
     std::map<FramebufferCacheKey, OGLFramebuffer> framebuffer_cache;
     FramebufferConfigState current_framebuffer_config_state;
@@ -234,9 +237,9 @@ private:
     std::size_t CalculateIndexBufferSize() const;
 
     /// Updates and returns a vertex array object representing current vertex format
-    GLuint SetupVertexFormat();
+    OGLVertexArrayState& SetupVertexFormat();
 
-    void SetupVertexBuffer(GLuint vao);
+    void SetupVertexBuffer(OGLVertexArrayState& vao);
 
     DrawParameters SetupDraw();
 
