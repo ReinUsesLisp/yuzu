@@ -17,38 +17,45 @@ inline std::size_t GetGOBSize() {
 }
 
 /// Unswizzles a swizzled texture without changing its format.
-void UnswizzleTexture(u8* unswizzled_data, u8* address, u32 tile_size_x, u32 tile_size_y,
-                      u32 bytes_per_pixel, u32 width, u32 height, u32 depth,
-                      u32 block_height = TICEntry::DefaultBlockHeight,
-                      u32 block_depth = TICEntry::DefaultBlockHeight, u32 width_spacing = 0);
+void UnswizzleTexture(u8* unswizzled_data, u8* address, std::size_t tile_size_x,
+                      std::size_t tile_size_y, std::size_t bytes_per_pixel, std::size_t width,
+                      std::size_t height, std::size_t depth,
+                      std::size_t block_height = TICEntry::DefaultBlockHeight,
+                      std::size_t block_depth = TICEntry::DefaultBlockHeight,
+                      std::size_t width_spacing = 0);
 
 /// Unswizzles a swizzled texture without changing its format.
-std::vector<u8> UnswizzleTexture(u8* address, u32 tile_size_x, u32 tile_size_y, u32 bytes_per_pixel,
-                                 u32 width, u32 height, u32 depth,
-                                 u32 block_height = TICEntry::DefaultBlockHeight,
-                                 u32 block_depth = TICEntry::DefaultBlockHeight,
-                                 u32 width_spacing = 0);
+std::vector<u8> UnswizzleTexture(u8* address, std::size_t tile_size_x, std::size_t tile_size_y,
+                                 std::size_t bytes_per_pixel, std::size_t width, std::size_t height,
+                                 std::size_t depth,
+                                 std::size_t block_height = TICEntry::DefaultBlockHeight,
+                                 std::size_t block_depth = TICEntry::DefaultBlockHeight,
+                                 std::size_t width_spacing = 0);
 
 /// Copies texture data from a buffer and performs swizzling/unswizzling as necessary.
-void CopySwizzledData(u32 width, u32 height, u32 depth, u32 bytes_per_pixel,
-                      u32 out_bytes_per_pixel, u8* swizzled_data, u8* unswizzled_data,
-                      bool unswizzle, u32 block_height, u32 block_depth, u32 width_spacing);
+void CopySwizzledData(std::size_t width, std::size_t height, std::size_t depth,
+                      std::size_t bytes_per_pixel, std::size_t out_bytes_per_pixel,
+                      u8* swizzled_data, u8* unswizzled_data, bool unswizzle,
+                      std::size_t block_height, std::size_t block_depth, std::size_t width_spacing);
 
 /// Decodes an unswizzled texture into a A8R8G8B8 texture.
-std::vector<u8> DecodeTexture(const std::vector<u8>& texture_data, TextureFormat format, u32 width,
-                              u32 height);
+std::vector<u8> DecodeTexture(const std::vector<u8>& texture_data, TextureFormat format,
+                              std::size_t width, std::size_t height);
 
 /// This function calculates the correct size of a texture depending if it's tiled or not.
-std::size_t CalculateSize(bool tiled, u32 bytes_per_pixel, u32 width, u32 height, u32 depth,
-                          u32 block_height, u32 block_depth);
+std::size_t CalculateSize(bool tiled, std::size_t bytes_per_pixel, std::size_t width,
+                          std::size_t height, std::size_t depth, std::size_t block_height,
+                          std::size_t block_depth);
 
 /// Copies an untiled subrectangle into a tiled surface.
-void SwizzleSubrect(u32 subrect_width, u32 subrect_height, u32 source_pitch, u32 swizzled_width,
-                    u32 bytes_per_pixel, u8* swizzled_data, u8* unswizzled_data, u32 block_height);
+void SwizzleSubrect(std::size_t subrect_width, std::size_t subrect_height, std::size_t source_pitch,
+                    std::size_t swizzled_width, std::size_t bytes_per_pixel, u8* swizzled_data,
+                    u8* unswizzled_data, std::size_t block_height);
 
 /// Copies a tiled subrectangle into a linear surface.
-void UnswizzleSubrect(u32 subrect_width, u32 subrect_height, u32 dest_pitch, u32 swizzled_width,
-                      u32 bytes_per_pixel, u8* swizzled_data, u8* unswizzled_data, u32 block_height,
-                      u32 offset_x, u32 offset_y);
+void UnswizzleSubrect(std::size_t subrect_width, std::size_t subrect_height, std::size_t dest_pitch,
+                      std::size_t swizzled_width, std::size_t bytes_per_pixel, u8* swizzled_data,
+                      u8* unswizzled_data, std::size_t block_height, std::size_t offset_x,
+                      std::size_t offset_y);
 
 } // namespace Tegra::Texture

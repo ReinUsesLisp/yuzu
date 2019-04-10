@@ -9,10 +9,12 @@
 
 namespace Tegra::Texture {
 
-void ConvertFromGuestToHost(u8* data, VideoCore::Surface::PixelFormat pixel_format, u32 width,
-                            u32 height, u32 depth, bool convert_astc, bool convert_s8z24);
+void ConvertFromGuestToHost(u8* data, VideoCore::Surface::PixelFormat pixel_format,
+                            std::size_t width, std::size_t height, std::size_t depth,
+                            bool convert_astc, bool convert_s8z24);
 
-void ConvertFromHostToGuest(u8* data, VideoCore::Surface::PixelFormat pixel_format, u32 width,
-                            u32 height, u32 depth, bool convert_astc, bool convert_s8z24);
+void ConvertFromHostToGuest(u8* data, VideoCore::Surface::PixelFormat pixel_format,
+                            std::size_t width, std::size_t height, std::size_t depth,
+                            bool convert_astc, bool convert_s8z24);
 
 } // namespace Tegra::Texture

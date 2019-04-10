@@ -15,18 +15,20 @@ namespace VideoCore {
 using Surface::GetBytesPerPixel;
 using Surface::PixelFormat;
 
-using MortonCopyFn = void (*)(u32, u32, u32, u32, u32, u32, u8*, u8*);
+using MortonCopyFn = void (*)(std::size_t, std::size_t, std::size_t, std::size_t, std::size_t,
+                              std::size_t, u8*, u8*);
 using ConversionArray = std::array<MortonCopyFn, Surface::MaxPixelFormat>;
 
 template <bool morton_to_linear, PixelFormat format>
-static void MortonCopy(u32 stride, u32 block_height, u32 height, u32 block_depth, u32 depth,
-                       u32 tile_width_spacing, u8* buffer, u8* addr) {
-    constexpr u32 bytes_per_pixel = GetBytesPerPixel(format);
+static void MortonCopy(std::size_t stride, std::size_t block_height, std::size_t height,
+                       std::size_t block_depth, std::size_t depth, std::size_t tile_width_spacing,
+                       u8* buffer, u8* addr) {
+    constexpr std::size_t bytes_per_pixel = GetBytesPerPixel(format);
 
     // With the BCn formats (DXT and DXN), each 4x4 tile is swizzled instead of just individual
     // pixel values.
-    const u32 tile_size_x{GetDefaultBlockWidth(format)};
-    const u32 tile_size_y{GetDefaultBlockHeight(format)};
+    const std::size_t tile_size_x{GetDefaultBlockWidth(format)};
+    const std::size_t tile_size_y{GetDefaultBlockHeight(format)};
 
     if constexpr (morton_to_linear) {
         Tegra::Texture::UnswizzleTexture(buffer, addr, tile_size_x, tile_size_y, bytes_per_pixel,
@@ -186,9 +188,9 @@ static MortonCopyFn GetSwizzleFunction(MortonSwizzleMode mode, Surface::PixelFor
     return morton_to_linear_fns[static_cast<std::size_t>(format)];
 }
 
-static u32 MortonInterleave128(u32 x, u32 y) {
+static std::size_t MortonInterleave128(std::size_t x, std::size_t y) {
     // 128x128 Z-Order coordinate from 2D coordinates
-    static constexpr u32 xlut[] = {
+    static constexpr std::size_t xlut[] = {
         0x0000, 0x0001, 0x0002, 0x0003, 0x0008, 0x0009, 0x000a, 0x000b, 0x0040, 0x0041, 0x0042,
         0x0043, 0x0048, 0x0049, 0x004a, 0x004b, 0x0800, 0x0801, 0x0802, 0x0803, 0x0808, 0x0809,
         0x080a, 0x080b, 0x0840, 0x0841, 0x0842, 0x0843, 0x0848, 0x0849, 0x084a, 0x084b, 0x1000,
@@ -225,7 +227,7 @@ static u32 MortonInterleave128(u32 x, u32 y) {
         0x3043, 0x3048, 0x3049, 0x304a, 0x304b, 0x3800, 0x3801, 0x3802, 0x3803, 0x3808, 0x3809,
         0x380a, 0x380b, 0x3840, 0x3841, 0x3842, 0x3843, 0x3848, 0x3849, 0x384a, 0x384b,
     };
-    static constexpr u32 ylut[] = {
+    static constexpr std::size_t ylut[] = {
         0x0000, 0x0004, 0x0010, 0x0014, 0x0020, 0x0024, 0x0030, 0x0034, 0x0080, 0x0084, 0x0090,
         0x0094, 0x00a0, 0x00a4, 0x00b0, 0x00b4, 0x0100, 0x0104, 0x0110, 0x0114, 0x0120, 0x0124,
         0x0130, 0x0134, 0x0180, 0x0184, 0x0190, 0x0194, 0x01a0, 0x01a4, 0x01b0, 0x01b4, 0x0200,
@@ -265,37 +267,38 @@ static u32 MortonInterleave128(u32 x, u32 y) {
     return xlut[x % 128] + ylut[y % 128];
 }
 
-static u32 GetMortonOffset128(u32 x, u32 y, u32 bytes_per_pixel) {
+static std::size_t GetMortonOffset128(std::size_t x, std::size_t y, std::size_t bytes_per_pixel) {
     // Calculates the offset of the position of the pixel in Morton order
     // Framebuffer images are split into 128x128 tiles.
 
-    constexpr u32 block_height = 128;
-    const u32 coarse_x = x & ~127;
+    constexpr std::size_t block_height = 128;
+    const std::size_t coarse_x = x & ~127;
 
-    const u32 i = MortonInterleave128(x, y);
+    const std::size_t i = MortonInterleave128(x, y);
 
-    const u32 offset = coarse_x * block_height;
+    const std::size_t offset = coarse_x * block_height;
 
     return (i + offset) * bytes_per_pixel;
 }
 
-void MortonSwizzle(MortonSwizzleMode mode, Surface::PixelFormat format, u32 stride,
-                   u32 block_height, u32 height, u32 block_depth, u32 depth, u32 tile_width_spacing,
-                   u8* buffer, u8* addr) {
+void MortonSwizzle(MortonSwizzleMode mode, Surface::PixelFormat format, std::size_t stride,
+                   std::size_t block_height, std::size_t height, std::size_t block_depth,
+                   std::size_t depth, std::size_t tile_width_spacing, u8* buffer, u8* addr) {
     GetSwizzleFunction(mode, format)(stride, block_height, height, block_depth, depth,
                                      tile_width_spacing, buffer, addr);
 }
 
-void MortonCopyPixels128(MortonSwizzleMode mode, u32 width, u32 height, u32 bytes_per_pixel,
-                         u32 linear_bytes_per_pixel, u8* morton_data, u8* linear_data) {
+void MortonCopyPixels128(MortonSwizzleMode mode, std::size_t width, std::size_t height,
+                         std::size_t bytes_per_pixel, std::size_t linear_bytes_per_pixel,
+                         u8* morton_data, u8* linear_data) {
     const bool morton_to_linear = mode == MortonSwizzleMode::MortonToLinear;
     u8* data_ptrs[2];
-    for (u32 y = 0; y < height; ++y) {
-        for (u32 x = 0; x < width; ++x) {
-            const u32 coarse_y = y & ~127;
-            const u32 morton_offset =
+    for (std::size_t y = 0; y < height; ++y) {
+        for (std::size_t x = 0; x < width; ++x) {
+            const std::size_t coarse_y = y & ~127;
+            const std::size_t morton_offset =
                 GetMortonOffset128(x, y, bytes_per_pixel) + coarse_y * width * bytes_per_pixel;
-            const u32 linear_pixel_index = (x + y * width) * linear_bytes_per_pixel;
+            const std::size_t linear_pixel_index = (x + y * width) * linear_bytes_per_pixel;
 
             data_ptrs[morton_to_linear ? 1 : 0] = morton_data + morton_offset;
             data_ptrs[morton_to_linear ? 0 : 1] = &linear_data[linear_pixel_index];

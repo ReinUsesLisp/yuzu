@@ -28,7 +28,6 @@ namespace OpenGL {
 
 class CachedSurface;
 using Surface = std::shared_ptr<CachedSurface>;
-using SurfaceSurfaceRect_Tuple = std::tuple<Surface, Surface, Common::Rectangle<u32>>;
 
 using SurfaceTarget = VideoCore::Surface::SurfaceTarget;
 using SurfaceType = VideoCore::Surface::SurfaceType;
@@ -67,18 +66,18 @@ struct SurfaceParams {
         }
     }
 
-    u32 GetFormatBpp() const {
+    std::size_t GetFormatBpp() const {
         return VideoCore::Surface::GetFormatBpp(pixel_format);
     }
 
     /// Returns the rectangle corresponding to this surface
-    Common::Rectangle<u32> GetRect(u32 mip_level = 0) const;
+    Common::Rectangle<std::size_t> GetRect(std::size_t mip_level = 0) const;
 
     /// Returns the total size of this surface in bytes, adjusted for compression
     std::size_t SizeInBytesRaw(bool ignore_tiled = false) const {
-        const u32 compression_factor{GetCompressionFactor(pixel_format)};
-        const u32 bytes_per_pixel{GetBytesPerPixel(pixel_format)};
-        const size_t uncompressed_size{
+        const std::size_t compression_factor{GetCompressionFactor(pixel_format)};
+        const std::size_t bytes_per_pixel{GetBytesPerPixel(pixel_format)};
+        const std::size_t uncompressed_size{
             Tegra::Texture::CalculateSize((ignore_tiled ? false : is_tiled), bytes_per_pixel, width,
                                           height, depth, block_height, block_depth)};
 
@@ -121,67 +120,67 @@ struct SurfaceParams {
     }
 
     /// Returns the size of a layer of this surface in OpenGL.
-    std::size_t LayerSizeGL(u32 mip_level) const {
+    std::size_t LayerSizeGL(std::size_t mip_level) const {
         return InnerMipmapMemorySize(mip_level, true, is_layered, false);
     }
 
-    std::size_t GetMipmapSizeGL(u32 mip_level, bool ignore_compressed = true) const {
+    std::size_t GetMipmapSizeGL(std::size_t mip_level, bool ignore_compressed = true) const {
         std::size_t size = InnerMipmapMemorySize(mip_level, true, is_layered, ignore_compressed);
         if (is_layered)
             return size * depth;
         return size;
     }
 
-    std::size_t GetMipmapLevelOffset(u32 mip_level) const {
+    std::size_t GetMipmapLevelOffset(std::size_t mip_level) const {
         std::size_t offset = 0;
-        for (u32 i = 0; i < mip_level; i++)
+        for (std::size_t i = 0; i < mip_level; i++)
             offset += InnerMipmapMemorySize(i, false, is_layered);
         return offset;
     }
 
-    std::size_t GetMipmapLevelOffsetGL(u32 mip_level) const {
+    std::size_t GetMipmapLevelOffsetGL(std::size_t mip_level) const {
         std::size_t offset = 0;
-        for (u32 i = 0; i < mip_level; i++)
+        for (std::size_t i = 0; i < mip_level; i++)
             offset += InnerMipmapMemorySize(i, true, is_layered);
         return offset;
     }
 
-    std::size_t GetMipmapSingleSize(u32 mip_level) const {
+    std::size_t GetMipmapSingleSize(std::size_t mip_level) const {
         return InnerMipmapMemorySize(mip_level, false, is_layered);
     }
 
-    u32 MipWidth(u32 mip_level) const {
-        return std::max(1U, width >> mip_level);
+    std::size_t MipWidth(std::size_t mip_level) const {
+        return std::max(1ULL, width >> mip_level);
     }
 
-    u32 MipWidthGobAligned(u32 mip_level) const {
-        return Common::AlignUp(std::max(1U, width >> mip_level), 64U * 8U / GetFormatBpp());
+    std::size_t MipWidthGobAligned(std::size_t mip_level) const {
+        return Common::AlignUp(std::max(1ULL, width >> mip_level), 64ULL * 8ULL / GetFormatBpp());
     }
 
-    u32 MipHeight(u32 mip_level) const {
-        return std::max(1U, height >> mip_level);
+    std::size_t MipHeight(std::size_t mip_level) const {
+        return std::max(1ULL, height >> mip_level);
     }
 
-    u32 MipDepth(u32 mip_level) const {
-        return is_layered ? depth : std::max(1U, depth >> mip_level);
+    std::size_t MipDepth(std::size_t mip_level) const {
+        return is_layered ? depth : std::max(1ULL, depth >> mip_level);
     }
 
     // Auto block resizing algorithm from:
     // https://cgit.freedesktop.org/mesa/mesa/tree/src/gallium/drivers/nouveau/nv50/nv50_miptree.c
-    u32 MipBlockHeight(u32 mip_level) const {
+    std::size_t MipBlockHeight(std::size_t mip_level) const {
         if (mip_level == 0)
             return block_height;
-        u32 alt_height = MipHeight(mip_level);
-        u32 h = GetDefaultBlockHeight(pixel_format);
-        u32 blocks_in_y = (alt_height + h - 1) / h;
-        u32 bh = 16;
+        std::size_t alt_height = MipHeight(mip_level);
+        std::size_t h = GetDefaultBlockHeight(pixel_format);
+        std::size_t blocks_in_y = (alt_height + h - 1) / h;
+        std::size_t bh = 16;
         while (bh > 1 && blocks_in_y <= bh * 4) {
             bh >>= 1;
         }
         return bh;
     }
 
-    u32 MipBlockDepth(u32 mip_level) const {
+    std::size_t MipBlockDepth(std::size_t mip_level) const {
         if (mip_level == 0) {
             return block_depth;
         }
@@ -190,14 +189,14 @@ struct SurfaceParams {
             return 1;
         }
 
-        const u32 mip_depth = MipDepth(mip_level);
-        u32 bd = 32;
+        const std::size_t mip_depth = MipDepth(mip_level);
+        std::size_t bd = 32;
         while (bd > 1 && mip_depth * 2 <= bd) {
             bd >>= 1;
         }
 
         if (bd == 32) {
-            const u32 bh = MipBlockHeight(mip_level);
+            const std::size_t bh = MipBlockHeight(mip_level);
             if (bh >= 4) {
                 return 16;
             }
@@ -206,11 +205,10 @@ struct SurfaceParams {
         return bd;
     }
 
-    u32 RowAlign(u32 mip_level) const {
-        const u32 m_width = MipWidth(mip_level);
-        const u32 bytes_per_pixel = GetBytesPerPixel(pixel_format);
-        const u32 l2 = Common::CountTrailingZeroes32(m_width * bytes_per_pixel);
-        return (1U << l2);
+    std::size_t RowAlign(std::size_t mip_level) const {
+        const std::size_t m_width = MipWidth(mip_level);
+        const std::size_t bytes_per_pixel = GetBytesPerPixel(pixel_format);
+        return (1ULL << Common::CountTrailingZeroes64(m_width * bytes_per_pixel));
     }
 
     /// Creates SurfaceParams from a texture configuration
@@ -222,9 +220,9 @@ struct SurfaceParams {
 
     /// Creates SurfaceParams for a depth buffer configuration
     static SurfaceParams CreateForDepthBuffer(
-        u32 zeta_width, u32 zeta_height, GPUVAddr zeta_address, Tegra::DepthFormat format,
-        u32 block_width, u32 block_height, u32 block_depth,
-        Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
+        std::size_t zeta_width, std::size_t zeta_height, GPUVAddr zeta_address,
+        Tegra::DepthFormat format, std::size_t block_width, std::size_t block_height,
+        std::size_t block_depth, Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
 
     /// Creates SurfaceParams for a Fermi2D surface copy
     static SurfaceParams CreateForFermiCopySurface(
@@ -289,21 +287,21 @@ struct SurfaceParams {
     }
 
     bool is_tiled;
-    u32 block_width;
-    u32 block_height;
-    u32 block_depth;
-    u32 tile_width_spacing;
+    std::size_t block_width;
+    std::size_t block_height;
+    std::size_t block_depth;
+    std::size_t tile_width_spacing;
     PixelFormat pixel_format;
     ComponentType component_type;
     SurfaceType type;
-    u32 width;
-    u32 height;
-    u32 depth;
-    u32 unaligned_height;
-    u32 pitch;
+    std::size_t width;
+    std::size_t height;
+    std::size_t depth;
+    std::size_t unaligned_height;
+    std::size_t pitch;
     SurfaceTarget target;
     SurfaceClass identity;
-    u32 max_mip_level;
+    std::size_t max_mip_level;
     bool is_layered;
     bool is_array;
     bool srgb_conversion;
@@ -315,16 +313,16 @@ struct SurfaceParams {
 
     // Render target specific parameters, not used in caching
     struct {
-        u32 index;
-        u32 array_mode;
-        u32 volume;
-        u32 layer_stride;
-        u32 base_layer;
+        std::size_t index;
+        std::size_t array_mode;
+        std::size_t volume;
+        std::size_t layer_stride;
+        std::size_t base_layer;
     } rt;
 
 private:
-    std::size_t InnerMipmapMemorySize(u32 mip_level, bool force_gl = false, bool layer_only = false,
-                                      bool uncompressed = false) const;
+    std::size_t InnerMipmapMemorySize(std::size_t mip_level, bool force_gl = false,
+                                      bool layer_only = false, bool uncompressed = false) const;
     std::size_t InnerMemorySize(bool force_gl = false, bool layer_only = false,
                                 bool uncompressed = false) const;
 };
@@ -429,7 +427,7 @@ public:
     }
 
 private:
-    void UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle, GLuint draw_fb_handle);
+    void UploadGLMipmapTexture(std::size_t mip_map, GLuint read_fb_handle, GLuint draw_fb_handle);
 
     void EnsureTextureDiscrepantView();
 

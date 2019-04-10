@@ -18,7 +18,7 @@ namespace Tegra::Texture {
 using VideoCore::Surface::PixelFormat;
 
 template <bool reverse>
-void SwapS8Z24ToZ24S8(u8* data, u32 width, u32 height) {
+void SwapS8Z24ToZ24S8(u8* data, std::size_t width, std::size_t height) {
     union S8Z24 {
         BitField<0, 24, u32> z24;
         BitField<24, 8, u32> s8;
@@ -53,23 +53,23 @@ void SwapS8Z24ToZ24S8(u8* data, u32 width, u32 height) {
     }
 }
 
-static void ConvertS8Z24ToZ24S8(u8* data, u32 width, u32 height) {
+static void ConvertS8Z24ToZ24S8(u8* data, std::size_t width, std::size_t height) {
     SwapS8Z24ToZ24S8<false>(data, width, height);
 }
 
-static void ConvertZ24S8ToS8Z24(u8* data, u32 width, u32 height) {
+static void ConvertZ24S8ToS8Z24(u8* data, std::size_t width, std::size_t height) {
     SwapS8Z24ToZ24S8<true>(data, width, height);
 }
 
-void ConvertFromGuestToHost(u8* data, PixelFormat pixel_format, u32 width, u32 height, u32 depth,
-                            bool convert_astc, bool convert_s8z24) {
+void ConvertFromGuestToHost(u8* data, PixelFormat pixel_format, std::size_t width,
+                            std::size_t height, std::size_t depth, bool convert_astc,
+                            bool convert_s8z24) {
     if (convert_astc && IsPixelFormatASTC(pixel_format)) {
         // Convert ASTC pixel formats to RGBA8, as most desktop GPUs do not support ASTC.
-        u32 block_width{};
-        u32 block_height{};
-        std::tie(block_width, block_height) = GetASTCBlockSize(pixel_format);
-        const std::vector<u8> rgba8_data =
-            Tegra::Texture::ASTC::Decompress(data, width, height, depth, block_width, block_height);
+        const auto [block_width, block_height] = GetASTCBlockSize(pixel_format);
+        const std::vector<u8> rgba8_data = Tegra::Texture::ASTC::Decompress(
+            data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(depth),
+            static_cast<u32>(block_width), static_cast<u32>(block_height));
         std::copy(rgba8_data.begin(), rgba8_data.end(), data);
 
     } else if (convert_s8z24 && pixel_format == PixelFormat::S8Z24) {
@@ -77,8 +77,9 @@ void ConvertFromGuestToHost(u8* data, PixelFormat pixel_format, u32 width, u32 h
     }
 }
 
-void ConvertFromHostToGuest(u8* data, PixelFormat pixel_format, u32 width, u32 height, u32 depth,
-                            bool convert_astc, bool convert_s8z24) {
+void ConvertFromHostToGuest(u8* data, PixelFormat pixel_format, std::size_t width,
+                            std::size_t height, std::size_t depth, bool convert_astc,
+                            bool convert_s8z24) {
     if (convert_astc && IsPixelFormatASTC(pixel_format)) {
         LOG_CRITICAL(HW_GPU, "Conversion of format {} after texture flushing is not implemented",
                      static_cast<u32>(pixel_format));

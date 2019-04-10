@@ -122,7 +122,7 @@ enum class SurfaceTarget {
     TextureCubeArray,
 };
 
-constexpr std::array<u32, MaxPixelFormat> compression_factor_table = {{
+constexpr std::array<std::size_t, MaxPixelFormat> compression_factor_table = {{
     1, // ABGR8U
     1, // ABGR8S
     1, // ABGR8UI
@@ -195,7 +195,7 @@ constexpr std::array<u32, MaxPixelFormat> compression_factor_table = {{
  * compressed image. This is used for maintaining proper surface sizes for compressed
  * texture formats.
  */
-static constexpr u32 GetCompressionFactor(PixelFormat format) {
+static constexpr std::size_t GetCompressionFactor(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
@@ -203,7 +203,7 @@ static constexpr u32 GetCompressionFactor(PixelFormat format) {
     return compression_factor_table[static_cast<std::size_t>(format)];
 }
 
-constexpr std::array<u32, MaxPixelFormat> block_width_table = {{
+constexpr std::array<std::size_t, MaxPixelFormat> block_width_table = {{
     1,  // ABGR8U
     1,  // ABGR8S
     1,  // ABGR8UI
@@ -270,7 +270,7 @@ constexpr std::array<u32, MaxPixelFormat> block_width_table = {{
     1,  // Z32FS8
 }};
 
-static constexpr u32 GetDefaultBlockWidth(PixelFormat format) {
+static constexpr std::size_t GetDefaultBlockWidth(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
@@ -278,7 +278,7 @@ static constexpr u32 GetDefaultBlockWidth(PixelFormat format) {
     return block_width_table[static_cast<std::size_t>(format)];
 }
 
-constexpr std::array<u32, MaxPixelFormat> block_height_table = {{
+constexpr std::array<std::size_t, MaxPixelFormat> block_height_table = {{
     1, // ABGR8U
     1, // ABGR8S
     1, // ABGR8UI
@@ -345,7 +345,7 @@ constexpr std::array<u32, MaxPixelFormat> block_height_table = {{
     1, // Z32FS8
 }};
 
-static constexpr u32 GetDefaultBlockHeight(PixelFormat format) {
+static constexpr std::size_t GetDefaultBlockHeight(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
@@ -353,7 +353,7 @@ static constexpr u32 GetDefaultBlockHeight(PixelFormat format) {
     return block_height_table[static_cast<std::size_t>(format)];
 }
 
-constexpr std::array<u32, MaxPixelFormat> bpp_table = {{
+constexpr std::array<std::size_t, MaxPixelFormat> bpp_table = {{
     32,  // ABGR8U
     32,  // ABGR8S
     32,  // ABGR8UI
@@ -420,7 +420,7 @@ constexpr std::array<u32, MaxPixelFormat> bpp_table = {{
     64,  // Z32FS8
 }};
 
-static constexpr u32 GetFormatBpp(PixelFormat format) {
+static constexpr std::size_t GetFormatBpp(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
@@ -429,7 +429,7 @@ static constexpr u32 GetFormatBpp(PixelFormat format) {
 }
 
 /// Returns the sizer in bytes of the specified pixel format
-static constexpr u32 GetBytesPerPixel(PixelFormat pixel_format) {
+static constexpr std::size_t GetBytesPerPixel(PixelFormat pixel_format) {
     if (pixel_format == PixelFormat::Invalid) {
         return 0;
     }
@@ -462,7 +462,7 @@ SurfaceType GetFormatType(PixelFormat pixel_format);
 
 bool IsPixelFormatASTC(PixelFormat format);
 
-std::pair<u32, u32> GetASTCBlockSize(PixelFormat format);
+std::pair<std::size_t, std::size_t> GetASTCBlockSize(PixelFormat format);
 
 /// Returns true if the specified PixelFormat is a BCn format, e.g. DXT or DXN
 bool IsFormatBCn(PixelFormat format);

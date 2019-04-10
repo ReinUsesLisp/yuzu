@@ -11,11 +11,13 @@ namespace VideoCore {
 
 enum class MortonSwizzleMode { MortonToLinear, LinearToMorton };
 
-void MortonSwizzle(MortonSwizzleMode mode, VideoCore::Surface::PixelFormat format, u32 stride,
-                   u32 block_height, u32 height, u32 block_depth, u32 depth, u32 tile_width_spacing,
+void MortonSwizzle(MortonSwizzleMode mode, VideoCore::Surface::PixelFormat format,
+                   std::size_t stride, std::size_t block_height, std::size_t height,
+                   std::size_t block_depth, std::size_t depth, std::size_t tile_width_spacing,
                    u8* buffer, u8* addr);
 
-void MortonCopyPixels128(MortonSwizzleMode mode, u32 width, u32 height, u32 bytes_per_pixel,
-                         u32 linear_bytes_per_pixel, u8* morton_data, u8* linear_data);
+void MortonCopyPixels128(MortonSwizzleMode mode, std::size_t width, std::size_t height,
+                         std::size_t bytes_per_pixel, std::size_t linear_bytes_per_pixel,
+                         u8* morton_data, u8* linear_data);
 
 } // namespace VideoCore

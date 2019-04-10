@@ -141,8 +141,8 @@ union TextureHandle {
 static_assert(sizeof(TextureHandle) == 4, "TextureHandle has wrong size");
 
 struct TICEntry {
-    static constexpr u32 DefaultBlockHeight = 16;
-    static constexpr u32 DefaultBlockDepth = 1;
+    static constexpr std::size_t DefaultBlockHeight = 16;
+    static constexpr std::size_t DefaultBlockDepth = 1;
 
     union {
         u32 raw;
@@ -349,6 +349,6 @@ struct FullTextureInfo {
 };
 
 /// Returns the number of bytes per pixel of the input texture format.
-u32 BytesPerPixel(TextureFormat format);
+std::size_t BytesPerPixel(TextureFormat format);
 
 } // namespace Tegra::Texture
