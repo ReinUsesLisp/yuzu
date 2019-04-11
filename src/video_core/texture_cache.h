@@ -167,6 +167,9 @@ public:
     /// Returns the offset in bytes in host memory (linear) of a given mipmap level.
     std::size_t GetHostMipmapLevelOffset(u32 level) const;
 
+    /// Returns the size in bytes in host memory (linear) of a given mipmap level.
+    std::size_t GetHostMipmapSize(u32 level) const;
+
     /// Returns the size of a layer in bytes in guest memory.
     std::size_t GetGuestLayerSize() const;
 

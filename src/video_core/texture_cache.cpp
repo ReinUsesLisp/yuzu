@@ -205,6 +205,10 @@ std::size_t SurfaceParams::GetHostMipmapLevelOffset(u32 level) const {
     return offset;
 }
 
+std::size_t SurfaceParams::GetHostMipmapSize(u32 level) const {
+    return GetInnerMipmapMemorySize(level, true, false, false);
+}
+
 std::size_t SurfaceParams::GetGuestLayerSize() const {
     return GetInnerMemorySize(false, true, false);
 }
