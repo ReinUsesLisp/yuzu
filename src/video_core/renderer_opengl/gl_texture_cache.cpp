@@ -14,6 +14,7 @@
 namespace OpenGL {
 
 using Tegra::Texture::ConvertFromGuestToHost;
+using Tegra::Texture::SwizzleSource;
 using VideoCore::MortonSwizzleMode;
 
 namespace {
@@ -30,7 +31,7 @@ constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex_format
     {GL_RGBA8, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, ComponentType::UNorm, false}, // ABGR8U
     {GL_RGBA8, GL_RGBA, GL_BYTE, ComponentType::SNorm, false},                     // ABGR8S
     {GL_RGBA8UI, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, ComponentType::UInt, false},   // ABGR8UI
-    {GL_RGB8, GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV, ComponentType::UNorm, false},   // B5G6R5U
+    {GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV, ComponentType::UNorm, false}, // B5G6R5U
     {GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, ComponentType::UNorm,
      false}, // A2B10G10R10U
     {GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, ComponentType::UNorm, false}, // A1B5G5R5U
@@ -159,8 +160,7 @@ GLenum GetTextureViewTarget(const SurfaceParams& params, const ViewKey& key, boo
         case SurfaceTarget::TextureCubeArray:
             return GL_TEXTURE_CUBE_MAP_ARRAY;
         case SurfaceTarget::Texture3D:
-            UNREACHABLE_MSG("Tegra has no arrayed 3D textures");
-            return GL_NONE;
+            return GL_TEXTURE_3D;
         default:
             UNREACHABLE();
             return GL_NONE;
@@ -169,20 +169,41 @@ GLenum GetTextureViewTarget(const SurfaceParams& params, const ViewKey& key, boo
         switch (params.GetTarget()) {
         case SurfaceTarget::Texture1D:
         case SurfaceTarget::Texture1DArray:
-            return GL_TEXTURE_1D_ARRAY;
+            return GL_TEXTURE_1D;
         case SurfaceTarget::Texture2D:
         case SurfaceTarget::Texture2DArray:
-            return GL_TEXTURE_2D_ARRAY;
+            return GL_TEXTURE_2D;
         case SurfaceTarget::TextureCubemap:
         case SurfaceTarget::TextureCubeArray:
-            return GL_TEXTURE_CUBE_MAP_ARRAY;
+            return GL_TEXTURE_CUBE_MAP;
         case SurfaceTarget::Texture3D:
-            return GL_TEXTURE_3D;
+            UNREACHABLE_MSG("Tegra has no arrayed 3D textures");
+            return GL_NONE;
         default:
             UNREACHABLE();
             return GL_NONE;
         }
     }
+}
+
+GLint GetSwizzleSource(SwizzleSource source) {
+    switch (source) {
+    case SwizzleSource::Zero:
+        return GL_ZERO;
+    case SwizzleSource::R:
+        return GL_RED;
+    case SwizzleSource::G:
+        return GL_GREEN;
+    case SwizzleSource::B:
+        return GL_BLUE;
+    case SwizzleSource::A:
+        return GL_ALPHA;
+    case SwizzleSource::OneInt:
+    case SwizzleSource::OneFloat:
+        return GL_ONE;
+    }
+    UNREACHABLE();
+    return GL_NONE;
 }
 
 void ApplyTextureDefaults(const SurfaceParams& params, GLuint texture) {
@@ -253,13 +274,15 @@ void SwizzleFunc(MortonSwizzleMode mode, u8* memory, const SurfaceParams& params
 
 } // Anonymous namespace
 
-CachedSurface::CachedSurface(const SurfaceParams& params) : SurfaceBase{params} {
+CachedSurface::CachedSurface(const SurfaceParams& params)
+    : VideoCommon::SurfaceBaseContextless<CachedSurfaceView>{params} {
     const auto& tuple{GetFormatTuple(params.GetPixelFormat(), params.GetComponentType())};
     internal_format = tuple.internal_format;
     format = tuple.format;
     type = tuple.type;
     is_compressed = tuple.compressed;
     texture = CreateTexture(params, internal_format);
+    staging_buffer.resize(params.GetHostSizeInBytes());
 }
 
 CachedSurface::~CachedSurface() = default;
@@ -296,9 +319,9 @@ void CachedSurface::LoadBuffer() {
     }
 }
 
-EmptyStruct CachedSurface::FlushBuffer(EmptyStruct) {
+void CachedSurface::FlushBufferImpl() {
     if (!IsModified()) {
-        return {};
+        return;
     }
 
     for (u32 level = 0; level < params.GetNumLevels(); ++level) {
@@ -335,14 +358,12 @@ EmptyStruct CachedSurface::FlushBuffer(EmptyStruct) {
         }
         */
     }
-    return {};
 }
 
-EmptyStruct CachedSurface::UploadTexture(EmptyStruct) {
+void CachedSurface::UploadTextureImpl() {
     for (u32 level = 0; level < params.GetNumLevels(); ++level) {
         UploadTextureMipmap(level);
     }
-    return {};
 }
 
 void CachedSurface::UploadTextureMipmap(u32 level) {
@@ -422,33 +443,59 @@ void CachedSurface::UploadTextureMipmap(u32 level) {
     }
 }
 
-std::unique_ptr<CachedView> CachedSurface::CreateView(const ViewKey& view_key) {
-    return std::make_unique<CachedView>(*this, view_key);
+std::unique_ptr<CachedSurfaceView> CachedSurface::CreateView(const ViewKey& view_key) {
+    return std::make_unique<CachedSurfaceView>(*this, view_key);
 }
 
-CachedView::CachedView(CachedSurface& surface, ViewKey key)
+CachedSurfaceView::CachedSurfaceView(CachedSurface& surface, ViewKey key)
     : surface{surface}, key{key}, params{surface.GetSurfaceParams()} {}
 
-CachedView::~CachedView() = default;
+CachedSurfaceView::~CachedSurfaceView() = default;
 
-GLuint CachedView::GetTexture(bool is_array) {
-    OGLTexture& texture = is_array ? arrayed_texture : normal_texture;
-    if (texture.handle == 0) {
-        texture = CreateTexture(is_array);
+GLuint CachedSurfaceView::GetTexture() {
+    if (normal_texture.texture.handle == 0) {
+        normal_texture = CreateTexture(false);
     }
-    return texture.handle;
+    return normal_texture.texture.handle;
 }
 
-OGLTexture CachedView::CreateTexture(bool is_array) const {
+GLuint CachedSurfaceView::GetTexture(bool is_array, SwizzleSource x_source, SwizzleSource y_source,
+                                     SwizzleSource z_source, SwizzleSource w_source) {
+    auto& texture_view{is_array ? arrayed_texture : normal_texture};
+    if (texture_view.texture.handle == 0) {
+        texture_view = std::move(CreateTexture(is_array));
+    }
+    ApplySwizzle(texture_view, x_source, y_source, z_source, w_source);
+    return texture_view.texture.handle;
+}
+
+void CachedSurfaceView::ApplySwizzle(TextureView& texture_view, SwizzleSource x_source,
+                                     SwizzleSource y_source, SwizzleSource z_source,
+                                     SwizzleSource w_source) {
+    const std::array<SwizzleSource, 4> swizzle = {x_source, y_source, z_source, w_source};
+    if (swizzle == texture_view.swizzle) {
+        return;
+    }
+    const std::array<GLint, 4> gl_swizzle = {GetSwizzleSource(x_source), GetSwizzleSource(y_source),
+                                             GetSwizzleSource(z_source),
+                                             GetSwizzleSource(w_source)};
+    glTextureParameteriv(texture_view.texture.handle, GL_TEXTURE_SWIZZLE_RGBA, gl_swizzle.data());
+    texture_view.swizzle = swizzle;
+}
+
+CachedSurfaceView::TextureView CachedSurfaceView::CreateTexture(bool is_array) const {
+    TextureView texture_view;
+    glGenTextures(1, &texture_view.texture.handle);
+
+    const GLuint handle{texture_view.texture.handle};
     const FormatTuple& tuple{GetFormatTuple(params.GetPixelFormat(), params.GetComponentType())};
 
-    OGLTexture texture;
-    glGenTextures(1, &texture.handle);
-    glTextureView(texture.handle, GetTextureViewTarget(params, key, is_array),
-                  surface.texture.handle, tuple.internal_format, key.base_level, key.num_levels,
-                  key.base_layer, key.num_layers);
-    ApplyTextureDefaults(params, texture.handle);
-    return texture;
+    glTextureView(handle, GetTextureViewTarget(params, key, is_array), surface.texture.handle,
+                  tuple.internal_format, key.base_level, key.num_levels, key.base_layer,
+                  key.num_layers);
+    ApplyTextureDefaults(params, handle);
+
+    return texture_view;
 }
 
 TextureCacheOpenGL::TextureCacheOpenGL(Core::System& system,
@@ -457,10 +504,10 @@ TextureCacheOpenGL::TextureCacheOpenGL(Core::System& system,
 
 TextureCacheOpenGL::~TextureCacheOpenGL() = default;
 
-std::tuple<CachedView*, EmptyStruct> TextureCacheOpenGL::TryFastGetSurfaceView(
-    EmptyStruct, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params, bool preserve_contents,
+CachedSurfaceView* TextureCacheOpenGL::TryFastGetSurfaceView(
+    VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params, bool preserve_contents,
     const std::vector<CachedSurface*>& overlaps) {
-    return {{}, {}};
+    return nullptr;
 }
 
 std::unique_ptr<CachedSurface> TextureCacheOpenGL::CreateSurface(const SurfaceParams& params) {

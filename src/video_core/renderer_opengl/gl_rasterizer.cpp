@@ -99,8 +99,9 @@ struct FramebufferCacheKey {
 };
 
 RasterizerOpenGL::RasterizerOpenGL(Core::System& system, ScreenInfo& info)
-    : res_cache{*this}, shader_cache{*this, system}, global_cache{*this}, system{system},
-      screen_info{info}, buffer_cache(*this, STREAM_BUFFER_SIZE) {
+    : texture_cache{system, *this}, shader_cache{*this, system},
+      global_cache{*this}, system{system}, screen_info{info},
+      buffer_cache(*this, STREAM_BUFFER_SIZE) {
     // Create sampler objects
     for (std::size_t i = 0; i < texture_samplers.size(); ++i) {
         texture_samplers[i].Create();
@@ -505,9 +506,9 @@ std::pair<bool, bool> RasterizerOpenGL::ConfigureFramebuffers(
     }
     current_framebuffer_config_state = fb_config_state;
 
-    Surface depth_surface;
+    CachedSurfaceView* depth_surface{};
     if (using_depth_fb) {
-        depth_surface = res_cache.GetDepthBufferSurface(preserve_contents);
+        depth_surface = texture_cache.GetDepthBufferSurface(preserve_contents);
     }
 
     UNIMPLEMENTED_IF(regs.rt_separate_frag_data == 0);
@@ -520,42 +521,44 @@ std::pair<bool, bool> RasterizerOpenGL::ConfigureFramebuffers(
     if (using_color_fb) {
         if (single_color_target) {
             // Used when just a single color attachment is enabled, e.g. for clearing a color buffer
-            Surface color_surface =
-                res_cache.GetColorBufferSurface(*single_color_target, preserve_contents);
+            CachedSurfaceView* color_surface{
+                texture_cache.GetColorBufferSurface(*single_color_target, preserve_contents)};
 
             if (color_surface) {
                 // Assume that a surface will be written to if it is used as a framebuffer, even if
                 // the shader doesn't actually write to it.
-                color_surface->MarkAsModified(true, res_cache);
+                color_surface->MarkAsModified(true);
                 // Workaround for and issue in nvidia drivers
                 // https://devtalk.nvidia.com/default/topic/776591/opengl/gl_framebuffer_srgb-functions-incorrectly/
-                state.framebuffer_srgb.enabled |= color_surface->GetSurfaceParams().srgb_conversion;
+                // state.framebuffer_srgb.enabled |=
+                // color_surface->GetSurfaceParams().srgb_conversion;
             }
 
             fbkey.is_single_buffer = true;
             fbkey.color_attachments[0] =
                 GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(*single_color_target);
-            fbkey.colors[0] = color_surface != nullptr ? color_surface->Texture().handle : 0;
+            fbkey.colors[0] = color_surface != nullptr ? color_surface->GetTexture() : 0;
         } else {
             // Multiple color attachments are enabled
             for (std::size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
-                Surface color_surface = res_cache.GetColorBufferSurface(index, preserve_contents);
+                CachedSurfaceView* color_surface{
+                    texture_cache.GetColorBufferSurface(index, preserve_contents)};
 
                 if (color_surface) {
                     // Assume that a surface will be written to if it is used as a framebuffer, even
                     // if the shader doesn't actually write to it.
-                    color_surface->MarkAsModified(true, res_cache);
+                    color_surface->MarkAsModified(true);
                     // Enable sRGB only for supported formats
                     // Workaround for and issue in nvidia drivers
                     // https://devtalk.nvidia.com/default/topic/776591/opengl/gl_framebuffer_srgb-functions-incorrectly/
-                    state.framebuffer_srgb.enabled |=
-                        color_surface->GetSurfaceParams().srgb_conversion;
+                    // state.framebuffer_srgb.enabled |=
+                    //     color_surface->GetSurfaceParams().srgb_conversion;
                 }
 
                 fbkey.color_attachments[index] =
                     GL_COLOR_ATTACHMENT0 + regs.rt_control.GetMap(index);
                 fbkey.colors[index] =
-                    color_surface != nullptr ? color_surface->Texture().handle : 0;
+                    color_surface != nullptr ? color_surface->GetTexture() : 0;
             }
             fbkey.is_single_buffer = false;
             fbkey.colors_count = regs.rt_control.count;
@@ -568,11 +571,11 @@ std::pair<bool, bool> RasterizerOpenGL::ConfigureFramebuffers(
     if (depth_surface) {
         // Assume that a surface will be written to if it is used as a framebuffer, even if
         // the shader doesn't actually write to it.
-        depth_surface->MarkAsModified(true, res_cache);
+        depth_surface->MarkAsModified(true);
 
-        fbkey.zeta = depth_surface->Texture().handle;
-        fbkey.stencil_enable = regs.stencil_enable &&
-                               depth_surface->GetSurfaceParams().type == SurfaceType::DepthStencil;
+        fbkey.zeta = depth_surface->GetTexture();
+        fbkey.stencil_enable = regs.stencil_enable && depth_surface->GetSurfaceParams().GetType() ==
+                                                          SurfaceType::DepthStencil;
     }
 
     SetupCachedFramebuffer(fbkey, current_state);
@@ -741,9 +744,7 @@ void RasterizerOpenGL::DrawArrays() {
     shader_program_manager->ApplyTo(state);
     state.Apply();
 
-    res_cache.SignalPreDrawCall();
     params.DispatchDraw();
-    res_cache.SignalPostDrawCall();
 
     accelerate_draw = AccelDraw::Disabled;
 }
@@ -755,7 +756,7 @@ void RasterizerOpenGL::FlushRegion(CacheAddr addr, u64 size) {
     if (!addr || !size) {
         return;
     }
-    res_cache.FlushRegion(addr, size);
+    // texture_cache.FlushRegion(addr, size);
 }
 
 void RasterizerOpenGL::InvalidateRegion(CacheAddr addr, u64 size) {
@@ -763,7 +764,7 @@ void RasterizerOpenGL::InvalidateRegion(CacheAddr addr, u64 size) {
     if (!addr || !size) {
         return;
     }
-    res_cache.InvalidateRegion(addr, size);
+    texture_cache.InvalidateRegion(addr, size);
     shader_cache.InvalidateRegion(addr, size);
     global_cache.InvalidateRegion(addr, size);
     buffer_cache.InvalidateRegion(addr, size);
@@ -779,7 +780,8 @@ bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs
                                              const Common::Rectangle<u32>& src_rect,
                                              const Common::Rectangle<u32>& dst_rect) {
     MICROPROFILE_SCOPE(OpenGL_Blits);
-    res_cache.FermiCopySurface(src, dst, src_rect, dst_rect);
+    UNIMPLEMENTED();
+    // texture_cache.FermiCopySurface(src, dst, src_rect, dst_rect);
     return true;
 }
 
@@ -791,7 +793,8 @@ bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
 
     MICROPROFILE_SCOPE(OpenGL_CacheManagement);
 
-    const auto& surface{res_cache.TryFindFramebufferSurface(Memory::GetPointer(framebuffer_addr))};
+    const auto surface{
+        texture_cache.TryFindFramebufferSurface(Memory::GetPointer(framebuffer_addr))};
     if (!surface) {
         return {};
     }
@@ -800,14 +803,14 @@ bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     const auto& params{surface->GetSurfaceParams()};
     const auto& pixel_format{
         VideoCore::Surface::PixelFormatFromGPUPixelFormat(config.pixel_format)};
-    ASSERT_MSG(params.width == config.width, "Framebuffer width is different");
-    ASSERT_MSG(params.height == config.height, "Framebuffer height is different");
+    ASSERT_MSG(params.GetWidth() == config.width, "Framebuffer width is different");
+    ASSERT_MSG(params.GetHeight() == config.height, "Framebuffer height is different");
 
-    if (params.pixel_format != pixel_format) {
+    if (params.GetPixelFormat() != pixel_format) {
         LOG_WARNING(Render_OpenGL, "Framebuffer pixel_format is different");
     }
 
-    screen_info.display_texture = surface->Texture().handle;
+    screen_info.display_texture = surface->GetTexture();
 
     return true;
 }
@@ -975,11 +978,10 @@ void RasterizerOpenGL::SetupTextures(Maxwell::ShaderStage stage, const Shader& s
 
         texture_samplers[current_bindpoint].SyncWithConfig(texture.tsc);
 
-        if (Surface surface = res_cache.GetTextureSurface(texture, entry); surface) {
+        if (const auto surface{texture_cache.GetTextureSurface(texture)}; surface) {
             state.texture_units[current_bindpoint].texture =
-                surface->Texture(entry.IsArray()).handle;
-            surface->UpdateSwizzle(texture.tic.x_source, texture.tic.y_source, texture.tic.z_source,
-                                   texture.tic.w_source);
+                surface->GetTexture(entry.IsArray(), texture.tic.x_source, texture.tic.y_source,
+                                    texture.tic.z_source, texture.tic.w_source);
         } else {
             // Can occur when texture addr is null or its memory is unmapped/invalid
             state.texture_units[current_bindpoint].texture = 0;

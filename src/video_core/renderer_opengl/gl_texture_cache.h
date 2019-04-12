@@ -4,7 +4,10 @@
 
 #pragma once
 
+#include <array>
 #include <vector>
+
+#include <glad/glad.h>
 
 #include "common/common_types.h"
 #include "video_core/texture_cache.h"
@@ -18,33 +21,13 @@ using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceTarget;
 using VideoCore::Surface::SurfaceType;
 
-struct EmptyStruct {};
-
-class CachedView;
+class CachedSurfaceView;
 class CachedSurface;
 
-using TextureCacheBase = VideoCommon::TextureCache<CachedSurface, CachedView, EmptyStruct>;
+using TextureCacheBase = VideoCommon::TextureCacheContextless<CachedSurface, CachedSurfaceView>;
 
-class CachedView final {
-public:
-    explicit CachedView(CachedSurface& surface, ViewKey key);
-    ~CachedView();
-
-    GLuint GetTexture(bool is_array);
-
-private:
-    OGLTexture CreateTexture(bool is_array) const;
-
-    CachedSurface& surface;
-    const ViewKey key;
-    const SurfaceParams params;
-
-    OGLTexture normal_texture;
-    OGLTexture arrayed_texture;
-};
-
-class CachedSurface final : public VideoCommon::SurfaceBase<CachedView, EmptyStruct> {
-    friend CachedView;
+class CachedSurface final : public VideoCommon::SurfaceBaseContextless<CachedSurfaceView> {
+    friend CachedSurfaceView;
 
 public:
     explicit CachedSurface(const SurfaceParams& params);
@@ -52,12 +35,16 @@ public:
 
     void LoadBuffer();
 
-    EmptyStruct FlushBuffer(EmptyStruct);
-
-    EmptyStruct UploadTexture(EmptyStruct);
+    GLuint GetTexture() const {
+        return texture.handle;
+    }
 
 protected:
-    std::unique_ptr<CachedView> CreateView(const ViewKey& view_key);
+    std::unique_ptr<CachedSurfaceView> CreateView(const ViewKey& view_key);
+
+    void FlushBufferImpl();
+
+    void UploadTextureImpl();
 
 private:
     void UploadTextureMipmap(u32 level);
@@ -73,15 +60,58 @@ private:
     u8* host_ptr{};
 };
 
-class TextureCacheOpenGL final : TextureCacheBase {
+class CachedSurfaceView final {
+public:
+    explicit CachedSurfaceView(CachedSurface& surface, ViewKey key);
+    ~CachedSurfaceView();
+
+    GLuint GetTexture();
+
+    GLuint GetTexture(bool is_array, Tegra::Texture::SwizzleSource x_source,
+                      Tegra::Texture::SwizzleSource y_source,
+                      Tegra::Texture::SwizzleSource z_source,
+                      Tegra::Texture::SwizzleSource w_source);
+
+    void MarkAsModified(bool is_modified) {
+        surface.MarkAsModified(is_modified);
+    }
+
+    const SurfaceParams& GetSurfaceParams() const {
+        return params;
+    }
+
+private:
+    struct TextureView {
+        OGLTexture texture;
+        std::array<Tegra::Texture::SwizzleSource, 4> swizzle{
+            Tegra::Texture::SwizzleSource::R, Tegra::Texture::SwizzleSource::G,
+            Tegra::Texture::SwizzleSource::B, Tegra::Texture::SwizzleSource::A};
+    };
+
+    void ApplySwizzle(TextureView& texture_view, Tegra::Texture::SwizzleSource x_source,
+                      Tegra::Texture::SwizzleSource y_source,
+                      Tegra::Texture::SwizzleSource z_source,
+                      Tegra::Texture::SwizzleSource w_source);
+
+    TextureView CreateTexture(bool is_array) const;
+
+    CachedSurface& surface;
+    const ViewKey key;
+    const SurfaceParams params;
+
+    TextureView normal_texture;
+    TextureView arrayed_texture;
+};
+
+class TextureCacheOpenGL final : public TextureCacheBase {
 public:
     explicit TextureCacheOpenGL(Core::System& system, VideoCore::RasterizerInterface& rasterizer);
     ~TextureCacheOpenGL();
 
 protected:
-    std::tuple<CachedView*, EmptyStruct> TryFastGetSurfaceView(
-        EmptyStruct, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
-        bool preserve_contents, const std::vector<CachedSurface*>& overlaps);
+    CachedSurfaceView* TryFastGetSurfaceView(VAddr cpu_addr, u8* host_ptr,
+                                             const SurfaceParams& params, bool preserve_contents,
+                                             const std::vector<CachedSurface*>& overlaps);
 
     std::unique_ptr<CachedSurface> CreateSurface(const SurfaceParams& params);
 };
