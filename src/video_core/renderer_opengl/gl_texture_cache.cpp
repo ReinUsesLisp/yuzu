@@ -177,9 +177,9 @@ void ApplyTextureDefaults(const SurfaceParams& params, GLuint texture) {
     }
 }
 
-OGLTexture CreateTexture(const SurfaceParams& params, GLenum internal_format) {
+OGLTexture CreateTexture(const SurfaceParams& params, GLenum target, GLenum internal_format) {
     OGLTexture texture;
-    texture.Create(GetTextureTarget(params));
+    texture.Create(target);
 
     switch (params.GetTarget()) {
     case SurfaceTarget::Texture1D:
@@ -241,7 +241,8 @@ CachedSurface::CachedSurface(const SurfaceParams& params)
     format = tuple.format;
     type = tuple.type;
     is_compressed = tuple.compressed;
-    texture = CreateTexture(params, internal_format);
+    target = GetTextureTarget(params);
+    texture = CreateTexture(params, target, internal_format);
     staging_buffer.resize(params.GetHostSizeInBytes());
 }
 
@@ -504,7 +505,40 @@ TextureCacheOpenGL::~TextureCacheOpenGL() = default;
 CachedSurfaceView* TextureCacheOpenGL::TryFastGetSurfaceView(
     VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params, bool preserve_contents,
     const std::vector<CachedSurface*>& overlaps) {
+    if (overlaps.size() > 1) {
+        return nullptr;
+    }
+
+    const auto& old_surface{overlaps[0]};
+    const auto& old_params{old_surface->GetSurfaceParams()};
+    const auto& new_params{params};
+
+    if (old_params.GetTarget() == new_params.GetTarget() &&
+        old_params.GetDepth() == new_params.GetDepth() && old_params.GetDepth() == 1 &&
+        old_params.GetNumLevels() == new_params.GetNumLevels() && old_params.GetNumLevels() == 1) {
+        return SurfaceCopy(cpu_addr, host_ptr, new_params, old_surface, old_params);
+    }
+
     return nullptr;
+}
+
+CachedSurfaceView* TextureCacheOpenGL::SurfaceCopy(VAddr cpu_addr, u8* host_ptr,
+                                                   const SurfaceParams& new_params,
+                                                   CachedSurface* old_surface,
+                                                   const SurfaceParams& old_params) {
+    const u32 width{std::min(old_params.GetWidth(), new_params.GetWidth())};
+    const u32 height{std::min(old_params.GetHeight(), new_params.GetHeight())};
+
+    // TODO(Rodrigo): Copy mipmaps
+    CachedSurface* const new_surface{GetUncachedSurface(new_params)};
+    Register(new_surface, cpu_addr, host_ptr);
+
+    glCopyImageSubData(old_surface->GetTexture(), old_surface->GetTarget(), 0, 0, 0, 0,
+                       new_surface->GetTexture(), new_surface->GetTarget(), 0, 0, 0, 0, width,
+                       height, 1);
+
+    // TODO(Rodrigo): Add an entry to directly get the superview
+    return new_surface->GetView(cpu_addr, new_params);
 }
 
 std::unique_ptr<CachedSurface> TextureCacheOpenGL::CreateSurface(const SurfaceParams& params) {
