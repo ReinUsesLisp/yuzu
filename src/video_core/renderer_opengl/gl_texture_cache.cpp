@@ -515,7 +515,8 @@ CachedSurfaceView* TextureCacheOpenGL::TryFastGetSurfaceView(
 
     if (old_params.GetTarget() == new_params.GetTarget() &&
         old_params.GetDepth() == new_params.GetDepth() && old_params.GetDepth() == 1 &&
-        old_params.GetNumLevels() == new_params.GetNumLevels() && old_params.GetNumLevels() == 1) {
+        old_params.GetNumLevels() == new_params.GetNumLevels() &&
+        old_params.GetPixelFormat() == new_params.GetPixelFormat()) {
         return SurfaceCopy(cpu_addr, host_ptr, new_params, old_surface, old_params);
     }
 
@@ -526,16 +527,26 @@ CachedSurfaceView* TextureCacheOpenGL::SurfaceCopy(VAddr cpu_addr, u8* host_ptr,
                                                    const SurfaceParams& new_params,
                                                    CachedSurface* old_surface,
                                                    const SurfaceParams& old_params) {
-    const u32 width{std::min(old_params.GetWidth(), new_params.GetWidth())};
-    const u32 height{std::min(old_params.GetHeight(), new_params.GetHeight())};
-
-    // TODO(Rodrigo): Copy mipmaps
     CachedSurface* const new_surface{GetUncachedSurface(new_params)};
     Register(new_surface, cpu_addr, host_ptr);
 
-    glCopyImageSubData(old_surface->GetTexture(), old_surface->GetTarget(), 0, 0, 0, 0,
-                       new_surface->GetTexture(), new_surface->GetTarget(), 0, 0, 0, 0, width,
-                       height, 1);
+    const u32 min_width{
+        std::max(old_params.GetDefaultBlockWidth(), new_params.GetDefaultBlockWidth())};
+    const u32 min_height{
+        std::max(old_params.GetDefaultBlockHeight(), new_params.GetDefaultBlockHeight())};
+    for (u32 level = 0; level < old_params.GetNumLevels(); ++level) {
+        const u32 width{std::min(old_params.GetMipWidth(level), new_params.GetMipWidth(level))};
+        const u32 height{std::min(old_params.GetMipHeight(level), new_params.GetMipHeight(level))};
+        if (width < min_width || height < min_height) {
+            // Avoid copies that are too small to be handled in OpenGL
+            break;
+        }
+        glCopyImageSubData(old_surface->GetTexture(), old_surface->GetTarget(), level, 0, 0, 0,
+                           new_surface->GetTexture(), new_surface->GetTarget(), level, 0, 0, 0,
+                           width, height, 1);
+    }
+
+    new_surface->MarkAsModified(true);
 
     // TODO(Rodrigo): Add an entry to directly get the superview
     return new_surface->GetView(cpu_addr, new_params);
