@@ -221,8 +221,8 @@ public:
     }
 
     bool operator<(const Sampler& rhs) const {
-        return std::tie(offset, index, type, is_array, is_shadow) <
-               std::tie(rhs.offset, rhs.index, rhs.type, rhs.is_array, rhs.is_shadow);
+        return std::tie(index, offset, type, is_array, is_shadow) <
+               std::tie(rhs.index, rhs.offset, rhs.type, rhs.is_array, rhs.is_shadow);
     }
 
 private:

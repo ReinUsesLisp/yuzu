@@ -557,8 +557,7 @@ std::pair<bool, bool> RasterizerOpenGL::ConfigureFramebuffers(
 
                 fbkey.color_attachments[index] =
                     GL_COLOR_ATTACHMENT0 + regs.rt_control.GetMap(index);
-                fbkey.colors[index] =
-                    color_surface != nullptr ? color_surface->GetTexture() : 0;
+                fbkey.colors[index] = color_surface != nullptr ? color_surface->GetTexture() : 0;
             }
             fbkey.is_single_buffer = false;
             fbkey.colors_count = regs.rt_control.count;
@@ -979,9 +978,9 @@ void RasterizerOpenGL::SetupTextures(Maxwell::ShaderStage stage, const Shader& s
         texture_samplers[current_bindpoint].SyncWithConfig(texture.tsc);
 
         if (const auto surface{texture_cache.GetTextureSurface(texture)}; surface) {
-            state.texture_units[current_bindpoint].texture =
-                surface->GetTexture(entry.IsArray(), texture.tic.x_source, texture.tic.y_source,
-                                    texture.tic.z_source, texture.tic.w_source);
+            state.texture_units[current_bindpoint].texture = surface->GetTexture(
+                entry.GetType(), entry.IsArray(), texture.tic.x_source, texture.tic.y_source,
+                texture.tic.z_source, texture.tic.w_source);
         } else {
             // Can occur when texture addr is null or its memory is unmapped/invalid
             state.texture_units[current_bindpoint].texture = 0;

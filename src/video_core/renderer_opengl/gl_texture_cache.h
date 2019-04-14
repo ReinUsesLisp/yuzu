@@ -5,11 +5,14 @@
 #pragma once
 
 #include <array>
+#include <functional>
+#include <utility>
 #include <vector>
 
 #include <glad/glad.h>
 
 #include "common/common_types.h"
+#include "video_core/engines/shader_bytecode.h"
 #include "video_core/texture_cache.h"
 
 namespace OpenGL {
@@ -67,7 +70,8 @@ public:
 
     GLuint GetTexture();
 
-    GLuint GetTexture(bool is_array, Tegra::Texture::SwizzleSource x_source,
+    GLuint GetTexture(Tegra::Shader::TextureType texture_type, bool is_array,
+                      Tegra::Texture::SwizzleSource x_source,
                       Tegra::Texture::SwizzleSource y_source,
                       Tegra::Texture::SwizzleSource z_source,
                       Tegra::Texture::SwizzleSource w_source);
@@ -93,14 +97,22 @@ private:
                       Tegra::Texture::SwizzleSource z_source,
                       Tegra::Texture::SwizzleSource w_source);
 
-    TextureView CreateTexture(bool is_array) const;
+    TextureView CreateTextureView(GLenum target) const;
+
+    std::pair<std::reference_wrapper<TextureView>, GLenum> GetTextureView(
+        Tegra::Shader::TextureType texture_type, bool is_array);
 
     CachedSurface& surface;
     const ViewKey key;
     const SurfaceParams params;
 
-    TextureView normal_texture;
-    TextureView arrayed_texture;
+    TextureView texture_view_1d;
+    TextureView texture_view_1d_array;
+    TextureView texture_view_2d;
+    TextureView texture_view_2d_array;
+    TextureView texture_view_3d;
+    TextureView texture_view_cube;
+    TextureView texture_view_cube_array;
 };
 
 class TextureCacheOpenGL final : public TextureCacheBase {

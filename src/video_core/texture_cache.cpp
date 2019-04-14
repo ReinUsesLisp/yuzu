@@ -206,7 +206,7 @@ std::size_t SurfaceParams::GetHostMipmapLevelOffset(u32 level) const {
 }
 
 std::size_t SurfaceParams::GetHostMipmapSize(u32 level) const {
-    return GetInnerMipmapMemorySize(level, true, false, false);
+    return GetInnerMipmapMemorySize(level, true, true, false) * GetNumLayers();
 }
 
 std::size_t SurfaceParams::GetGuestLayerSize() const {
@@ -261,7 +261,7 @@ void SurfaceParams::CalculateCachedValues() {
 
     // ASTC is uncompressed in software, in emulated as RGBA8
     if (IsPixelFormatASTC(pixel_format)) {
-        host_size_in_bytes = width * height * depth * 4;
+        host_size_in_bytes = static_cast<std::size_t>(width * height * depth) * 4ULL;
     } else {
         host_size_in_bytes = GetInnerMemorySize(true, false, false);
     }
@@ -301,7 +301,7 @@ std::size_t SurfaceParams::GetInnerMemorySize(bool as_host_size, bool layer_only
     for (u32 level = 0; level < num_levels; ++level) {
         size += GetInnerMipmapMemorySize(level, as_host_size, layer_only, uncompressed);
     }
-    if (!as_host_size && is_tiled) {
+    if (is_tiled && !as_host_size) {
         size = Common::AlignUp(size, Tegra::Texture::GetGOBSize() * block_height * block_depth);
     }
     return size;
@@ -313,6 +313,7 @@ std::map<u64, std::pair<u32, u32>> SurfaceParams::CreateViewOffsetMap() const {
     case SurfaceTarget::Texture1D:
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::Texture3D: {
+        // TODO(Rodrigo): Add layer iterations for 3D textures
         constexpr u32 layer = 0;
         for (u32 level = 0; level < num_levels; ++level) {
             const std::size_t offset{GetGuestMipmapLevelOffset(level)};
