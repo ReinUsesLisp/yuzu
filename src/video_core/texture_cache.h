@@ -181,6 +181,18 @@ public:
     /// Returns the size of a layer in bytes in host memory for a given mipmap level.
     std::size_t GetHostLayerSize(u32 level) const;
 
+    /// Returns the default block width.
+    u32 GetDefaultBlockWidth() const;
+
+    /// Returns the default block height.
+    u32 GetDefaultBlockHeight() const;
+
+    /// Returns the bits per pixel.
+    u32 GetBitsPerPixel() const;
+
+    /// Returns the bytes per pixel.
+    u32 GetBytesPerPixel() const;
+
     /// Returns true if another surface can be familiar with this. This is a loosely defined term
     /// that reflects the possibility of these two surface parameters potentially being part of a
     /// bigger superset.

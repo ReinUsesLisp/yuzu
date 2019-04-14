@@ -163,7 +163,7 @@ u32 SurfaceParams::GetMipBlockHeight(u32 level) const {
         return block_height;
     }
     const u32 height{GetMipHeight(level)};
-    const u32 default_block_height{GetDefaultBlockHeight(pixel_format)};
+    const u32 default_block_height{GetDefaultBlockHeight()};
     const u32 blocks_in_y{(height + default_block_height - 1) / default_block_height};
     u32 block_height = 16;
     while (block_height > 1 && blocks_in_y <= block_height * 4) {
@@ -215,6 +215,22 @@ std::size_t SurfaceParams::GetGuestLayerSize() const {
 
 std::size_t SurfaceParams::GetHostLayerSize(u32 level) const {
     return GetInnerMipmapMemorySize(level, true, IsLayered(), false);
+}
+
+u32 SurfaceParams::GetDefaultBlockWidth() const {
+    return VideoCore::Surface::GetDefaultBlockWidth(pixel_format);
+}
+
+u32 SurfaceParams::GetDefaultBlockHeight() const {
+    return VideoCore::Surface::GetDefaultBlockHeight(pixel_format);
+}
+
+u32 SurfaceParams::GetBitsPerPixel() const {
+    return VideoCore::Surface::GetFormatBpp(pixel_format);
+}
+
+u32 SurfaceParams::GetBytesPerPixel() const {
+    return VideoCore::Surface::GetBytesPerPixel(pixel_format);
 }
 
 bool SurfaceParams::IsFamiliar(const SurfaceParams& view_params) const {
@@ -286,13 +302,11 @@ void SurfaceParams::CalculateCachedValues() {
 std::size_t SurfaceParams::GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
                                                     bool uncompressed) const {
     const bool tiled{as_host_size ? false : is_tiled};
-    const u32 tile_x{GetDefaultBlockWidth(pixel_format)};
-    const u32 tile_y{GetDefaultBlockHeight(pixel_format)};
-    const u32 width{GetMipmapSize(uncompressed, GetMipWidth(level), tile_x)};
-    const u32 height{GetMipmapSize(uncompressed, GetMipHeight(level), tile_y)};
+    const u32 width{GetMipmapSize(uncompressed, GetMipWidth(level), GetDefaultBlockWidth())};
+    const u32 height{GetMipmapSize(uncompressed, GetMipHeight(level), GetDefaultBlockHeight())};
     const u32 depth{layer_only ? 1U : GetMipDepth(level)};
-    return Tegra::Texture::CalculateSize(tiled, GetBytesPerPixel(pixel_format), width, height,
-                                         depth, GetMipBlockHeight(level), GetMipBlockDepth(level));
+    return Tegra::Texture::CalculateSize(tiled, GetBytesPerPixel(), width, height, depth,
+                                         GetMipBlockHeight(level), GetMipBlockDepth(level));
 }
 
 std::size_t SurfaceParams::GetInnerMemorySize(bool as_host_size, bool layer_only,
