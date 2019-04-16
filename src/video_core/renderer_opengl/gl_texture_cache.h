@@ -47,6 +47,8 @@ public:
     }
 
 protected:
+    void RegisterSuffix();
+
     std::unique_ptr<CachedSurfaceView> CreateView(const ViewKey& view_key);
 
     void FlushBufferImpl();
@@ -65,7 +67,6 @@ private:
     OGLTexture texture;
 
     std::vector<u8> staging_buffer;
-    u8* host_ptr{};
 };
 
 class CachedSurfaceView final {

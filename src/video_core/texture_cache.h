@@ -211,12 +211,14 @@ private:
     /// Calculates values that can be deduced from HasheableSurfaceParams.
     void CalculateCachedValues();
 
-    /// Returns the size of a given mipmap level.
-    std::size_t GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool layer_only,
-                                         bool uncompressed) const;
+    /// Returns the size of a given mipmap level inside a layer.
+    std::size_t GetInnerMipmapMemorySize(u32 level, bool as_host_size, bool uncompressed) const;
 
     /// Returns the size of all mipmap levels and aligns as needed.
     std::size_t GetInnerMemorySize(bool as_host_size, bool layer_only, bool uncompressed) const;
+
+    /// Returns the size of a layer
+    std::size_t GetLayerSize(bool as_host_size, bool uncompressed) const;
 
     /// Returns true if the passed view width and height match the size of this params in a given
     /// mipmap level.
@@ -337,6 +339,7 @@ public:
         cpu_addr = cpu_addr_;
         host_ptr = host_ptr_;
         cache_addr = ToCacheAddr(host_ptr_);
+        RegisterSuffix();
     }
 
     void Register(VAddr cpu_addr_) {
@@ -357,6 +360,8 @@ protected:
         : params{params}, view_offset_map{params.CreateViewOffsetMap()} {}
 
     ~SurfaceBase() = default;
+
+    virtual void RegisterSuffix() = 0;
 
     virtual std::unique_ptr<TView> CreateView(const ViewKey& view_key) = 0;
 

@@ -11,6 +11,7 @@
 #include "video_core/texture_cache.h"
 #include "video_core/textures/convert.h"
 #include "video_core/textures/texture.h"
+#include "video_core/renderer_opengl/utils.h"
 
 namespace OpenGL {
 
@@ -285,6 +286,8 @@ void CachedSurface::LoadBuffer() {
 }
 
 void CachedSurface::FlushBufferImpl() {
+    LOG_CRITICAL(Render_OpenGL, "Flushing");
+
     if (!IsModified()) {
         return;
     }
@@ -352,9 +355,6 @@ void CachedSurface::UploadTextureMipmap(u32 level) {
 
     if (is_compressed) {
         const auto image_size{static_cast<GLsizei>(params.GetHostMipmapSize(level))};
-        GLint expected_size;
-        glGetTextureLevelParameteriv(texture.handle, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE,
-                                     &expected_size);
         switch (params.GetTarget()) {
         case SurfaceTarget::Texture2D:
             glCompressedTextureSubImage2D(texture.handle, level, 0, 0,
@@ -417,6 +417,10 @@ void CachedSurface::UploadTextureMipmap(u32 level) {
             UNREACHABLE();
         }
     }
+}
+
+void CachedSurface::RegisterSuffix() {
+    LabelGLObject(GL_TEXTURE, texture.handle, GetCpuAddr());
 }
 
 std::unique_ptr<CachedSurfaceView> CachedSurface::CreateView(const ViewKey& view_key) {
