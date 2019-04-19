@@ -53,6 +53,7 @@ protected:
     HasheableSurfaceParams() = default;
 
     bool is_tiled;
+    bool srgb_conversion;
     u32 block_width;
     u32 block_height;
     u32 block_depth;
@@ -90,6 +91,10 @@ public:
 
     bool IsTiled() const {
         return is_tiled;
+    }
+
+    bool GetSrgbConversion() const {
+        return srgb_conversion;
     }
 
     u32 GetBlockWidth() const {
