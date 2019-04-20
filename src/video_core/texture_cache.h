@@ -273,7 +273,7 @@ struct hash<VideoCommon::ViewKey> {
 
 namespace VideoCommon {
 
-template <typename TView, typename TExecutionContext>
+template <typename TTextureCache, typename TView, typename TExecutionContext>
 class SurfaceBase {
     static_assert(std::is_trivially_copyable_v<TExecutionContext>);
 
@@ -326,6 +326,9 @@ public:
 
     void MarkAsModified(bool is_modified_) {
         is_modified = is_modified_;
+        if (is_modified_) {
+            modification_tick = texture_cache.Tick();
+        }
     }
 
     const SurfaceParams& GetSurfaceParams() const {
@@ -356,13 +359,18 @@ public:
         is_registered = false;
     }
 
+    u64 GetModificationTick() const {
+        return modification_tick;
+    }
+
     bool IsRegistered() const {
         return is_registered;
     }
 
 protected:
-    explicit SurfaceBase(const SurfaceParams& params)
-        : params{params}, view_offset_map{params.CreateViewOffsetMap()} {}
+    explicit SurfaceBase(TTextureCache& texture_cache, const SurfaceParams& params)
+        : params{params}, texture_cache{texture_cache}, view_offset_map{
+                                                            params.CreateViewOffsetMap()} {}
 
     ~SurfaceBase() = default;
 
@@ -387,11 +395,13 @@ private:
         return view.get();
     }
 
+    TTextureCache& texture_cache;
     const std::map<u64, std::pair<u32, u32>> view_offset_map;
 
     VAddr cpu_addr{};
     u8* host_ptr{};
     CacheAddr cache_addr{};
+    u64 modification_tick{};
     bool is_modified{};
     bool is_registered{};
     std::unordered_map<ViewKey, std::unique_ptr<TView>> views;
@@ -481,6 +491,10 @@ public:
         return it != registered_surfaces.end() ? *it->second.begin() : nullptr;
     }
 
+    u64 Tick() {
+        return ++ticks;
+    }
+
 protected:
     TextureCache(Core::System& system, VideoCore::RasterizerInterface& rasterizer)
         : system{system}, rasterizer{rasterizer} {}
@@ -522,24 +536,31 @@ private:
                               bool preserve_contents) {
         const auto host_ptr{Memory::GetPointer(cpu_addr)};
         const auto cache_addr{ToCacheAddr(host_ptr)};
-        const auto overlaps{GetSurfacesInRegion(cache_addr, params.GetGuestSizeInBytes())};
+        auto overlaps{GetSurfacesInRegion(cache_addr, params.GetGuestSizeInBytes())};
         if (overlaps.empty()) {
             return LoadSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents);
         }
 
         if (overlaps.size() == 1) {
-            if (TView* view = overlaps[0]->TryGetView(cpu_addr, params); view)
+            if (TView* view = overlaps[0]->TryGetView(cpu_addr, params); view) {
                 return {view, exctx};
+            }
         }
 
         TView* fast_view;
         std::tie(fast_view, exctx) =
             TryFastGetSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents, overlaps);
 
+        if (!fast_view) {
+            std::sort(overlaps.begin(), overlaps.end(), [](const auto& lhs, const auto& rhs) {
+                return lhs->GetModificationTick() < rhs->GetModificationTick();
+            });
+        }
+
         for (TSurface* surface : overlaps) {
             if (!fast_view) {
-                // Flush even when we don't care about the contents, to preserve memory not written
-                // by the new surface.
+                // Flush even when we don't care about the contents, to preserve memory not
+                // written by the new surface.
                 exctx = surface->FlushBuffer(exctx);
             }
             Unregister(surface);
@@ -606,6 +627,8 @@ private:
 
     VideoCore::RasterizerInterface& rasterizer;
 
+    u64 ticks{};
+
     IntervalMap registered_surfaces;
 
     /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
@@ -645,6 +668,10 @@ public:
         return Base::TryFindFramebufferSurface(host_ptr);
     }
 
+    u64 Tick() {
+        return Base::Tick();
+    }
+
 protected:
     explicit TextureCacheContextless(Core::System& system,
                                      VideoCore::RasterizerInterface& rasterizer)
@@ -667,8 +694,8 @@ private:
     }
 };
 
-template <typename TView>
-class SurfaceBaseContextless : public SurfaceBase<TView, DummyExecutionContext> {
+template <typename TTextureCache, typename TView>
+class SurfaceBaseContextless : public SurfaceBase<TTextureCache, TView, DummyExecutionContext> {
 public:
     DummyExecutionContext FlushBuffer(DummyExecutionContext) {
         FlushBufferImpl();
@@ -681,8 +708,8 @@ public:
     }
 
 protected:
-    explicit SurfaceBaseContextless(const SurfaceParams& params)
-        : SurfaceBase<TView, DummyExecutionContext>{params} {}
+    explicit SurfaceBaseContextless(TTextureCache& texture_cache, const SurfaceParams& params)
+        : SurfaceBase<TTextureCache, TView, DummyExecutionContext>{texture_cache, params} {}
 
     virtual void FlushBufferImpl() = 0;
 
