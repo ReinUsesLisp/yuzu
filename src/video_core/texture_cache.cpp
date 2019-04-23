@@ -312,7 +312,17 @@ void SurfaceParams::CalculateCachedValues() {
         UNREACHABLE();
     }
 
-    guest_size_in_bytes = GetInnerMemorySize(false, false, false);
+    if (target == SurfaceTarget::Texture2D && block_depth > 1 && width <= 0x10) {
+        const auto stored_width{width};
+        width = 1;
+        const auto stored_block_depth{block_depth};
+        block_depth = 1;
+        guest_size_in_bytes = GetInnerMemorySize(false, false, false);
+        width = stored_width;
+        block_depth = stored_block_depth;
+    } else {
+        guest_size_in_bytes = GetInnerMemorySize(false, false, false);
+    }
 
     if (IsPixelFormatASTC(pixel_format)) {
         // ASTC is uncompressed in software, in emulated as RGBA8
