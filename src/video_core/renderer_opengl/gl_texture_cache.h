@@ -50,7 +50,7 @@ public:
     }
 
 protected:
-    void RegisterSuffix();
+    void DecorateSurfaceName();
 
     std::unique_ptr<CachedSurfaceView> CreateView(const ViewKey& view_key);
 

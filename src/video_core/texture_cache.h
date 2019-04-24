@@ -353,7 +353,7 @@ public:
         cpu_addr = cpu_addr_;
         host_ptr = host_ptr_;
         cache_addr = ToCacheAddr(host_ptr_);
-        RegisterSuffix();
+        DecorateSurfaceName();
     }
 
     void Unregister() {
@@ -376,7 +376,7 @@ protected:
 
     ~SurfaceBase() = default;
 
-    virtual void RegisterSuffix() = 0;
+    virtual void DecorateSurfaceName() = 0;
 
     virtual std::unique_ptr<TView> CreateView(const ViewKey& view_key) = 0;
 

@@ -420,7 +420,7 @@ void CachedSurface::UploadTextureMipmap(u32 level) {
     }
 }
 
-void CachedSurface::RegisterSuffix() {
+void CachedSurface::DecorateSurfaceName() {
     LabelGLObject(GL_TEXTURE, texture.handle, GetGpuAddr());
 }
 
