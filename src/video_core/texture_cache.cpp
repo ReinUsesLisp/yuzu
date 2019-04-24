@@ -75,7 +75,7 @@ void SurfaceBaseImpl::LoadBuffer() {
                    params.GetBlockWidth(), static_cast<u32>(params.GetTarget()));
         for (u32 level = 0; level < params.GetNumLevels(); ++level) {
             u8* const buffer{GetStagingBufferLevelData(level)};
-            SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetHostPtr(), params, buffer, level);
+            SwizzleFunc(MortonSwizzleMode::MortonToLinear, host_ptr, params, buffer, level);
         }
     } else {
         ASSERT_MSG(params.GetNumLevels() == 1, "Linear mipmap loading is not implemented");
@@ -86,9 +86,9 @@ void SurfaceBaseImpl::LoadBuffer() {
         const u32 height{(params.GetHeight() + block_height - 1) / block_height};
         const u32 copy_size{width * bpp};
         if (params.GetPitch() == copy_size) {
-            std::memcpy(staging_buffer.data(), GetHostPtr(), params.GetHostSizeInBytes());
+            std::memcpy(staging_buffer.data(), host_ptr, params.GetHostSizeInBytes());
         } else {
-            const u8* start{GetHostPtr()};
+            const u8* start{host_ptr};
             u8* write_to{staging_buffer.data()};
             for (u32 h = height; h > 0; --h) {
                 std::memcpy(write_to, start, copy_size);
