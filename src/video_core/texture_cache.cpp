@@ -168,6 +168,7 @@ u32 SurfaceParams::GetMipBlockHeight(u32 level) const {
     if (level == 0) {
         return this->block_height;
     }
+
     const u32 height{GetMipHeight(level)};
     const u32 default_block_height{GetDefaultBlockHeight()};
     const u32 blocks_in_y{(height + default_block_height - 1) / default_block_height};
@@ -182,8 +183,7 @@ u32 SurfaceParams::GetMipBlockDepth(u32 level) const {
     if (level == 0) {
         return block_depth;
     }
-
-    if (target != SurfaceTarget::Texture3D) {
+    if (IsLayered()) {
         return 1;
     }
 
