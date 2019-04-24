@@ -74,14 +74,14 @@ void SurfaceBaseImpl::LoadBuffer() {
         ASSERT_MSG(params.GetBlockWidth() == 1, "Block width is defined as {} on texture target {}",
                    params.GetBlockWidth(), static_cast<u32>(params.GetTarget()));
         for (u32 level = 0; level < params.GetNumLevels(); ++level) {
-            u8* const buffer{staging_buffer.data() + params.GetHostMipmapLevelOffset(level)};
+            u8* const buffer{GetStagingBufferLevelData(level)};
             SwizzleFunc(MortonSwizzleMode::MortonToLinear, GetHostPtr(), params, buffer, level);
         }
     } else {
         ASSERT_MSG(params.GetNumLevels() == 1, "Linear mipmap loading is not implemented");
         const u32 bpp{GetFormatBpp(params.GetPixelFormat()) / CHAR_BIT};
-        const u32 block_width{VideoCore::Surface::GetDefaultBlockWidth(params.GetPixelFormat())};
-        const u32 block_height{VideoCore::Surface::GetDefaultBlockHeight(params.GetPixelFormat())};
+        const u32 block_width{params.GetDefaultBlockWidth()};
+        const u32 block_height{params.GetDefaultBlockHeight()};
         const u32 width{(params.GetWidth() + block_width - 1) / block_width};
         const u32 height{(params.GetHeight() + block_height - 1) / block_height};
         const u32 copy_size{width * bpp};
@@ -99,9 +99,9 @@ void SurfaceBaseImpl::LoadBuffer() {
     }
 
     for (u32 level = 0; level < params.GetNumLevels(); ++level) {
-        ConvertFromGuestToHost(staging_buffer.data() + params.GetHostMipmapLevelOffset(level),
-                               params.GetPixelFormat(), params.GetMipWidth(level),
-                               params.GetMipHeight(level), params.GetMipDepth(level), true, true);
+        ConvertFromGuestToHost(GetStagingBufferLevelData(level), params.GetPixelFormat(),
+                               params.GetMipWidth(level), params.GetMipHeight(level),
+                               params.GetMipDepth(level), true, true);
     }
 }
 
@@ -110,7 +110,7 @@ void SurfaceBaseImpl::FlushBuffer() {
         ASSERT_MSG(params.GetBlockWidth() == 1, "Block width is defined as {}",
                    params.GetBlockWidth());
         for (u32 level = 0; level < params.GetNumLevels(); ++level) {
-            u8* const buffer = staging_buffer.data() + params.GetHostMipmapLevelOffset(level);
+            u8* const buffer = GetStagingBufferLevelData(level);
             SwizzleFunc(MortonSwizzleMode::LinearToMorton, GetHostPtr(), params, buffer, level);
         }
     } else {
