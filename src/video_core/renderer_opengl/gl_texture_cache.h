@@ -159,7 +159,7 @@ public:
     ~TextureCacheOpenGL();
 
 protected:
-    CachedSurfaceView* TryFastGetSurfaceView(VAddr cpu_addr, u8* host_ptr,
+    CachedSurfaceView* TryFastGetSurfaceView(GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr,
                                              const SurfaceParams& new_params,
                                              bool preserve_contents,
                                              const std::vector<Surface>& overlaps);
@@ -167,10 +167,12 @@ protected:
     Surface CreateSurface(const SurfaceParams& params);
 
 private:
-    CachedSurfaceView* SurfaceCopy(VAddr cpu_addr, u8* host_ptr, const SurfaceParams& new_params,
-                                   const Surface& old_surface, const SurfaceParams& old_params);
+    CachedSurfaceView* SurfaceCopy(GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr,
+                                   const SurfaceParams& new_params, const Surface& old_surface,
+                                   const SurfaceParams& old_params);
 
-    CachedSurfaceView* TryCopyAsViews(VAddr cpu_addr, u8* host_ptr, const SurfaceParams& new_params,
+    CachedSurfaceView* TryCopyAsViews(GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr,
+                                      const SurfaceParams& new_params,
                                       const std::vector<Surface>& overlaps);
 };
 

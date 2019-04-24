@@ -284,13 +284,13 @@ public:
 
     virtual TExecutionContext UploadTexture(TExecutionContext exctx) = 0;
 
-    TView* TryGetView(VAddr view_addr, const SurfaceParams& view_params) {
-        if (view_addr < cpu_addr || !params.IsFamiliar(view_params)) {
+    TView* TryGetView(GPUVAddr view_addr, const SurfaceParams& view_params) {
+        if (view_addr < gpu_addr || !params.IsFamiliar(view_params)) {
             // It can't be a view if it's in a prior address.
             return {};
         }
 
-        const auto relative_offset{static_cast<u64>(view_addr - cpu_addr)};
+        const auto relative_offset{static_cast<u64>(view_addr - gpu_addr)};
         const auto it{view_offset_map.find(relative_offset)};
         if (it == view_offset_map.end()) {
             // Couldn't find an aligned view.
@@ -303,6 +303,11 @@ public:
         }
 
         return GetView(layer, view_params.GetNumLayers(), level, view_params.GetNumLevels());
+    }
+
+    GPUVAddr GetGpuAddr() const {
+        ASSERT(is_registered);
+        return gpu_addr;
     }
 
     VAddr GetCpuAddr() const {
@@ -335,23 +340,20 @@ public:
         return params;
     }
 
-    TView* GetView(VAddr view_addr, const SurfaceParams& view_params) {
+    TView* GetView(GPUVAddr view_addr, const SurfaceParams& view_params) {
         TView* view{TryGetView(view_addr, view_params)};
         ASSERT(view != nullptr);
         return view;
     }
 
-    void Register(VAddr cpu_addr_, u8* host_ptr_) {
+    void Register(GPUVAddr gpu_addr_, VAddr cpu_addr_, u8* host_ptr_) {
         ASSERT(!is_registered);
         is_registered = true;
+        gpu_addr = gpu_addr_;
         cpu_addr = cpu_addr_;
         host_ptr = host_ptr_;
         cache_addr = ToCacheAddr(host_ptr_);
         RegisterSuffix();
-    }
-
-    void Register(VAddr cpu_addr_) {
-        Register(cpu_addr_, Memory::GetPointer(cpu_addr_));
     }
 
     void Unregister() {
@@ -398,6 +400,7 @@ private:
     TTextureCache& texture_cache;
     const std::map<u64, std::pair<u32, u32>> view_offset_map;
 
+    GPUVAddr gpu_addr{};
     VAddr cpu_addr{};
     u8* host_ptr{};
     CacheAddr cache_addr{};
@@ -428,32 +431,25 @@ public:
 
     ResultType GetTextureSurface(TExecutionContext exctx,
                                  const Tegra::Texture::FullTextureInfo& config) {
-        auto& memory_manager{system.GPU().MemoryManager()};
-        const auto cpu_addr{memory_manager.GpuToCpuAddress(config.tic.Address())};
-        if (!cpu_addr) {
+        const auto gpu_addr{config.tic.Address()};
+        if (!gpu_addr) {
             return {{}, exctx};
         }
         const auto params{SurfaceParams::CreateForTexture(system, config)};
-        return GetSurfaceView(exctx, *cpu_addr, params, true);
+        return GetSurfaceView(exctx, gpu_addr, params, true);
     }
 
     ResultType GetDepthBufferSurface(TExecutionContext exctx, bool preserve_contents) {
         const auto& regs{system.GPU().Maxwell3D().regs};
-        if (!regs.zeta.Address() || !regs.zeta_enable) {
+        const auto gpu_addr{regs.zeta.Address()};
+        if (!gpu_addr || !regs.zeta_enable) {
             return {{}, exctx};
         }
-
-        auto& memory_manager{system.GPU().MemoryManager()};
-        const auto cpu_addr{memory_manager.GpuToCpuAddress(regs.zeta.Address())};
-        if (!cpu_addr) {
-            return {{}, exctx};
-        }
-
         const auto depth_params{SurfaceParams::CreateForDepthBuffer(
             system, regs.zeta_width, regs.zeta_height, regs.zeta.format,
             regs.zeta.memory_layout.block_width, regs.zeta.memory_layout.block_height,
             regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type)};
-        return GetSurfaceView(exctx, *cpu_addr, depth_params, preserve_contents);
+        return GetSurfaceView(exctx, gpu_addr, depth_params, preserve_contents);
     }
 
     ResultType GetColorBufferSurface(TExecutionContext exctx, std::size_t index,
@@ -468,22 +464,20 @@ public:
 
         auto& memory_manager{system.GPU().MemoryManager()};
         const auto& config{system.GPU().Maxwell3D().regs.rt[index]};
-        const auto cpu_addr{memory_manager.GpuToCpuAddress(
-            config.Address() + config.base_layer * config.layer_stride * sizeof(u32))};
-        if (!cpu_addr) {
+        const auto gpu_addr{config.Address() +
+                            config.base_layer * config.layer_stride * sizeof(u32)};
+        if (!gpu_addr) {
             return {{}, exctx};
         }
 
-        return GetSurfaceView(exctx, *cpu_addr, SurfaceParams::CreateForFramebuffer(system, index),
+        return GetSurfaceView(exctx, gpu_addr, SurfaceParams::CreateForFramebuffer(system, index),
                               preserve_contents);
     }
 
     ResultType GetFermiSurface(TExecutionContext exctx,
                                const Tegra::Engines::Fermi2D::Regs::Surface& config) {
-        const auto cpu_addr{system.GPU().MemoryManager().GpuToCpuAddress(config.Address())};
-        ASSERT(cpu_addr);
-        return GetSurfaceView(exctx, *cpu_addr, SurfaceParams::CreateForFermiCopySurface(config),
-                              true);
+        return GetSurfaceView(exctx, config.Address(),
+                              SurfaceParams::CreateForFermiCopySurface(config), true);
     }
 
     std::shared_ptr<TSurface> TryFindFramebufferSurface(const u8* host_ptr) const {
@@ -502,13 +496,15 @@ protected:
     ~TextureCache() = default;
 
     virtual ResultType TryFastGetSurfaceView(
-        TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
-        bool preserve_contents, const std::vector<std::shared_ptr<TSurface>>& overlaps) = 0;
+        TExecutionContext exctx, GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr,
+        const SurfaceParams& params, bool preserve_contents,
+        const std::vector<std::shared_ptr<TSurface>>& overlaps) = 0;
 
     virtual std::shared_ptr<TSurface> CreateSurface(const SurfaceParams& params) = 0;
 
-    void Register(std::shared_ptr<TSurface> surface, VAddr cpu_addr, u8* host_ptr) {
-        surface->Register(cpu_addr, host_ptr);
+    void Register(std::shared_ptr<TSurface> surface, GPUVAddr gpu_addr, VAddr cpu_addr,
+                  u8* host_ptr) {
+        surface->Register(gpu_addr, cpu_addr, host_ptr);
         registered_surfaces.add({GetSurfaceInterval(surface), {surface}});
         rasterizer.UpdatePagesCachedCount(surface->GetCpuAddr(), surface->GetSizeInBytes(), 1);
     }
@@ -531,24 +527,28 @@ protected:
     Core::System& system;
 
 private:
-    ResultType GetSurfaceView(TExecutionContext exctx, VAddr cpu_addr, const SurfaceParams& params,
-                              bool preserve_contents) {
-        const auto host_ptr{Memory::GetPointer(cpu_addr)};
+    ResultType GetSurfaceView(TExecutionContext exctx, GPUVAddr gpu_addr,
+                              const SurfaceParams& params, bool preserve_contents) {
+        auto& memory_manager{system.GPU().MemoryManager()};
+        const auto cpu_addr{memory_manager.GpuToCpuAddress(gpu_addr)};
+        DEBUG_ASSERT(cpu_addr);
+
+        const auto host_ptr{memory_manager.GetPointer(gpu_addr)};
         const auto cache_addr{ToCacheAddr(host_ptr)};
         auto overlaps{GetSurfacesInRegion(cache_addr, params.GetGuestSizeInBytes())};
         if (overlaps.empty()) {
-            return LoadSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents);
+            return LoadSurfaceView(exctx, gpu_addr, *cpu_addr, host_ptr, params, preserve_contents);
         }
 
         if (overlaps.size() == 1) {
-            if (TView* view = overlaps[0]->TryGetView(cpu_addr, params); view) {
+            if (TView* view = overlaps[0]->TryGetView(gpu_addr, params); view) {
                 return {view, exctx};
             }
         }
 
         TView* fast_view;
-        std::tie(fast_view, exctx) =
-            TryFastGetSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents, overlaps);
+        std::tie(fast_view, exctx) = TryFastGetSurfaceView(exctx, gpu_addr, *cpu_addr, host_ptr,
+                                                           params, preserve_contents, overlaps);
 
         if (!fast_view) {
             std::sort(overlaps.begin(), overlaps.end(), [](const auto& lhs, const auto& rhs) {
@@ -569,17 +569,17 @@ private:
             return {fast_view, exctx};
         }
 
-        return LoadSurfaceView(exctx, cpu_addr, host_ptr, params, preserve_contents);
+        return LoadSurfaceView(exctx, gpu_addr, *cpu_addr, host_ptr, params, preserve_contents);
     }
 
-    ResultType LoadSurfaceView(TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr,
-                               const SurfaceParams& params, bool preserve_contents) {
+    ResultType LoadSurfaceView(TExecutionContext exctx, GPUVAddr gpu_addr, VAddr cpu_addr,
+                               u8* host_ptr, const SurfaceParams& params, bool preserve_contents) {
         const auto new_surface{GetUncachedSurface(params)};
-        Register(new_surface, cpu_addr, host_ptr);
+        Register(new_surface, gpu_addr, cpu_addr, host_ptr);
         if (preserve_contents) {
             exctx = LoadSurface(exctx, new_surface);
         }
-        return {new_surface->GetView(cpu_addr, params), exctx};
+        return {new_surface->GetView(gpu_addr, params), exctx};
     }
 
     TExecutionContext LoadSurface(TExecutionContext exctx,
@@ -679,14 +679,17 @@ protected:
         : TextureCache<TSurface, TView, DummyExecutionContext>{system, rasterizer} {}
 
     virtual TView* TryFastGetSurfaceView(
-        VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params, bool preserve_contents,
-        const std::vector<std::shared_ptr<TSurface>>& overlaps) = 0;
+        GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
+        bool preserve_contents, const std::vector<std::shared_ptr<TSurface>>& overlaps) = 0;
 
 private:
     std::tuple<TView*, DummyExecutionContext> TryFastGetSurfaceView(
-        DummyExecutionContext, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
-        bool preserve_contents, const std::vector<std::shared_ptr<TSurface>>& overlaps) {
-        return {TryFastGetSurfaceView(cpu_addr, host_ptr, params, preserve_contents, overlaps), {}};
+        DummyExecutionContext, GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr,
+        const SurfaceParams& params, bool preserve_contents,
+        const std::vector<std::shared_ptr<TSurface>>& overlaps) {
+        return {TryFastGetSurfaceView(gpu_addr, cpu_addr, host_ptr, params, preserve_contents,
+                                      overlaps),
+                {}};
     }
 
     TView* RemoveContext(std::tuple<TView*, DummyExecutionContext> return_value) {

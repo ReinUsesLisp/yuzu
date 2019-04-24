@@ -421,7 +421,7 @@ void CachedSurface::UploadTextureMipmap(u32 level) {
 }
 
 void CachedSurface::RegisterSuffix() {
-    LabelGLObject(GL_TEXTURE, texture.handle, GetCpuAddr());
+    LabelGLObject(GL_TEXTURE, texture.handle, GetGpuAddr());
 }
 
 std::unique_ptr<CachedSurfaceView> CachedSurface::CreateView(const ViewKey& view_key) {
@@ -522,12 +522,13 @@ TextureCacheOpenGL::TextureCacheOpenGL(Core::System& system,
 
 TextureCacheOpenGL::~TextureCacheOpenGL() = default;
 
-CachedSurfaceView* TextureCacheOpenGL::TryFastGetSurfaceView(VAddr cpu_addr, u8* host_ptr,
+CachedSurfaceView* TextureCacheOpenGL::TryFastGetSurfaceView(GPUVAddr gpu_addr, VAddr cpu_addr,
+                                                             u8* host_ptr,
                                                              const SurfaceParams& new_params,
                                                              bool preserve_contents,
                                                              const std::vector<Surface>& overlaps) {
     if (overlaps.size() > 1) {
-        return TryCopyAsViews(cpu_addr, host_ptr, new_params, overlaps);
+        return TryCopyAsViews(gpu_addr, cpu_addr, host_ptr, new_params, overlaps);
     }
 
     const auto& old_surface{overlaps[0]};
@@ -536,18 +537,18 @@ CachedSurfaceView* TextureCacheOpenGL::TryFastGetSurfaceView(VAddr cpu_addr, u8*
         old_params.GetDepth() == new_params.GetDepth() && old_params.GetDepth() == 1 &&
         old_params.GetNumLevels() == new_params.GetNumLevels() &&
         old_params.GetPixelFormat() == new_params.GetPixelFormat()) {
-        return SurfaceCopy(cpu_addr, host_ptr, new_params, old_surface, old_params);
+        return SurfaceCopy(gpu_addr, cpu_addr, host_ptr, new_params, old_surface, old_params);
     }
 
     return nullptr;
 }
 
-CachedSurfaceView* TextureCacheOpenGL::SurfaceCopy(VAddr cpu_addr, u8* host_ptr,
+CachedSurfaceView* TextureCacheOpenGL::SurfaceCopy(GPUVAddr gpu_addr, VAddr cpu_addr, u8* host_ptr,
                                                    const SurfaceParams& new_params,
                                                    const Surface& old_surface,
                                                    const SurfaceParams& old_params) {
     const auto new_surface{GetUncachedSurface(new_params)};
-    Register(new_surface, cpu_addr, host_ptr);
+    Register(new_surface, gpu_addr, cpu_addr, host_ptr);
 
     const u32 min_width{
         std::max(old_params.GetDefaultBlockWidth(), new_params.GetDefaultBlockWidth())};
@@ -568,11 +569,11 @@ CachedSurfaceView* TextureCacheOpenGL::SurfaceCopy(VAddr cpu_addr, u8* host_ptr,
     new_surface->MarkAsModified(true);
 
     // TODO(Rodrigo): Add an entry to directly get the superview
-    return new_surface->GetView(cpu_addr, new_params);
+    return new_surface->GetView(gpu_addr, new_params);
 }
 
-CachedSurfaceView* TextureCacheOpenGL::TryCopyAsViews(VAddr cpu_addr, u8* host_ptr,
-                                                      const SurfaceParams& new_params,
+CachedSurfaceView* TextureCacheOpenGL::TryCopyAsViews(GPUVAddr gpu_addr, VAddr cpu_addr,
+                                                      u8* host_ptr, const SurfaceParams& new_params,
                                                       const std::vector<Surface>& overlaps) {
     if (new_params.GetTarget() == SurfaceTarget::Texture1D ||
         new_params.GetTarget() == SurfaceTarget::Texture1DArray ||
@@ -583,14 +584,14 @@ CachedSurfaceView* TextureCacheOpenGL::TryCopyAsViews(VAddr cpu_addr, u8* host_p
 
     const auto new_surface{GetUncachedSurface(new_params)};
     // TODO(Rodrigo): Move this down
-    Register(new_surface, cpu_addr, host_ptr);
+    Register(new_surface, gpu_addr, cpu_addr, host_ptr);
 
     // TODO(Rodrigo): Find a way to avoid heap allocations here.
     std::vector<CachedSurfaceView*> views;
     views.reserve(overlaps.size());
     for (const auto& overlap : overlaps) {
         const auto view{
-            new_surface->TryGetView(overlap->GetCpuAddr(), overlap->GetSurfaceParams())};
+            new_surface->TryGetView(overlap->GetGpuAddr(), overlap->GetSurfaceParams())};
         if (!view) {
             // TODO(Rodrigo): Remove this
             Unregister(new_surface);
@@ -616,7 +617,7 @@ CachedSurfaceView* TextureCacheOpenGL::TryCopyAsViews(VAddr cpu_addr, u8* host_p
     new_surface->MarkAsModified(true);
 
     // TODO(Rodrigo): Add an entry to directly get the superview
-    return new_surface->GetView(cpu_addr, new_params);
+    return new_surface->GetView(gpu_addr, new_params);
 }
 
 Surface TextureCacheOpenGL::CreateSurface(const SurfaceParams& params) {
