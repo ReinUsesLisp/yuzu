@@ -412,12 +412,12 @@ class TextureCache {
     static_assert(std::is_trivially_copyable_v<TExecutionContext>);
 
     using ResultType = std::tuple<TView*, TExecutionContext>;
-    using IntervalMap = boost::icl::interval_map<CacheAddr, std::set<TSurface*>>;
+    using IntervalMap = boost::icl::interval_map<CacheAddr, std::set<std::shared_ptr<TSurface>>>;
     using IntervalType = typename IntervalMap::interval_type;
 
 public:
     void InvalidateRegion(CacheAddr addr, std::size_t size) {
-        for (TSurface* surface : GetSurfacesInRegion(addr, size)) {
+        for (const auto& surface : GetSurfacesInRegion(addr, size)) {
             if (!surface->IsRegistered()) {
                 // Skip duplicates
                 continue;
@@ -486,7 +486,7 @@ public:
                               true);
     }
 
-    TSurface* TryFindFramebufferSurface(const u8* host_ptr) const {
+    std::shared_ptr<TSurface> TryFindFramebufferSurface(const u8* host_ptr) const {
         const auto it{registered_surfaces.find(ToCacheAddr(host_ptr))};
         return it != registered_surfaces.end() ? *it->second.begin() : nullptr;
     }
@@ -501,32 +501,31 @@ protected:
 
     ~TextureCache() = default;
 
-    virtual ResultType TryFastGetSurfaceView(TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr,
-                                             const SurfaceParams& params, bool preserve_contents,
-                                             const std::vector<TSurface*>& overlaps) = 0;
+    virtual ResultType TryFastGetSurfaceView(
+        TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
+        bool preserve_contents, const std::vector<std::shared_ptr<TSurface>>& overlaps) = 0;
 
-    virtual std::unique_ptr<TSurface> CreateSurface(const SurfaceParams& params) = 0;
+    virtual std::shared_ptr<TSurface> CreateSurface(const SurfaceParams& params) = 0;
 
-    void Register(TSurface* surface, VAddr cpu_addr, u8* host_ptr) {
+    void Register(std::shared_ptr<TSurface> surface, VAddr cpu_addr, u8* host_ptr) {
         surface->Register(cpu_addr, host_ptr);
         registered_surfaces.add({GetSurfaceInterval(surface), {surface}});
         rasterizer.UpdatePagesCachedCount(surface->GetCpuAddr(), surface->GetSizeInBytes(), 1);
     }
 
-    void Unregister(TSurface* surface) {
+    void Unregister(std::shared_ptr<TSurface> surface) {
         registered_surfaces.subtract({GetSurfaceInterval(surface), {surface}});
         rasterizer.UpdatePagesCachedCount(surface->GetCpuAddr(), surface->GetSizeInBytes(), -1);
         surface->Unregister();
     }
 
-    TSurface* GetUncachedSurface(const SurfaceParams& params) {
-        if (TSurface* surface = TryGetReservedSurface(params); surface)
+    std::shared_ptr<TSurface> GetUncachedSurface(const SurfaceParams& params) {
+        if (const auto surface = TryGetReservedSurface(params); surface)
             return surface;
         // No reserved surface available, create a new one and reserve it
         auto new_surface{CreateSurface(params)};
-        TSurface* surface{new_surface.get()};
-        ReserveSurface(params, std::move(new_surface));
-        return surface;
+        ReserveSurface(params, new_surface);
+        return new_surface;
     }
 
     Core::System& system;
@@ -557,7 +556,7 @@ private:
             });
         }
 
-        for (TSurface* surface : overlaps) {
+        for (const auto& surface : overlaps) {
             if (!fast_view) {
                 // Flush even when we don't care about the contents, to preserve memory not
                 // written by the new surface.
@@ -575,7 +574,7 @@ private:
 
     ResultType LoadSurfaceView(TExecutionContext exctx, VAddr cpu_addr, u8* host_ptr,
                                const SurfaceParams& params, bool preserve_contents) {
-        TSurface* new_surface{GetUncachedSurface(params)};
+        const auto new_surface{GetUncachedSurface(params)};
         Register(new_surface, cpu_addr, host_ptr);
         if (preserve_contents) {
             exctx = LoadSurface(exctx, new_surface);
@@ -583,44 +582,46 @@ private:
         return {new_surface->GetView(cpu_addr, params), exctx};
     }
 
-    TExecutionContext LoadSurface(TExecutionContext exctx, TSurface* surface) {
+    TExecutionContext LoadSurface(TExecutionContext exctx,
+                                  const std::shared_ptr<TSurface>& surface) {
         surface->LoadBuffer();
         exctx = surface->UploadTexture(exctx);
         surface->MarkAsModified(false);
         return exctx;
     }
 
-    std::vector<TSurface*> GetSurfacesInRegion(CacheAddr cache_addr, std::size_t size) const {
+    std::vector<std::shared_ptr<TSurface>> GetSurfacesInRegion(CacheAddr cache_addr,
+                                                               std::size_t size) const {
         if (size == 0) {
             return {};
         }
         const IntervalType interval{cache_addr, cache_addr + size};
 
-        std::vector<TSurface*> surfaces;
+        std::vector<std::shared_ptr<TSurface>> surfaces;
         for (auto& pair : boost::make_iterator_range(registered_surfaces.equal_range(interval))) {
             surfaces.push_back(*pair.second.begin());
         }
         return surfaces;
     }
 
-    void ReserveSurface(const SurfaceParams& params, std::unique_ptr<TSurface> surface) {
+    void ReserveSurface(const SurfaceParams& params, std::shared_ptr<TSurface> surface) {
         surface_reserve[params].push_back(std::move(surface));
     }
 
-    TSurface* TryGetReservedSurface(const SurfaceParams& params) {
+    std::shared_ptr<TSurface> TryGetReservedSurface(const SurfaceParams& params) {
         auto search{surface_reserve.find(params)};
         if (search == surface_reserve.end()) {
             return {};
         }
         for (auto& surface : search->second) {
             if (!surface->IsRegistered()) {
-                return surface.get();
+                return surface;
             }
         }
         return {};
     }
 
-    IntervalType GetSurfaceInterval(TSurface* surface) const {
+    IntervalType GetSurfaceInterval(std::shared_ptr<TSurface> surface) const {
         return IntervalType::right_open(surface->GetCacheAddr(),
                                         surface->GetCacheAddr() + surface->GetSizeInBytes());
     }
@@ -634,7 +635,7 @@ private:
     /// The surface reserve is a "backup" cache, this is where we put unique surfaces that have
     /// previously been used. This is to prevent surfaces from being constantly created and
     /// destroyed when used with different surface parameters.
-    std::unordered_map<SurfaceParams, std::list<std::unique_ptr<TSurface>>> surface_reserve;
+    std::unordered_map<SurfaceParams, std::list<std::shared_ptr<TSurface>>> surface_reserve;
 };
 
 struct DummyExecutionContext {};
@@ -664,7 +665,7 @@ public:
         return RemoveContext(Base::GetFermiSurface({}, config));
     }
 
-    TSurface* TryFindFramebufferSurface(const u8* host_ptr) const {
+    std::shared_ptr<TSurface> TryFindFramebufferSurface(const u8* host_ptr) const {
         return Base::TryFindFramebufferSurface(host_ptr);
     }
 
@@ -677,14 +678,14 @@ protected:
                                      VideoCore::RasterizerInterface& rasterizer)
         : TextureCache<TSurface, TView, DummyExecutionContext>{system, rasterizer} {}
 
-    virtual TView* TryFastGetSurfaceView(VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
-                                         bool preserve_contents,
-                                         const std::vector<TSurface*>& overlaps) = 0;
+    virtual TView* TryFastGetSurfaceView(
+        VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params, bool preserve_contents,
+        const std::vector<std::shared_ptr<TSurface>>& overlaps) = 0;
 
 private:
     std::tuple<TView*, DummyExecutionContext> TryFastGetSurfaceView(
         DummyExecutionContext, VAddr cpu_addr, u8* host_ptr, const SurfaceParams& params,
-        bool preserve_contents, const std::vector<TSurface*>& overlaps) {
+        bool preserve_contents, const std::vector<std::shared_ptr<TSurface>>& overlaps) {
         return {TryFastGetSurfaceView(cpu_addr, host_ptr, params, preserve_contents, overlaps), {}};
     }
 

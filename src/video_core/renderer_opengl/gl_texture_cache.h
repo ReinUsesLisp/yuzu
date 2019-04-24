@@ -28,6 +28,7 @@ class CachedSurfaceView;
 class CachedSurface;
 class TextureCacheOpenGL;
 
+using Surface = std::shared_ptr<CachedSurface>;
 using TextureCacheBase = VideoCommon::TextureCacheContextless<CachedSurface, CachedSurfaceView>;
 
 class CachedSurface final
@@ -161,16 +162,16 @@ protected:
     CachedSurfaceView* TryFastGetSurfaceView(VAddr cpu_addr, u8* host_ptr,
                                              const SurfaceParams& new_params,
                                              bool preserve_contents,
-                                             const std::vector<CachedSurface*>& overlaps);
+                                             const std::vector<Surface>& overlaps);
 
-    std::unique_ptr<CachedSurface> CreateSurface(const SurfaceParams& params);
+    Surface CreateSurface(const SurfaceParams& params);
 
 private:
     CachedSurfaceView* SurfaceCopy(VAddr cpu_addr, u8* host_ptr, const SurfaceParams& new_params,
-                                   CachedSurface* old_surface, const SurfaceParams& old_params);
+                                   const Surface& old_surface, const SurfaceParams& old_params);
 
     CachedSurfaceView* TryCopyAsViews(VAddr cpu_addr, u8* host_ptr, const SurfaceParams& new_params,
-                                      const std::vector<CachedSurface*>& overlaps);
+                                      const std::vector<Surface>& overlaps);
 };
 
 } // namespace OpenGL
