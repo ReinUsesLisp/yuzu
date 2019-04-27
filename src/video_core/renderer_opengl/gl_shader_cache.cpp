@@ -181,6 +181,10 @@ CachedProgram SpecializeShader(const std::string& code, const GLShader::ShaderEn
         source += fmt::format("#define SAMPLER_BINDING_{} {}\n", sampler.GetIndex(),
                               base_bindings.sampler++);
     }
+    for (const auto& image : entries.images) {
+        source +=
+            fmt::format("#define IMAGE_BINDING_{} {}\n", image.GetIndex(), base_bindings.image++);
+    }
 
     if (program_type == Maxwell::ShaderProgram::Geometry) {
         const auto [glsl_topology, debug_name, max_vertices] =

@@ -34,11 +34,11 @@ enum class PrecompiledEntryKind : u32 {
     Dump,
 };
 
-constexpr u32 NativeVersion = 1;
+constexpr u32 NativeVersion = 2;
 
 // Making sure sizes doesn't change by accident
-static_assert(sizeof(BaseBindings) == 12);
-static_assert(sizeof(ShaderDiskCacheUsage) == 24);
+static_assert(sizeof(BaseBindings) == 16);
+static_assert(sizeof(ShaderDiskCacheUsage) == 32);
 
 namespace {
 
@@ -334,6 +334,25 @@ std::optional<ShaderDiskCacheDecompiled> ShaderDiskCacheOpenGL::LoadDecompiledEn
                                             is_array != 0, is_shadow != 0, is_bindless != 0);
     }
 
+    u32 images_count{};
+    if (file.ReadBytes(&images_count, sizeof(u32)) != sizeof(u32))
+        return {};
+    for (u32 i = 0; i < images_count; ++i) {
+        u64 offset{};
+        u64 index{};
+        u32 type{};
+        u8 is_bindless{};
+        if (file.ReadBytes(&offset, sizeof(u64)) != sizeof(u64) ||
+            file.ReadBytes(&index, sizeof(u64)) != sizeof(u64) ||
+            file.ReadBytes(&type, sizeof(u32)) != sizeof(u32) ||
+            file.ReadBytes(&is_bindless, sizeof(u8)) != sizeof(u8)) {
+            return {};
+        }
+        entry.entries.images.emplace_back(
+            static_cast<std::size_t>(offset), static_cast<std::size_t>(index),
+            static_cast<Tegra::Shader::ImageType>(type), is_bindless != 0);
+    }
+
     u32 global_memory_count{};
     if (file.ReadBytes(&global_memory_count, sizeof(u32)) != sizeof(u32))
         return {};
@@ -398,6 +417,17 @@ bool ShaderDiskCacheOpenGL::SaveDecompiledFile(FileUtil::IOFile& file, u64 uniqu
             file.WriteObject(static_cast<u8>(sampler.IsArray() ? 1 : 0)) != 1 ||
             file.WriteObject(static_cast<u8>(sampler.IsShadow() ? 1 : 0)) != 1 ||
             file.WriteObject(static_cast<u8>(sampler.IsBindless() ? 1 : 0)) != 1) {
+            return false;
+        }
+    }
+
+    if (file.WriteObject(static_cast<u32>(entries.images.size())) != 1)
+        return false;
+    for (const auto& image : entries.images) {
+        if (file.WriteObject(static_cast<u64>(image.GetOffset())) != 1 ||
+            file.WriteObject(static_cast<u64>(image.GetIndex())) != 1 ||
+            file.WriteObject(static_cast<u32>(image.GetType())) != 1 ||
+            file.WriteObject(static_cast<u8>(image.IsBindless() ? 1 : 0)) != 1) {
             return false;
         }
     }
