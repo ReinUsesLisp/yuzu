@@ -831,7 +831,7 @@ void RasterizerOpenGL::SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::Shader
         size = Common::AlignUp(size, sizeof(GLvec4));
         ASSERT_MSG(size <= MaxConstbufferSize, "Constbuffer too big");
 
-        const std::size_t alignment = device.GetUniformBufferAlignment();
+        const auto alignment = device.GetUniformBufferAlignment();
         const auto [cbuf, offset] = buffer_cache.UploadMemory(buffer.address, size, alignment);
         bind_ubo_pushbuffer.Push(cbuf, offset, size);
     }
