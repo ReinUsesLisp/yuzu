@@ -74,16 +74,6 @@ std::pair<GLuint, GLintptr> OGLBufferCache::UploadHostMemory(const void* raw_poi
     return {stream_buffer.GetHandle(), uploaded_offset};
 }
 
-std::tuple<u8*, GLintptr> OGLBufferCache::ReserveMemory(std::size_t size, std::size_t alignment) {
-    AlignBuffer(alignment);
-    u8* const uploaded_ptr = buffer_ptr;
-    const GLintptr uploaded_offset = buffer_offset;
-
-    buffer_ptr += size;
-    buffer_offset += size;
-    return std::make_tuple(uploaded_ptr, uploaded_offset);
-}
-
 bool OGLBufferCache::Map(std::size_t max_size) {
     bool invalidate;
     std::tie(buffer_ptr, buffer_offset_base, invalidate) =
