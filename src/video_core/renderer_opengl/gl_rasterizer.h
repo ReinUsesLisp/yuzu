@@ -22,7 +22,6 @@
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_opengl/gl_buffer_cache.h"
 #include "video_core/renderer_opengl/gl_device.h"
-#include "video_core/renderer_opengl/gl_global_cache.h"
 #include "video_core/renderer_opengl/gl_rasterizer_cache.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
 #include "video_core/renderer_opengl/gl_sampler_cache.h"
@@ -105,17 +104,16 @@ private:
         bool preserve_contents = true, std::optional<std::size_t> single_color_target = {});
 
     /// Configures the current constbuffers to use for the draw command.
-    void SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage, const Shader& shader,
-                           GLuint program_handle, BaseBindings base_bindings);
+    void SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage,
+                           const Shader& shader);
 
     /// Configures the current global memory entries to use for the draw command.
     void SetupGlobalRegions(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage,
-                            const Shader& shader, GLenum primitive_mode,
-                            BaseBindings base_bindings);
+                            const Shader& shader);
 
     /// Configures the current textures to use for the draw command.
     void SetupTextures(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage, const Shader& shader,
-                       GLuint program_handle, BaseBindings base_bindings);
+                       BaseBindings base_bindings);
 
     /// Syncs the viewport and depth range to match the guest state
     void SyncViewport(OpenGLState& current_state);
@@ -178,7 +176,6 @@ private:
 
     RasterizerCacheOpenGL res_cache;
     ShaderCacheOpenGL shader_cache;
-    GlobalRegionCacheOpenGL global_cache;
     SamplerCacheOpenGL sampler_cache;
 
     Core::System& system;

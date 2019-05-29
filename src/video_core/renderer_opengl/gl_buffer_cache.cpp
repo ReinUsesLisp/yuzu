@@ -47,7 +47,8 @@ void OGLBufferCache::Unregister(const std::shared_ptr<CachedBufferEntry>& entry)
 }
 
 OGLBufferCache::BufferInfo OGLBufferCache::UploadMemory(GPUVAddr gpu_addr, std::size_t size,
-                                                        std::size_t alignment, bool internalize) {
+                                                        std::size_t alignment, bool internalize,
+                                                        bool is_written) {
     auto& memory_manager = Core::System::GetInstance().GPU().MemoryManager();
     const auto host_ptr{memory_manager.GetPointer(gpu_addr)};
     const auto cache_addr{ToCacheAddr(host_ptr)};
@@ -64,11 +65,14 @@ OGLBufferCache::BufferInfo OGLBufferCache::UploadMemory(GPUVAddr gpu_addr, std::
 
     auto entry = TryGet(host_ptr);
     if (!entry) {
-        return FixedBufferUpload(gpu_addr, host_ptr, size, internalize);
+        return FixedBufferUpload(gpu_addr, host_ptr, size, internalize, is_written);
     }
 
     if (entry->GetSize() < size) {
         GrowBuffer(entry, size);
+    }
+    if (is_written) {
+        entry->MarkAsModified(true, *this);
     }
     return {entry->GetBuffer(), CachedBufferOffset};
 }
@@ -104,16 +108,21 @@ OGLBufferCache::BufferInfo OGLBufferCache::StreamBufferUpload(const void* raw_po
 }
 
 OGLBufferCache::BufferInfo OGLBufferCache::FixedBufferUpload(GPUVAddr gpu_addr, u8* host_ptr,
-                                                             std::size_t size, bool internalize) {
-    if (internalize) {
-        internalized_entries.emplace(ToCacheAddr(host_ptr));
-    }
+                                                             std::size_t size, bool internalize,
+                                                             bool is_written) {
     auto& memory_manager = Core::System::GetInstance().GPU().MemoryManager();
     const auto cpu_addr = *memory_manager.GpuToCpuAddress(gpu_addr);
     auto entry = GetUncachedBuffer(cpu_addr, host_ptr);
     entry->SetSize(size);
     entry->SetInternalState(internalize);
     Register(entry);
+
+    if (internalize) {
+        internalized_entries.emplace(ToCacheAddr(host_ptr));
+    }
+    if (is_written) {
+        entry->MarkAsModified(true, *this);
+    }
 
     if (entry->GetCapacity() < size) {
         entry->SetCapacity(CreateBuffer(size, GL_STATIC_DRAW), size);

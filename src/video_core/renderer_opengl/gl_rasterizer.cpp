@@ -20,6 +20,7 @@
 #include "core/hle/kernel/process.h"
 #include "core/settings.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/memory_manager.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_cache.h"
 #include "video_core/renderer_opengl/gl_shader_gen.h"
@@ -100,9 +101,8 @@ struct FramebufferCacheKey {
 
 RasterizerOpenGL::RasterizerOpenGL(Core::System& system, Core::Frontend::EmuWindow& emu_window,
                                    ScreenInfo& info)
-    : res_cache{*this}, shader_cache{*this, system, emu_window, device},
-      global_cache{*this}, system{system}, screen_info{info},
-      buffer_cache(*this, STREAM_BUFFER_SIZE) {
+    : res_cache{*this}, shader_cache{*this, system, emu_window, device}, system{system},
+      screen_info{info}, buffer_cache(*this, STREAM_BUFFER_SIZE) {
     OpenGLState::ApplyDefaultState();
 
     shader_program_manager = std::make_unique<GLShader::ProgramManager>();
@@ -329,9 +329,9 @@ void RasterizerOpenGL::SetupShaders(GLenum primitive_mode) {
         }
 
         const auto stage_enum = static_cast<Maxwell::ShaderStage>(stage);
-        SetupConstBuffers(stage_enum, shader, program_handle, base_bindings);
-        SetupGlobalRegions(stage_enum, shader, program_handle, base_bindings);
-        SetupTextures(stage_enum, shader, program_handle, base_bindings);
+        SetupConstBuffers(stage_enum, shader);
+        SetupGlobalRegions(stage_enum, shader);
+        SetupTextures(stage_enum, shader, base_bindings);
 
         // Workaround for Intel drivers.
         // When a clip distance is enabled but not set in the shader it crops parts of the screen
@@ -733,7 +733,7 @@ void RasterizerOpenGL::FlushRegion(CacheAddr addr, u64 size) {
         return;
     }
     res_cache.FlushRegion(addr, size);
-    global_cache.FlushRegion(addr, size);
+    buffer_cache.FlushRegion(addr, size);
 }
 
 void RasterizerOpenGL::InvalidateRegion(CacheAddr addr, u64 size) {
@@ -743,7 +743,6 @@ void RasterizerOpenGL::InvalidateRegion(CacheAddr addr, u64 size) {
     }
     res_cache.InvalidateRegion(addr, size);
     shader_cache.InvalidateRegion(addr, size);
-    global_cache.InvalidateRegion(addr, size);
     buffer_cache.InvalidateRegion(addr, size);
 }
 
@@ -791,8 +790,7 @@ bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
 }
 
 void RasterizerOpenGL::SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage,
-                                         const Shader& shader, GLuint program_handle,
-                                         BaseBindings base_bindings) {
+                                         const Shader& shader) {
     MICROPROFILE_SCOPE(OpenGL_UBO);
     const auto& gpu = system.GPU();
     const auto& maxwell3d = gpu.Maxwell3D();
@@ -838,22 +836,28 @@ void RasterizerOpenGL::SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::Shader
 }
 
 void RasterizerOpenGL::SetupGlobalRegions(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage,
-                                          const Shader& shader, GLenum primitive_mode,
-                                          BaseBindings base_bindings) {
+                                          const Shader& shader) {
+    auto& gpu{Core::System::GetInstance().GPU()};
+    auto& memory_manager{gpu.MemoryManager()};
+    const auto cbufs{gpu.Maxwell3D().state.shader_stages[static_cast<std::size_t>(stage)]};
+    const auto alignment{device.GetUniformBufferAlignment()};
+
     const auto& entries = shader->GetShaderEntries().global_memory_entries;
     for (std::size_t bindpoint = 0; bindpoint < entries.size(); ++bindpoint) {
         const auto& entry{entries[bindpoint]};
-        const auto& region{global_cache.GetGlobalRegion(entry, stage)};
-        if (entry.IsWritten()) {
-            region->MarkAsModified(true, global_cache);
-        }
-        bind_ssbo_pushbuffer.Push(region->GetBufferHandle(), 0,
-                                  static_cast<GLsizeiptr>(region->GetSizeInBytes()));
+
+        const auto addr{cbufs.const_buffers[entry.GetCbufIndex()].address + entry.GetCbufOffset()};
+        const auto actual_addr{memory_manager.Read<u64>(addr)};
+        const auto size{memory_manager.Read<u32>(addr + 8)};
+
+        const auto [ssbo, buffer_offset] =
+            buffer_cache.UploadMemory(actual_addr, size, alignment, true, entry.IsWritten());
+        bind_ssbo_pushbuffer.Push(ssbo, buffer_offset, static_cast<GLsizeiptr>(size));
     }
 }
 
 void RasterizerOpenGL::SetupTextures(Maxwell::ShaderStage stage, const Shader& shader,
-                                     GLuint program_handle, BaseBindings base_bindings) {
+                                     BaseBindings base_bindings) {
     MICROPROFILE_SCOPE(OpenGL_Texture);
     const auto& gpu = system.GPU();
     const auto& maxwell3d = gpu.Maxwell3D();
