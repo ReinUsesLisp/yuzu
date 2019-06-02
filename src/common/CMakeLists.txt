@@ -61,6 +61,8 @@ add_custom_command(OUTPUT scm_rev.cpp
       "${VIDEO_CORE}/shader/node_helper.h"
       "${VIDEO_CORE}/shader/shader_ir.cpp"
       "${VIDEO_CORE}/shader/shader_ir.h"
+      "${VIDEO_CORE}/shader/optimizer/flow_stack_remover.cpp"
+      "${VIDEO_CORE}/shader/optimizer.cpp"
       "${VIDEO_CORE}/shader/track.cpp"
       # and also check that the scm_rev files haven't changed
       "${CMAKE_CURRENT_SOURCE_DIR}/scm_rev.cpp.in"

@@ -9,6 +9,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <stack>
 #include <string>
 #include <tuple>
 #include <variant>
@@ -69,6 +70,11 @@ private:
 struct GlobalMemoryUsage {
     bool is_read{};
     bool is_written{};
+};
+
+struct FlowStack {
+    std::stack<u32> ssy;
+    // std::stack<u32> pbk;
 };
 
 class ShaderIR final {
@@ -310,6 +316,14 @@ private:
 
     std::tuple<Node, Node, GlobalMemoryBase> TrackAndGetGlobalMemory(
         NodeBlock& bb, Tegra::Shader::Instruction instr, bool is_write);
+
+    void Optimize();
+    void FlowStackRemover();
+    bool FlowStackRemoverBasicBlock(std::map<u32, NodeBlock>& new_basic_blocks,
+                                    std::set<u32>& visited_blocks, u32 label, FlowStack stack = {});
+    std::optional<std::pair<NodeBlock, FlowStack>> FlowStackRemoverNodes(
+        std::map<u32, NodeBlock>& new_basic_blocks, std::set<u32>& visited_blocks,
+        const NodeBlock& old_block, FlowStack stack);
 
     const ProgramCode& program_code;
     const u32 main_offset;

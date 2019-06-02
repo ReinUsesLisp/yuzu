@@ -105,6 +105,8 @@ add_library(video_core STATIC
     shader/node.h
     shader/shader_ir.cpp
     shader/shader_ir.h
+    shader/optimizer/flow_stack_remover.cpp
+    shader/optimizer.cpp
     shader/track.cpp
     surface.cpp
     surface.h

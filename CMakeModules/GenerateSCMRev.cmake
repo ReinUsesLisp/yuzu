@@ -87,6 +87,8 @@ set(HASH_FILES
     "${VIDEO_CORE}/shader/node_helper.h"
     "${VIDEO_CORE}/shader/shader_ir.cpp"
     "${VIDEO_CORE}/shader/shader_ir.h"
+    "${VIDEO_CORE}/shader/optimizer/flow_stack_remover.cpp"
+    "${VIDEO_CORE}/shader/optimizer.cpp"
     "${VIDEO_CORE}/shader/track.cpp"
 )
 set(COMBINED "")
