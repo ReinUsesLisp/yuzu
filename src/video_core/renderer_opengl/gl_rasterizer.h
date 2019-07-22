@@ -91,22 +91,8 @@ private:
         }
     };
 
-    /**
-     * Configures the color and depth framebuffer states.
-     *
-     * @param current_state       The current OpenGL state.
-     * @param using_color_fb      If true, configure color framebuffers.
-     * @param using_depth_fb      If true, configure the depth/stencil framebuffer.
-     * @param preserve_contents   If true, tries to preserve data from a previously used
-     *                            framebuffer.
-     * @param single_color_target Specifies if a single color buffer target should be used.
-     *
-     * @returns If depth (first) or stencil (second) are being stored in the bound zeta texture
-     *          (requires using_depth_fb to be true)
-     */
-    std::pair<bool, bool> ConfigureFramebuffers(
-        OpenGLState& current_state, bool using_color_fb = true, bool using_depth_fb = true,
-        bool preserve_contents = true, std::optional<std::size_t> single_color_target = {});
+    /// Configures the color and depth framebuffer states.
+    void ConfigureFramebuffers(OpenGLState& current_state);
 
     void ConfigureClearFramebuffer(OpenGLState& current_state, bool using_color_fb,
                                    bool using_depth_fb, bool using_stencil_fb);
@@ -202,7 +188,6 @@ private:
         vertex_array_cache;
 
     FramebufferConfigState current_framebuffer_config_state;
-    std::pair<bool, bool> current_depth_stencil_usage{};
 
     static constexpr std::size_t STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
     OGLBufferCache buffer_cache;

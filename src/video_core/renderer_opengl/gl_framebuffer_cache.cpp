@@ -35,22 +35,13 @@ OGLFramebuffer FramebufferCacheOpenGL::CreateFramebuffer(const FramebufferCacheK
     local_state.draw.draw_framebuffer = framebuffer.handle;
     local_state.ApplyFramebufferState();
 
-    if (key.is_single_buffer) {
-        if (key.color_attachments[0] != GL_NONE && key.colors[0]) {
-            key.colors[0]->Attach(key.color_attachments[0], GL_DRAW_FRAMEBUFFER);
-            glDrawBuffer(key.color_attachments[0]);
-        } else {
-            glDrawBuffer(GL_NONE);
+    for (std::size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
+        if (key.colors[index]) {
+            key.colors[index]->Attach(GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index),
+                                      GL_DRAW_FRAMEBUFFER);
         }
-    } else {
-        for (std::size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
-            if (key.colors[index]) {
-                key.colors[index]->Attach(GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index),
-                                          GL_DRAW_FRAMEBUFFER);
-            }
-        }
-        glDrawBuffers(key.colors_count, key.color_attachments.data());
     }
+    glDrawBuffers(key.colors_count, key.color_attachments.data());
 
     if (key.zeta) {
         key.zeta->Attach(key.stencil_enable ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT,
@@ -67,9 +58,9 @@ std::size_t FramebufferCacheKey::Hash() const {
 }
 
 bool FramebufferCacheKey::operator==(const FramebufferCacheKey& rhs) const {
-    return std::tie(is_single_buffer, stencil_enable, colors_count, color_attachments, colors,
-                    zeta) == std::tie(rhs.is_single_buffer, rhs.stencil_enable, rhs.colors_count,
-                                      rhs.color_attachments, rhs.colors, rhs.zeta);
+    return std::tie(stencil_enable, colors_count, color_attachments, colors, zeta) ==
+           std::tie(rhs.stencil_enable, rhs.colors_count, rhs.color_attachments, rhs.colors,
+                    rhs.zeta);
 }
 
 } // namespace OpenGL
