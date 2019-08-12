@@ -55,6 +55,8 @@ VKDevice::VKDevice(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice phy
     SetupFeatures(dldi);
 }
 
+VKDevice::VKDevice(std::nullptr_t) {}
+
 VKDevice::~VKDevice() = default;
 
 bool VKDevice::Create(const vk::DispatchLoaderDynamic& dldi, vk::Instance instance) {

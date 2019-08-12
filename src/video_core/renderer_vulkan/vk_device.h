@@ -19,6 +19,7 @@ class VKDevice final {
 public:
     explicit VKDevice(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical,
                       vk::SurfaceKHR surface);
+    explicit VKDevice(std::nullptr_t);
     ~VKDevice();
 
     /// Initializes the device. Returns true on success.
