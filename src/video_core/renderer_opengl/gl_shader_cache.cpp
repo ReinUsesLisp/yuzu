@@ -22,9 +22,7 @@
 namespace OpenGL {
 
 using VideoCommon::Shader::ProgramCode;
-
-// One UBO is always reserved for emulation values on staged shaders
-constexpr u32 STAGE_RESERVED_UBOS = 1;
+using VideoCommon::Shader::ShaderIR;
 
 struct UnspecializedShader {
     std::string code;
@@ -33,6 +31,12 @@ struct UnspecializedShader {
 };
 
 namespace {
+
+// One UBO is always reserved for emulation values on staged shaders
+constexpr u32 STAGE_RESERVED_UBOS = 1;
+
+constexpr u32 STAGE_MAIN_OFFSET = 10;
+constexpr u32 KERNEL_MAIN_OFFSET = 0;
 
 /// Gets the address for the specified shader stage program
 GPUVAddr GetShaderAddress(Core::System& system, Maxwell::ShaderProgram program) {
@@ -173,31 +177,18 @@ u64 GetUniqueIdentifier(ProgramType program_type, const ProgramCode& code,
 }
 
 /// Creates an unspecialized program from code streams
-GLShader::ProgramResult CreateProgram(const Device& device, ProgramType program_type,
-                                      ProgramCode program_code, ProgramCode program_code_b) {
-    GLShader::ShaderSetup setup(program_code);
-    setup.program.size_a = CalculateProgramSize(program_code);
-    setup.program.size_b = 0;
-    if (program_type == ProgramType::VertexA) {
-        // VertexB is always enabled, so when VertexA is enabled, we have two vertex shaders.
-        // Conventional HW does not support this, so we combine VertexA and VertexB into one
-        // stage here.
-        setup.SetProgramB(program_code_b);
-        setup.program.size_b = CalculateProgramSize(program_code_b);
-    }
-    setup.program.unique_identifier = GetUniqueIdentifier(
-        program_type, program_code, program_code_b, setup.program.size_a, setup.program.size_b);
-
+std::string CreateProgram(const Device& device, ProgramType program_type, const ShaderIR& ir,
+                          const ShaderIR* ir_b = nullptr) {
     switch (program_type) {
     case ProgramType::VertexA:
     case ProgramType::VertexB:
-        return GLShader::GenerateVertexShader(device, setup);
+        return GLShader::GenerateVertexShader(device, ir, ir_b);
     case ProgramType::Geometry:
-        return GLShader::GenerateGeometryShader(device, setup);
+        return GLShader::GenerateGeometryShader(device, ir);
     case ProgramType::Fragment:
-        return GLShader::GenerateFragmentShader(device, setup);
+        return GLShader::GenerateFragmentShader(device, ir);
     case ProgramType::Compute:
-        return GLShader::GenerateComputeShader(device, setup);
+        return GLShader::GenerateComputeShader(device, ir);
     default:
         UNIMPLEMENTED_MSG("Unimplemented program_type={}", static_cast<u32>(program_type));
         return {};
@@ -295,21 +286,27 @@ std::set<GLenum> GetSupportedFormats() {
 } // Anonymous namespace
 
 CachedShader::CachedShader(const ShaderParameters& params, ProgramType program_type,
-                           GLShader::ProgramResult result)
+                           GLShader::ShaderEntries entries, std::string code)
     : RasterizerCacheObject{params.host_ptr}, cpu_addr{params.cpu_addr},
       unique_identifier{params.unique_identifier}, program_type{program_type},
       disk_cache{params.disk_cache}, precompiled_programs{params.precompiled_programs},
-      entries{result.second}, code{std::move(result.first)}, shader_length{entries.shader_length} {}
+      entries{entries}, code{code}, shader_length{entries.shader_length} {}
 
 Shader CachedShader::CreateStageFromMemory(const ShaderParameters& params,
                                            Maxwell::ShaderProgram program_type,
-                                           ProgramCode&& program_code,
-                                           ProgramCode&& program_code_b) {
+                                           ProgramCode program_code, ProgramCode program_code_b) {
     const auto code_size{CalculateProgramSize(program_code)};
     const auto code_size_b{CalculateProgramSize(program_code_b)};
-    auto result{
-        CreateProgram(params.device, GetProgramType(program_type), program_code, program_code_b)};
-    if (result.first.empty()) {
+
+    const ShaderIR ir(program_code, STAGE_MAIN_OFFSET, code_size);
+    std::optional<ShaderIR> ir_b;
+    if (!program_code_b.empty()) {
+        ir_b.emplace(program_code_b, STAGE_MAIN_OFFSET, code_size_b);
+    }
+
+    const auto decode_program_type = GetProgramType(program_type);
+    auto code = CreateProgram(params.device, decode_program_type, ir, ir_b ? &*ir_b : nullptr);
+    if (code.empty()) {
         // TODO(Rodrigo): Unimplemented shader stages hit here, avoid using these for now
         return {};
     }
@@ -319,33 +316,33 @@ Shader CachedShader::CreateStageFromMemory(const ShaderParameters& params,
         static_cast<u32>(code_size / sizeof(u64)), static_cast<u32>(code_size_b / sizeof(u64)),
         std::move(program_code), std::move(program_code_b)));
 
-    return std::shared_ptr<CachedShader>(
-        new CachedShader(params, GetProgramType(program_type), std::move(result)));
+    return std::shared_ptr<CachedShader>(new CachedShader(
+        params, GetProgramType(program_type), GLShader::GetEntries(ir), std::move(code)));
 }
 
 Shader CachedShader::CreateStageFromCache(const ShaderParameters& params,
                                           Maxwell::ShaderProgram program_type,
-                                          GLShader::ProgramResult result) {
-    return std::shared_ptr<CachedShader>(
-        new CachedShader(params, GetProgramType(program_type), std::move(result)));
+                                          GLShader::ShaderEntries entries, std::string code) {
+    return std::shared_ptr<CachedShader>(new CachedShader(params, GetProgramType(program_type),
+                                                          std::move(entries), std::move(code)));
 }
 
-Shader CachedShader::CreateKernelFromMemory(const ShaderParameters& params, ProgramCode&& code) {
-    auto result{CreateProgram(params.device, ProgramType::Compute, code, {})};
-
+Shader CachedShader::CreateKernelFromMemory(const ShaderParameters& params, ProgramCode code) {
     const auto code_size{CalculateProgramSize(code)};
+    const ShaderIR ir(code, KERNEL_MAIN_OFFSET, code_size);
+    auto glsl = CreateProgram(params.device, ProgramType::Compute, ir);
     params.disk_cache.SaveRaw(ShaderDiskCacheRaw(params.unique_identifier, ProgramType::Compute,
                                                  static_cast<u32>(code_size / sizeof(u64)), 0,
                                                  std::move(code), {}));
-
+    auto entries = GLShader::GetEntries(ir);
     return std::shared_ptr<CachedShader>(
-        new CachedShader(params, ProgramType::Compute, std::move(result)));
+        new CachedShader(params, ProgramType::Compute, std::move(entries), std::move(glsl)));
 }
 
 Shader CachedShader::CreateKernelFromCache(const ShaderParameters& params,
-                                           GLShader::ProgramResult result) {
+                                           GLShader::ShaderEntries entries, std::string code) {
     return std::shared_ptr<CachedShader>(
-        new CachedShader(params, ProgramType::Compute, std::move(result)));
+        new CachedShader(params, ProgramType::Compute, std::move(entries), std::move(code)));
 }
 
 std::tuple<GLuint, BaseBindings> CachedShader::GetProgramHandle(const ProgramVariant& variant) {
@@ -536,8 +533,7 @@ std::unordered_map<u64, UnspecializedShader> ShaderCacheOpenGL::GenerateUnspecia
     const std::atomic_bool& stop_loading, const VideoCore::DiskResourceLoadCallback& callback,
     const std::vector<ShaderDiskCacheRaw>& raws,
     const std::unordered_map<u64, ShaderDiskCacheDecompiled>& decompiled) {
-    std::unordered_map<u64, UnspecializedShader> unspecialized;
-
+    std::unordered_map<u64, UnspecializedShader> unspecialized_shaders;
     if (callback) {
         callback(VideoCore::LoadCallbackStage::Decompile, 0, raws.size());
     }
@@ -559,29 +555,41 @@ std::unordered_map<u64, UnspecializedShader> ShaderCacheOpenGL::GenerateUnspecia
             return {};
         }
 
-        GLShader::ProgramResult result;
+        UnspecializedShader unspecialized;
+        unspecialized.program_type = raw.GetProgramType();
         if (const auto it = decompiled.find(unique_identifier); it != decompiled.end()) {
             // If it's stored in the precompiled file, avoid decompiling it here
-            const auto& stored_decompiled{it->second};
-            result = {stored_decompiled.code, stored_decompiled.entries};
+            unspecialized.code = it->second.code;
+            unspecialized.entries = it->second.entries;
         } else {
             // Otherwise decompile the shader at boot and save the result to the decompiled file
-            result = CreateProgram(device, raw.GetProgramType(), raw.GetProgramCode(),
-                                   raw.GetProgramCodeB());
-            disk_cache.SaveDecompiled(unique_identifier, result.first, result.second);
+            const u32 main_offset = raw.GetProgramType() == ProgramType::Compute
+                                        ? KERNEL_MAIN_OFFSET
+                                        : STAGE_MAIN_OFFSET;
+            const auto code_size = raw.GetProgramCode().size() * sizeof(u64);
+            const ShaderIR ir(raw.GetProgramCode(), main_offset, code_size);
+            std::optional<ShaderIR> ir_b;
+            if (raw.HasProgramA()) {
+                const auto code_size_b = raw.GetProgramCodeB().size() * sizeof(u64);
+                ir_b.emplace(raw.GetProgramCodeB(), main_offset, code_size_b);
+            }
+            unspecialized.code =
+                CreateProgram(device, raw.GetProgramType(), ir, ir_b ? &*ir_b : nullptr);
+            unspecialized.entries = GLShader::GetEntries(ir);
+            disk_cache.SaveDecompiled(unique_identifier, unspecialized.code, unspecialized.entries);
         }
 
-        precompiled_shaders.insert({unique_identifier, result});
+        ShaderDiskCacheDecompiled decompiled{unspecialized.code, unspecialized.entries};
+        precompiled_shaders.emplace(unique_identifier, decompiled);
 
-        unspecialized.insert(
-            {raw.GetUniqueIdentifier(),
-             {std::move(result.first), std::move(result.second), raw.GetProgramType()}});
+        unspecialized.program_type = raw.GetProgramType();
+        unspecialized_shaders.emplace(raw.GetUniqueIdentifier(), unspecialized);
 
         if (callback) {
             callback(VideoCore::LoadCallbackStage::Decompile, i, raws.size());
         }
     }
-    return unspecialized;
+    return unspecialized_shaders;
 }
 
 Shader ShaderCacheOpenGL::GetStageProgram(Maxwell::ShaderProgram program) {
@@ -620,7 +628,8 @@ Shader ShaderCacheOpenGL::GetStageProgram(Maxwell::ShaderProgram program) {
         shader = CachedShader::CreateStageFromMemory(params, program, std::move(program_code),
                                                      std::move(program_code_b));
     } else {
-        shader = CachedShader::CreateStageFromCache(params, program, found->second);
+        const auto& cached = found->second;
+        shader = CachedShader::CreateStageFromCache(params, program, cached.entries, cached.code);
     }
     Register(shader);
 
@@ -646,7 +655,8 @@ Shader ShaderCacheOpenGL::GetComputeKernel(GPUVAddr code_addr) {
     if (found == precompiled_shaders.end()) {
         kernel = CachedShader::CreateKernelFromMemory(params, std::move(code));
     } else {
-        kernel = CachedShader::CreateKernelFromCache(params, found->second);
+        const auto& cached = found->second;
+        kernel = CachedShader::CreateKernelFromCache(params, cached.entries, cached.code);
     }
 
     Register(kernel);

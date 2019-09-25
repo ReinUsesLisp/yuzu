@@ -9,6 +9,7 @@
 #include <bitset>
 #include <memory>
 #include <set>
+#include <string>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
@@ -40,7 +41,7 @@ using Shader = std::shared_ptr<CachedShader>;
 using CachedProgram = std::shared_ptr<OGLProgram>;
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using PrecompiledPrograms = std::unordered_map<ShaderDiskCacheUsage, CachedProgram>;
-using PrecompiledShaders = std::unordered_map<u64, GLShader::ProgramResult>;
+using PrecompiledShaders = std::unordered_map<u64, ShaderDiskCacheDecompiled>;
 
 struct ShaderParameters {
     ShaderDiskCacheOpenGL& disk_cache;
@@ -55,16 +56,16 @@ class CachedShader final : public RasterizerCacheObject {
 public:
     static Shader CreateStageFromMemory(const ShaderParameters& params,
                                         Maxwell::ShaderProgram program_type,
-                                        ProgramCode&& program_code, ProgramCode&& program_code_b);
+                                        ProgramCode program_code, ProgramCode program_code_b);
 
     static Shader CreateStageFromCache(const ShaderParameters& params,
                                        Maxwell::ShaderProgram program_type,
-                                       GLShader::ProgramResult result);
+                                       GLShader::ShaderEntries entries, std::string code);
 
-    static Shader CreateKernelFromMemory(const ShaderParameters& params, ProgramCode&& code);
+    static Shader CreateKernelFromMemory(const ShaderParameters& params, ProgramCode code);
 
     static Shader CreateKernelFromCache(const ShaderParameters& params,
-                                        GLShader::ProgramResult result);
+                                        GLShader::ShaderEntries entries, std::string code);
 
     VAddr GetCpuAddr() const override {
         return cpu_addr;
@@ -84,7 +85,7 @@ public:
 
 private:
     explicit CachedShader(const ShaderParameters& params, ProgramType program_type,
-                          GLShader::ProgramResult result);
+                          GLShader::ShaderEntries entries, std::string code);
 
     CachedProgram TryLoadProgram(const ProgramVariant& variant) const;
 
