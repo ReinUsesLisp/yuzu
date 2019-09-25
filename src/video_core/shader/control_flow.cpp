@@ -55,21 +55,19 @@ struct BlockInfo {
 };
 
 struct CFGRebuildState {
-    explicit CFGRebuildState(const ProgramCode& program_code, const std::size_t program_size,
-                             const u32 start)
-        : start{start}, program_code{program_code}, program_size{program_size} {}
+    explicit CFGRebuildState(const ProgramCode& program_code, u32 start)
+        : program_code{program_code}, start{start} {}
 
-    u32 start{};
-    std::vector<BlockInfo> block_info{};
-    std::list<u32> inspect_queries{};
-    std::list<Query> queries{};
-    std::unordered_map<u32, u32> registered{};
-    std::unordered_set<u32> labels{};
-    std::map<u32, u32> ssy_labels{};
-    std::map<u32, u32> pbk_labels{};
-    std::unordered_map<u32, BlockStack> stacks{};
     const ProgramCode& program_code;
-    const std::size_t program_size;
+    u32 start{};
+    std::vector<BlockInfo> block_info;
+    std::list<u32> inspect_queries;
+    std::list<Query> queries;
+    std::unordered_map<u32, u32> registered;
+    std::unordered_set<u32> labels;
+    std::map<u32, u32> ssy_labels;
+    std::map<u32, u32> pbk_labels;
+    std::unordered_map<u32, BlockStack> stacks;
 };
 
 enum class BlockCollision : u32 { None, Found, Inside };
@@ -123,9 +121,9 @@ enum class ParseResult : u32 {
 };
 
 std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address) {
-    u32 offset = static_cast<u32>(address);
-    const u32 end_address = static_cast<u32>(state.program_size / sizeof(Instruction));
-    ParseInfo parse_info{};
+    auto offset = static_cast<u32>(address);
+    const auto end_address = static_cast<u32>(state.program_code.size());
+    ParseInfo parse_info;
 
     const auto insert_label = [](CFGRebuildState& state, u32 address) {
         const auto pair = state.labels.emplace(address);
@@ -413,11 +411,11 @@ bool TryQuery(CFGRebuildState& state) {
     state.queries.push_back(std::move(conditional_query));
     return true;
 }
+
 } // Anonymous namespace
 
-std::optional<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code,
-                                              std::size_t program_size, u32 start_address) {
-    CFGRebuildState state{program_code, program_size, start_address};
+std::optional<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code, u32 start_address) {
+    CFGRebuildState state{program_code, start_address};
 
     // Inspect Code and generate blocks
     state.labels.clear();

@@ -33,13 +33,13 @@ constexpr bool IsSchedInstruction(u32 offset, u32 main_offset) {
     return (absolute_offset % SchedPeriod) == 0;
 }
 
-} // namespace
+} // Anonymous namespace
 
 void ShaderIR::Decode() {
     std::memcpy(&header, program_code.data(), sizeof(Tegra::Shader::Header));
 
     disable_flow_stack = false;
-    const auto info = ScanFlow(program_code, program_size, main_offset);
+    const auto info = ScanFlow(program_code, main_offset);
     if (info) {
         const auto& shader_info = *info;
         coverage_begin = shader_info.start;
@@ -83,7 +83,7 @@ void ShaderIR::Decode() {
     // Now we need to deal with an undecompilable shader. We need to brute force
     // a shader that captures every position.
     coverage_begin = main_offset;
-    const u32 shader_end = static_cast<u32>(program_size / sizeof(u64));
+    const auto shader_end = static_cast<u32>(program_code.size());
     coverage_end = shader_end;
     for (u32 label = main_offset; label < shader_end; label++) {
         basic_blocks.insert({label, DecodeRange(label, label + 1)});

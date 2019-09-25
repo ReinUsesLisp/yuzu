@@ -73,7 +73,6 @@ struct ShaderCharacteristics {
     std::unordered_set<u32> labels{};
 };
 
-std::optional<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code,
-                                              std::size_t program_size, u32 start_address);
+std::optional<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code, u32 start_address);
 
 } // namespace VideoCommon::Shader
