@@ -49,8 +49,12 @@ MICROPROFILE_DEFINE(OpenGL_Blits, "OpenGL", "Blits", MP_RGB(128, 128, 192));
 MICROPROFILE_DEFINE(OpenGL_CacheManagement, "OpenGL", "Cache Mgmt", MP_RGB(100, 255, 100));
 MICROPROFILE_DEFINE(OpenGL_PrimitiveAssembly, "OpenGL", "Prim Asmbl", MP_RGB(255, 100, 100));
 
-static std::size_t GetConstBufferSize(const Tegra::Engines::ConstBufferInfo& buffer,
-                                      const GLShader::ConstBufferEntry& entry) {
+namespace {
+
+constexpr u32 MaxSupportedVertexAttributes = 16;
+
+std::size_t GetConstBufferSize(const Tegra::Engines::ConstBufferInfo& buffer,
+                               const GLShader::ConstBufferEntry& entry) {
     if (!entry.IsIndirect()) {
         return entry.GetSize();
     }
@@ -64,6 +68,8 @@ static std::size_t GetConstBufferSize(const Tegra::Engines::ConstBufferInfo& buf
     return buffer.size;
 }
 
+} // Anonymous namespace
+
 RasterizerOpenGL::RasterizerOpenGL(Core::System& system, Core::Frontend::EmuWindow& emu_window,
                                    ScreenInfo& info)
     : texture_cache{system, *this, device}, shader_cache{*this, system, emu_window, device},
@@ -72,6 +78,11 @@ RasterizerOpenGL::RasterizerOpenGL(Core::System& system, Core::Frontend::EmuWind
     state.draw.shader_program = 0;
     state.Apply();
     clear_framebuffer.Create();
+
+    // Enable all vertex attributes
+    for (u32 i = 0; i < MaxSupportedVertexAttributes; ++i) {
+        glEnableVertexArrayAttrib(0, i);
+    }
 
     LOG_DEBUG(Render_OpenGL, "Sync fixed function OpenGL state here");
     CheckExtensions();
@@ -87,93 +98,62 @@ void RasterizerOpenGL::CheckExtensions() {
     }
 }
 
-GLuint RasterizerOpenGL::SetupVertexFormat() {
+void RasterizerOpenGL::SetupVertexFormat() {
     auto& gpu = system.GPU().Maxwell3D();
     const auto& regs = gpu.regs;
-
-    if (!gpu.dirty.vertex_attrib_format) {
-        return state.draw.vertex_array;
-    }
-    gpu.dirty.vertex_attrib_format = false;
 
     MICROPROFILE_SCOPE(OpenGL_VAO);
 
-    auto [iter, is_cache_miss] = vertex_array_cache.try_emplace(regs.vertex_attrib_format);
-    auto& vao_entry = iter->second;
-
-    if (is_cache_miss) {
-        vao_entry.Create();
-        const GLuint vao = vao_entry.handle;
-
-        // Eventhough we are using DSA to create this vertex array, there is a bug on Intel's blob
-        // that fails to properly create the vertex array if it's not bound even after creating it
-        // with glCreateVertexArrays
-        state.draw.vertex_array = vao;
-        state.ApplyVertexArrayState();
-
-        // Use the vertex array as-is, assumes that the data is formatted correctly for OpenGL.
-        // Enables the first 16 vertex attributes always, as we don't know which ones are actually
-        // used until shader time. Note, Tegra technically supports 32, but we're capping this to 16
-        // for now to avoid OpenGL errors.
-        // TODO(Subv): Analyze the shader to identify which attributes are actually used and don't
-        // assume every shader uses them all.
-        for (u32 index = 0; index < 16; ++index) {
-            const auto& attrib = regs.vertex_attrib_format[index];
-
-            // Ignore invalid attributes.
-            if (!attrib.IsValid())
-                continue;
-
-            const auto& buffer = regs.vertex_array[attrib.buffer];
-            LOG_TRACE(Render_OpenGL,
-                      "vertex attrib {}, count={}, size={}, type={}, offset={}, normalize={}",
-                      index, attrib.ComponentCount(), attrib.SizeString(), attrib.TypeString(),
-                      attrib.offset.Value(), attrib.IsNormalized());
-
-            ASSERT(buffer.IsEnabled());
-
-            glEnableVertexArrayAttrib(vao, index);
-            if (attrib.type == Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::SignedInt ||
-                attrib.type ==
-                    Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::UnsignedInt) {
-                glVertexArrayAttribIFormat(vao, index, attrib.ComponentCount(),
-                                           MaxwellToGL::VertexType(attrib), attrib.offset);
-            } else {
-                glVertexArrayAttribFormat(
-                    vao, index, attrib.ComponentCount(), MaxwellToGL::VertexType(attrib),
-                    attrib.IsNormalized() ? GL_TRUE : GL_FALSE, attrib.offset);
-            }
-            glVertexArrayAttribBinding(vao, index, attrib.buffer);
+    // Use the vertex array as-is, assumes that the data is formatted correctly for OpenGL.
+    // Enables the first 16 vertex attributes always, as we don't know which ones are actually
+    // used until shader time. Note, Tegra technically supports 32, but we're capping this to 16
+    // for now to avoid OpenGL errors.
+    // TODO(Subv): Analyze the shader to identify which attributes are actually used and don't
+    // assume every shader uses them all.
+    for (u32 index = 0; index < MaxSupportedVertexAttributes; ++index) {
+        if (!gpu.dirty.vertex_attrib_format[index]) {
+            continue;
         }
+        gpu.dirty.vertex_attrib_format[index] = false;
+
+        const auto& attrib = regs.vertex_attrib_format[index];
+        if (!attrib.IsValid()) {
+            // Ignore invalid attributes.
+            continue;
+        }
+
+        if (attrib.type == Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::SignedInt ||
+            attrib.type == Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::UnsignedInt) {
+            glVertexAttribIFormat(index, attrib.ComponentCount(), MaxwellToGL::VertexType(attrib),
+                                  attrib.offset);
+        } else {
+            glVertexAttribFormat(index, attrib.ComponentCount(), MaxwellToGL::VertexType(attrib),
+                                 attrib.IsNormalized() ? GL_TRUE : GL_FALSE, attrib.offset);
+        }
+        glVertexAttribBinding(index, attrib.buffer);
     }
 
     // Rebinding the VAO invalidates the vertex buffer bindings.
-    gpu.dirty.ResetVertexArrays();
-
-    state.draw.vertex_array = vao_entry.handle;
-    return vao_entry.handle;
+    gpu.dirty.ResetVertexBuffers();
 }
 
-void RasterizerOpenGL::SetupVertexBuffer(GLuint vao) {
-    auto& gpu = system.GPU().Maxwell3D();
-    if (!gpu.dirty.vertex_array_buffers)
-        return;
-    gpu.dirty.vertex_array_buffers = false;
-
-    const auto& regs = gpu.regs;
-
+void RasterizerOpenGL::SetupVertexBuffer() {
     MICROPROFILE_SCOPE(OpenGL_VB);
+
+    auto& gpu = system.GPU().Maxwell3D();
+    const auto& regs = gpu.regs;
 
     // Upload all guest vertex arrays sequentially to our buffer
     for (u32 index = 0; index < Maxwell::NumVertexArrays; ++index) {
-        if (!gpu.dirty.vertex_array[index])
+        if (!gpu.dirty.vertex_buffers[index]) {
             continue;
-        gpu.dirty.vertex_array[index] = false;
-        gpu.dirty.vertex_instance[index] = false;
+        }
+        gpu.dirty.vertex_buffers[index] = false;
 
         const auto& vertex_array = regs.vertex_array[index];
-        if (!vertex_array.IsEnabled())
+        if (!vertex_array.IsEnabled()) {
             continue;
+        }
 
         const GPUVAddr start = vertex_array.StartAddress();
         const GPUVAddr end = regs.vertex_array_limit[index].LimitAddress();
@@ -185,39 +165,26 @@ void RasterizerOpenGL::SetupVertexBuffer(GLuint vao) {
         // Bind the vertex array to the buffer at the current offset.
         vertex_array_pushbuffer.SetVertexBuffer(index, vertex_buffer, vertex_buffer_offset,
                                                 vertex_array.stride);
-
-        if (regs.instanced_arrays.IsInstancingEnabled(index) && vertex_array.divisor != 0) {
-            // Enable vertex buffer instancing with the specified divisor.
-            glVertexArrayBindingDivisor(vao, index, vertex_array.divisor);
-        } else {
-            // Disable the vertex buffer instancing.
-            glVertexArrayBindingDivisor(vao, index, 0);
-        }
     }
 }
 
-void RasterizerOpenGL::SetupVertexInstances(GLuint vao) {
+void RasterizerOpenGL::SetupVertexInstances() {
     auto& gpu = system.GPU().Maxwell3D();
-
-    if (!gpu.dirty.vertex_instances)
-        return;
-    gpu.dirty.vertex_instances = false;
-
     const auto& regs = gpu.regs;
-    // Upload all guest vertex arrays sequentially to our buffer
-    for (u32 index = 0; index < Maxwell::NumVertexArrays; ++index) {
-        if (!gpu.dirty.vertex_instance[index])
-            continue;
 
+    for (u32 index = 0; index < MaxSupportedVertexAttributes; ++index) {
+        if (!gpu.dirty.vertex_instance[index]) {
+            continue;
+        }
         gpu.dirty.vertex_instance[index] = false;
 
         if (regs.instanced_arrays.IsInstancingEnabled(index) &&
             regs.vertex_array[index].divisor != 0) {
             // Enable vertex buffer instancing with the specified divisor.
-            glVertexArrayBindingDivisor(vao, index, regs.vertex_array[index].divisor);
+            glVertexBindingDivisor(index, regs.vertex_array[index].divisor);
         } else {
             // Disable the vertex buffer instancing.
-            glVertexArrayBindingDivisor(vao, index, 0);
+            glVertexBindingDivisor(index, 0);
         }
     }
 }
@@ -581,12 +548,12 @@ void RasterizerOpenGL::DrawPrelude() {
     buffer_cache.Map(buffer_size);
 
     // Prepare vertex array format.
-    const GLuint vao = SetupVertexFormat();
-    vertex_array_pushbuffer.Setup(vao);
+    SetupVertexFormat();
+    vertex_array_pushbuffer.Setup();
 
     // Upload vertex and index data.
-    SetupVertexBuffer(vao);
-    SetupVertexInstances(vao);
+    SetupVertexBuffer();
+    SetupVertexInstances();
     index_buffer_offset = SetupIndexBuffer();
 
     // Prepare packed bindings.
@@ -611,7 +578,7 @@ void RasterizerOpenGL::DrawPrelude() {
 
     if (invalidate) {
         // As all cached buffers are invalidated, we need to recheck their state.
-        gpu.dirty.ResetVertexArrays();
+        gpu.dirty.ResetVertexBuffers();
     }
 
     shader_program_manager->ApplyTo(state);

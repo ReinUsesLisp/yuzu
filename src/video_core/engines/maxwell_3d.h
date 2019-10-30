@@ -1172,18 +1172,9 @@ public:
             struct {
                 bool null_dirty;
 
-                // Vertex Attributes
-                bool vertex_attrib_format;
-
-                // Vertex Arrays
-                std::array<bool, 32> vertex_array;
-
-                bool vertex_array_buffers;
-
-                // Vertex Instances
+                std::array<bool, 32> vertex_attrib_format;
+                std::array<bool, 32> vertex_buffers;
                 std::array<bool, 32> vertex_instance;
-
-                bool vertex_instances;
 
                 // Render Targets
                 std::array<bool, 8> render_target;
@@ -1217,9 +1208,14 @@ public:
             std::array<bool, NUM_REGS> regs;
         };
 
-        void ResetVertexArrays() {
-            vertex_array.fill(true);
-            vertex_array_buffers = true;
+        void ResetVertexArray() {
+            vertex_attrib_format.fill(true);
+            vertex_instance.fill(true);
+            ResetVertexBuffers();
+        }
+
+        void ResetVertexBuffers() {
+            vertex_buffers.fill(true);
         }
 
         void ResetRenderTargets() {
@@ -1232,9 +1228,8 @@ public:
             shaders = true;
             memory_general = true;
             ResetRenderTargets();
-            ResetVertexArrays();
+            ResetVertexBuffers();
         }
-
     } dirty{};
 
     std::array<u8, Regs::NUM_REGS> dirty_pointers{};

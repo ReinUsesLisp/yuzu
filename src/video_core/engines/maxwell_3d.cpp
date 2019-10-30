@@ -129,7 +129,7 @@ void Maxwell3D::InitDirtySettings() {
     constexpr u32 vertex_array_start = MAXWELL3D_REG_INDEX(vertex_array);
     constexpr u32 vertex_array_size = sizeof(regs.vertex_array[0]) / sizeof(u32);
     constexpr u32 vertex_array_end = vertex_array_start + vertex_array_size * Regs::NumVertexArrays;
-    u8 va_dirty_reg = DIRTY_REGS_POS(vertex_array);
+    u8 va_dirty_reg = DIRTY_REGS_POS(vertex_buffers);
     u8 vi_dirty_reg = DIRTY_REGS_POS(vertex_instance);
     for (u32 vertex_reg = vertex_array_start; vertex_reg < vertex_array_end;
          vertex_reg += vertex_array_size) {
@@ -139,28 +139,28 @@ void Maxwell3D::InitDirtySettings() {
         ++va_dirty_reg;
         ++vi_dirty_reg;
     }
+
     constexpr u32 vertex_limit_start = MAXWELL3D_REG_INDEX(vertex_array_limit);
     constexpr u32 vertex_limit_size = sizeof(regs.vertex_array_limit[0]) / sizeof(u32);
     constexpr u32 vertex_limit_end = vertex_limit_start + vertex_limit_size * Regs::NumVertexArrays;
-    va_dirty_reg = DIRTY_REGS_POS(vertex_array);
+    va_dirty_reg = DIRTY_REGS_POS(vertex_buffers);
     for (u32 vertex_reg = vertex_limit_start; vertex_reg < vertex_limit_end;
          vertex_reg += vertex_limit_size) {
         set_block(vertex_reg, vertex_limit_size, va_dirty_reg);
-        va_dirty_reg++;
+        ++va_dirty_reg;
     }
-    constexpr u32 vertex_instance_start = MAXWELL3D_REG_INDEX(instanced_arrays);
-    constexpr u32 vertex_instance_size =
-        sizeof(regs.instanced_arrays.is_instanced[0]) / sizeof(u32);
-    constexpr u32 vertex_instance_end =
-        vertex_instance_start + vertex_instance_size * Regs::NumVertexArrays;
-    vi_dirty_reg = DIRTY_REGS_POS(vertex_instance);
-    for (u32 vertex_reg = vertex_instance_start; vertex_reg < vertex_instance_end;
-         vertex_reg += vertex_instance_size) {
-        set_block(vertex_reg, vertex_instance_size, vi_dirty_reg);
-        vi_dirty_reg++;
+
+    // Init vertex instances
+    for (std::size_t i = 0; i < Regs::NumVertexArrays; ++i) {
+        dirty_pointers[MAXWELL3D_REG_INDEX(instanced_arrays) + i] =
+            static_cast<u8>(DIRTY_REGS_POS(vertex_instance) + i);
     }
-    set_block(MAXWELL3D_REG_INDEX(vertex_attrib_format), regs.vertex_attrib_format.size(),
-              DIRTY_REGS_POS(vertex_attrib_format));
+
+    // Init vertex attrib format
+    for (std::size_t i = 0; i < Regs::NumVertexAttributes; ++i) {
+        dirty_pointers[MAXWELL3D_REG_INDEX(vertex_attrib_format) + i] =
+            static_cast<u8>(DIRTY_REGS_POS(vertex_attrib_format) + i);
+    }
 
     // Init Shaders
     constexpr u32 shader_registers_count =
@@ -322,14 +322,8 @@ void Maxwell3D::CallMethod(const GPU::MethodCall& method_call) {
         const std::size_t dirty_reg = dirty_pointers[method];
         if (dirty_reg) {
             dirty.regs[dirty_reg] = true;
-            if (dirty_reg >= DIRTY_REGS_POS(vertex_array) &&
-                dirty_reg < DIRTY_REGS_POS(vertex_array_buffers)) {
-                dirty.vertex_array_buffers = true;
-            } else if (dirty_reg >= DIRTY_REGS_POS(vertex_instance) &&
-                       dirty_reg < DIRTY_REGS_POS(vertex_instances)) {
-                dirty.vertex_instances = true;
-            } else if (dirty_reg >= DIRTY_REGS_POS(render_target) &&
-                       dirty_reg < DIRTY_REGS_POS(render_settings)) {
+            if (dirty_reg >= DIRTY_REGS_POS(render_target) &&
+                dirty_reg < DIRTY_REGS_POS(render_settings)) {
                 dirty.render_settings = true;
             }
         }

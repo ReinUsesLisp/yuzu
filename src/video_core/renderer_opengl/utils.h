@@ -16,7 +16,7 @@ public:
     explicit VertexArrayPushBuffer();
     ~VertexArrayPushBuffer();
 
-    void Setup(GLuint vao_);
+    void Setup();
 
     void SetIndexBuffer(const GLuint* buffer);
 
@@ -33,7 +33,6 @@ private:
         GLsizei stride{};
     };
 
-    GLuint vao{};
     const GLuint* index_buffer{};
     std::vector<Entry> vertex_buffers;
 };

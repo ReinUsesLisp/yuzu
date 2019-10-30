@@ -103,7 +103,6 @@ public:
     struct {
         GLuint read_framebuffer = 0; // GL_READ_FRAMEBUFFER_BINDING
         GLuint draw_framebuffer = 0; // GL_DRAW_FRAMEBUFFER_BINDING
-        GLuint vertex_array = 0;     // GL_VERTEX_ARRAY_BINDING
         GLuint shader_program = 0;   // GL_CURRENT_PROGRAM
         GLuint program_pipeline = 0; // GL_PROGRAM_PIPELINE_BINDING
     } draw;
@@ -158,7 +157,6 @@ public:
     void Apply();
 
     void ApplyFramebufferState();
-    void ApplyVertexArrayState();
     void ApplyShaderProgram();
     void ApplyProgramPipeline();
     void ApplyClipDistances();

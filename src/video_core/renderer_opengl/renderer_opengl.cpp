@@ -211,22 +211,8 @@ void RendererOpenGL::InitOpenGLObjects() {
     // Generate VBO handle for drawing
     vertex_buffer.Create();
 
-    // Generate VAO
-    vertex_array.Create();
-    state.draw.vertex_array = vertex_array.handle;
-
-    // Attach vertex data to VAO
+    // Allocate vertex data
     glNamedBufferData(vertex_buffer.handle, sizeof(ScreenRectVertex) * 4, nullptr, GL_STREAM_DRAW);
-    glVertexArrayAttribFormat(vertex_array.handle, attrib_position, 2, GL_FLOAT, GL_FALSE,
-                              offsetof(ScreenRectVertex, position));
-    glVertexArrayAttribFormat(vertex_array.handle, attrib_tex_coord, 2, GL_FLOAT, GL_FALSE,
-                              offsetof(ScreenRectVertex, tex_coord));
-    glVertexArrayAttribBinding(vertex_array.handle, attrib_position, 0);
-    glVertexArrayAttribBinding(vertex_array.handle, attrib_tex_coord, 0);
-    glEnableVertexArrayAttrib(vertex_array.handle, attrib_position);
-    glEnableVertexArrayAttrib(vertex_array.handle, attrib_tex_coord);
-    glVertexArrayVertexBuffer(vertex_array.handle, 0, vertex_buffer.handle, 0,
-                              sizeof(ScreenRectVertex));
 
     // Allocate textures for the screen
     screen_info.texture.resource.Create(GL_TEXTURE_2D);
@@ -340,7 +326,20 @@ void RendererOpenGL::DrawScreenTriangles(const ScreenInfo& screen_info, float x,
     state.framebuffer_srgb.enabled = screen_info.display_srgb;
     state.AllDirty();
     state.Apply();
+
     glNamedBufferSubData(vertex_buffer.handle, 0, sizeof(vertices), vertices.data());
+
+    glVertexAttribFormat(attrib_position, 2, GL_FLOAT, GL_FALSE,
+                         offsetof(ScreenRectVertex, position));
+    glVertexAttribFormat(attrib_tex_coord, 2, GL_FLOAT, GL_FALSE,
+                         offsetof(ScreenRectVertex, tex_coord));
+    glVertexAttribBinding(attrib_position, 0);
+    glVertexAttribBinding(attrib_tex_coord, 0);
+    glBindVertexBuffer(0, vertex_buffer.handle, 0, sizeof(ScreenRectVertex));
+    glVertexBindingDivisor(attrib_position, 0);
+    glVertexBindingDivisor(attrib_tex_coord, 0);
+    system.GPU().Maxwell3D().dirty.ResetVertexArray();
+
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     // Restore default state
     state.framebuffer_srgb.enabled = false;

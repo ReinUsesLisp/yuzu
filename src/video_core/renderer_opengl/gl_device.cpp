@@ -109,10 +109,6 @@ void main() {
     SCOPE_EXIT({ glDeleteProgram(shader); });
     glUseProgram(shader);
 
-    OGLVertexArray vao;
-    vao.Create();
-    glBindVertexArray(vao.handle);
-
     constexpr std::array<GLuint, 8> values{0, 0, 0, 0, 0x1236327, 0x985482, 0x872753, 0x2378432};
     OGLBuffer ubo;
     ubo.Create();

@@ -101,12 +101,6 @@ void OpenGLState::ApplyFramebufferState() {
     }
 }
 
-void OpenGLState::ApplyVertexArrayState() {
-    if (UpdateValue(cur_state.draw.vertex_array, draw.vertex_array)) {
-        glBindVertexArray(draw.vertex_array);
-    }
-}
-
 void OpenGLState::ApplyShaderProgram() {
     if (UpdateValue(cur_state.draw.shader_program, draw.shader_program)) {
         glUseProgram(draw.shader_program);
@@ -431,7 +425,6 @@ void OpenGLState::ApplyImages() {
 void OpenGLState::Apply() {
     MICROPROFILE_SCOPE(OpenGL_State);
     ApplyFramebufferState();
-    ApplyVertexArrayState();
     ApplyShaderProgram();
     ApplyProgramPipeline();
     ApplyClipDistances();
@@ -505,13 +498,6 @@ OpenGLState& OpenGLState::ResetProgram(GLuint handle) {
 OpenGLState& OpenGLState::ResetPipeline(GLuint handle) {
     if (draw.program_pipeline == handle) {
         draw.program_pipeline = 0;
-    }
-    return *this;
-}
-
-OpenGLState& OpenGLState::ResetVertexArray(GLuint handle) {
-    if (draw.vertex_array == handle) {
-        draw.vertex_array = 0;
     }
     return *this;
 }
