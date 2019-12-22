@@ -152,6 +152,7 @@ struct FormatTuple {
     {vk::Format::eR8G8Unorm, Attachable | Storage},              // RG8U
     {vk::Format::eR8G8Snorm, Attachable | Storage},              // RG8S
     {vk::Format::eR32G32Uint, Attachable | Storage},             // RG32UI
+    {vk::Format::eR8G8B8A8Unorm, Attachable | Storage},          // RGBX8 (emulated)
     {vk::Format::eUndefined, {}},                                // RGBX16F
     {vk::Format::eR32Uint, Attachable | Storage},                // R32UI
     {vk::Format::eAstc8x8UnormBlock, {}},                        // ASTC_2D_8X8

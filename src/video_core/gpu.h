@@ -69,6 +69,7 @@ enum class RenderTargetFormat : u32 {
     R16_FLOAT = 0xF2,
     R8_UNORM = 0xF3,
     R8_UINT = 0xF6,
+    RGBX8_UNORM = 0xF9,
 };
 
 enum class DepthFormat : u32 {

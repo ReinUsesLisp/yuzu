@@ -161,9 +161,10 @@ PixelFormat PixelFormatFromRenderTargetFormat(Tegra::RenderTargetFormat format) 
         return PixelFormat::RG32UI;
     case Tegra::RenderTargetFormat::RGBX16_FLOAT:
         return PixelFormat::RGBX16F;
+    case Tegra::RenderTargetFormat::RGBX8_UNORM:
+        return PixelFormat::RGBX8;
     default:
-        LOG_CRITICAL(HW_GPU, "Unimplemented format={}", static_cast<u32>(format));
-        UNREACHABLE();
+        UNIMPLEMENTED_MSG("Unimplemented format={}", static_cast<int>(format));
         return PixelFormat::RGBA8_SRGB;
     }
 }
