@@ -78,19 +78,19 @@ vk::FormatFeatureFlags GetFormatFeatures(vk::FormatProperties properties, Format
 
 } // Anonymous namespace
 
-VKDevice::VKDevice(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDevice physical,
+VKDevice::VKDevice(vk::DispatchLoaderDynamic& dld, vk::PhysicalDevice physical,
                    vk::SurfaceKHR surface)
-    : physical{physical}, properties{physical.getProperties(dldi)},
-      format_properties{GetFormatProperties(dldi, physical)} {
-    SetupFamilies(dldi, surface);
-    SetupFeatures(dldi);
+    : physical{physical}, dld{dld}, properties{physical.getProperties(dld)},
+      format_properties{GetFormatProperties(dld, physical)} {
+    SetupFamilies(surface);
+    SetupFeatures();
 }
 
 VKDevice::~VKDevice() = default;
 
-bool VKDevice::Create(const vk::DispatchLoaderDynamic& dldi, vk::Instance instance) {
+bool VKDevice::Create(vk::Instance instance) {
     const auto queue_cis = GetDeviceQueueCreateInfos();
-    const std::vector extensions = LoadExtensions(dldi);
+    const std::vector extensions = LoadExtensions();
 
     vk::PhysicalDeviceFeatures2 features2;
     void** next = &features2.pNext;
@@ -157,15 +157,15 @@ bool VKDevice::Create(const vk::DispatchLoaderDynamic& dldi, vk::Instance instan
                                    nullptr);
     device_ci.pNext = &features2;
 
-    vk::Device dummy_logical;
-    if (physical.createDevice(&device_ci, nullptr, &dummy_logical, dldi) != vk::Result::eSuccess) {
+    vk::Device vk_logical;
+    if (physical.createDevice(&device_ci, nullptr, &vk_logical, dld) != vk::Result::eSuccess) {
         LOG_CRITICAL(Render_Vulkan, "Logical device failed to be created!");
         return false;
     }
 
-    dld.init(instance, dldi.vkGetInstanceProcAddr, dummy_logical, dldi.vkGetDeviceProcAddr);
+    dld.init(instance, dld.vkGetInstanceProcAddr, vk_logical, dld.vkGetDeviceProcAddr);
     logical = UniqueDevice(
-        dummy_logical, vk::ObjectDestroy<vk::NoParent, vk::DispatchLoaderDynamic>(nullptr, dld));
+        vk_logical, vk::ObjectDestroy<vk::NoParent, vk::DispatchLoaderDynamic>(nullptr, dld));
 
     CollectTelemetryParameters();
 
@@ -227,8 +227,7 @@ void VKDevice::ReportLoss() const {
     // *(VKGraphicsPipeline*)data[0]
 }
 
-bool VKDevice::IsOptimalAstcSupported(const vk::PhysicalDeviceFeatures& features,
-                                      const vk::DispatchLoaderDynamic& dldi) const {
+bool VKDevice::IsOptimalAstcSupported(const vk::PhysicalDeviceFeatures& features) const {
     // Disable for now to avoid converting ASTC twice.
     return false;
     static constexpr std::array astc_formats = {
@@ -249,7 +248,7 @@ bool VKDevice::IsOptimalAstcSupported(const vk::PhysicalDeviceFeatures& features
         vk::FormatFeatureFlagBits::eBlitDst | vk::FormatFeatureFlagBits::eTransferSrc |
         vk::FormatFeatureFlagBits::eTransferDst};
     for (const auto format : astc_formats) {
-        const auto format_properties{physical.getFormatProperties(format, dldi)};
+        const auto format_properties{physical.getFormatProperties(format, dld)};
         if (!(format_properties.optimalTilingFeatures & format_feature_usage)) {
             return false;
         }
@@ -369,7 +368,7 @@ bool VKDevice::IsSuitable(const vk::DispatchLoaderDynamic& dldi, vk::PhysicalDev
     return is_suitable;
 }
 
-std::vector<const char*> VKDevice::LoadExtensions(const vk::DispatchLoaderDynamic& dldi) {
+std::vector<const char*> VKDevice::LoadExtensions() {
     std::vector<const char*> extensions;
     const auto Test = [&](const vk::ExtensionProperties& extension,
                           std::optional<std::reference_wrapper<bool>> status, const char* name,
@@ -399,7 +398,7 @@ std::vector<const char*> VKDevice::LoadExtensions(const vk::DispatchLoaderDynami
         std::getenv("NVTX_INJECTION64_PATH") || std::getenv("NSIGHT_LAUNCHED");
     bool khr_shader_float16_int8{};
     bool ext_subgroup_size_control{};
-    for (const auto& extension : physical.enumerateDeviceExtensionProperties(nullptr, dldi)) {
+    for (const auto& extension : physical.enumerateDeviceExtensionProperties(nullptr, dld)) {
         Test(extension, khr_uniform_buffer_standard_layout,
              VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME, true);
         Test(extension, khr_shader_float16_int8, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, false);
@@ -418,15 +417,15 @@ std::vector<const char*> VKDevice::LoadExtensions(const vk::DispatchLoaderDynami
 
     if (khr_shader_float16_int8) {
         is_float16_supported =
-            GetFeatures<vk::PhysicalDeviceFloat16Int8FeaturesKHR>(physical, dldi).shaderFloat16;
+            GetFeatures<vk::PhysicalDeviceFloat16Int8FeaturesKHR>(physical, dld).shaderFloat16;
         extensions.push_back(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
     }
 
     if (ext_subgroup_size_control) {
         const auto features =
-            GetFeatures<vk::PhysicalDeviceSubgroupSizeControlFeaturesEXT>(physical, dldi);
+            GetFeatures<vk::PhysicalDeviceSubgroupSizeControlFeaturesEXT>(physical, dld);
         const auto properties =
-            GetProperties<vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT>(physical, dldi);
+            GetProperties<vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT>(physical, dld);
 
         is_warp_potentially_bigger = properties.maxSubgroupSize > GuestWarpSize;
 
@@ -442,10 +441,10 @@ std::vector<const char*> VKDevice::LoadExtensions(const vk::DispatchLoaderDynami
     return extensions;
 }
 
-void VKDevice::SetupFamilies(const vk::DispatchLoaderDynamic& dldi, vk::SurfaceKHR surface) {
+void VKDevice::SetupFamilies(vk::SurfaceKHR surface) {
     std::optional<u32> graphics_family_, present_family_;
 
-    const auto queue_family_properties = physical.getQueueFamilyProperties(dldi);
+    const auto queue_family_properties = physical.getQueueFamilyProperties(dld);
     for (u32 i = 0; i < static_cast<u32>(queue_family_properties.size()); ++i) {
         if (graphics_family_ && present_family_)
             break;
@@ -456,7 +455,7 @@ void VKDevice::SetupFamilies(const vk::DispatchLoaderDynamic& dldi, vk::SurfaceK
 
         if (queue_family.queueFlags & vk::QueueFlagBits::eGraphics)
             graphics_family_ = i;
-        if (physical.getSurfaceSupportKHR(i, surface, dldi))
+        if (physical.getSurfaceSupportKHR(i, surface, dld))
             present_family_ = i;
     }
     ASSERT(graphics_family_ && present_family_);
@@ -465,11 +464,11 @@ void VKDevice::SetupFamilies(const vk::DispatchLoaderDynamic& dldi, vk::SurfaceK
     present_family = *present_family_;
 }
 
-void VKDevice::SetupFeatures(const vk::DispatchLoaderDynamic& dldi) {
-    const auto supported_features{physical.getFeatures(dldi)};
+void VKDevice::SetupFeatures() {
+    const auto supported_features{physical.getFeatures(dld)};
     is_shader_storage_img_read_without_format_supported =
         supported_features.shaderStorageImageReadWithoutFormat;
-    is_optimal_astc_supported = IsOptimalAstcSupported(supported_features, dldi);
+    is_optimal_astc_supported = IsOptimalAstcSupported(supported_features);
 }
 
 void VKDevice::CollectTelemetryParameters() {

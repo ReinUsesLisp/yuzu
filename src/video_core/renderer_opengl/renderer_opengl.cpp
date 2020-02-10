@@ -706,4 +706,11 @@ bool RendererOpenGL::Init() {
 
 void RendererOpenGL::ShutDown() {}
 
+std::optional<Core::Frontend::BackendInfo> RendererOpenGL::MakeBackendInfo() {
+    Core::Frontend::BackendInfo info;
+    info.name = "OpenGL";
+    info.api_type = Core::Frontend::APIType::OpenGL;
+    return info;
+}
+
 } // namespace OpenGL

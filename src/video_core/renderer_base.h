@@ -48,6 +48,8 @@ public:
     /// specific implementation)
     virtual void TryPresent(int timeout_ms) = 0;
 
+    static std::vector<Core::Frontend::BackendInfo> MakeBackendInfos();
+
     // Getter/setter functions:
     // ------------------------
 

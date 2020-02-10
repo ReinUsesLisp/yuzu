@@ -4,16 +4,15 @@
 
 #include <QColorDialog>
 #include <QComboBox>
-#ifdef HAS_VULKAN
-#include <QVulkanInstance>
-#endif
-
 #include "common/common_types.h"
 #include "common/logging/log.h"
 #include "core/core.h"
 #include "core/settings.h"
 #include "ui_configure_graphics.h"
+#include "video_core/renderer_base.h"
+#include "yuzu/bootmanager.h"
 #include "yuzu/configuration/configure_graphics.h"
+#include "yuzu/main.h"
 
 namespace {
 enum class Resolution : int {
@@ -59,7 +58,21 @@ Resolution FromResolutionFactor(float factor) {
 ConfigureGraphics::ConfigureGraphics(QWidget* parent)
     : QWidget(parent), ui(new Ui::ConfigureGraphics) {
     vulkan_device = Settings::values.vulkan_device;
-    RetrieveVulkanDevices();
+
+    GMainWindow* main;
+    for (QWidget* w : qApp->topLevelWidgets()) {
+        if (main = qobject_cast<GMainWindow*>(w)) {
+            break;
+        }
+    }
+
+    vulkan_devices.clear();
+    if (const auto emu_window = main->findChild<GRenderWindow*>()) {
+        const auto backend_info = emu_window->GetBackendInfo(Core::Frontend::APIType::Vulkan);
+        if (backend_info) {
+            vulkan_devices = backend_info->adapters;
+        }
+    }
 
     ui->setupUi(this);
 
@@ -162,54 +175,13 @@ void ConfigureGraphics::UpdateDeviceComboBox() {
         break;
     case Settings::RendererBackend::Vulkan:
         for (const auto device : vulkan_devices) {
-            ui->device->addItem(device);
+            ui->device->addItem(QString::fromStdString(device));
         }
         ui->device->setCurrentIndex(vulkan_device);
         enabled = !vulkan_devices.empty();
         break;
     }
     ui->device->setEnabled(enabled && !Core::System::GetInstance().IsPoweredOn());
-}
-
-void ConfigureGraphics::RetrieveVulkanDevices() {
-#ifdef HAS_VULKAN
-    QVulkanInstance instance;
-    instance.setApiVersion(QVersionNumber(1, 1, 0));
-    if (!instance.create()) {
-        LOG_INFO(Frontend, "Vulkan 1.1 not available");
-        return;
-    }
-    const auto vkEnumeratePhysicalDevices{reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
-        instance.getInstanceProcAddr("vkEnumeratePhysicalDevices"))};
-    if (vkEnumeratePhysicalDevices == nullptr) {
-        LOG_INFO(Frontend, "Failed to get pointer to vkEnumeratePhysicalDevices");
-        return;
-    }
-    u32 physical_device_count;
-    if (vkEnumeratePhysicalDevices(instance.vkInstance(), &physical_device_count, nullptr) !=
-        VK_SUCCESS) {
-        LOG_INFO(Frontend, "Failed to get physical devices count");
-        return;
-    }
-    std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
-    if (vkEnumeratePhysicalDevices(instance.vkInstance(), &physical_device_count,
-                                   physical_devices.data()) != VK_SUCCESS) {
-        LOG_INFO(Frontend, "Failed to get physical devices");
-        return;
-    }
-
-    const auto vkGetPhysicalDeviceProperties{reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
-        instance.getInstanceProcAddr("vkGetPhysicalDeviceProperties"))};
-    if (vkGetPhysicalDeviceProperties == nullptr) {
-        LOG_INFO(Frontend, "Failed to get pointer to vkGetPhysicalDeviceProperties");
-        return;
-    }
-    for (const auto physical_device : physical_devices) {
-        VkPhysicalDeviceProperties properties;
-        vkGetPhysicalDeviceProperties(physical_device, &properties);
-        vulkan_devices.push_back(QString::fromUtf8(properties.deviceName));
-    }
-#endif
 }
 
 Settings::RendererBackend ConfigureGraphics::GetCurrentGraphicsBackend() const {

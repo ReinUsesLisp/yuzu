@@ -11,7 +11,10 @@
 
 namespace Core {
 class System;
+namespace Frontend {
+enum class WindowSystemType;
 }
+} // namespace Core
 
 namespace Vulkan {
 
@@ -41,18 +44,22 @@ public:
     void SwapBuffers(const Tegra::FramebufferConfig* framebuffer) override;
     void TryPresent(int timeout_ms) override;
 
-private:
-    std::optional<vk::DebugUtilsMessengerEXT> CreateDebugCallback(
-        const vk::DispatchLoaderDynamic& dldi);
+    static std::optional<Core::Frontend::BackendInfo> MakeBackendInfo();
 
-    bool PickDevices(const vk::DispatchLoaderDynamic& dldi);
+private:
+    std::optional<vk::DebugUtilsMessengerEXT> CreateDebugCallback();
+
+    bool PickDevices();
 
     void Report() const;
 
     Core::System& system;
 
-    vk::Instance instance;
-    vk::SurfaceKHR surface;
+    Common::DynamicLibrary vulkan_library;
+
+    vk::DispatchLoaderDynamic dld;
+    UniqueInstance instance;
+    UniqueSurfaceKHR surface;
 
     VKScreenInfo screen_info;
 

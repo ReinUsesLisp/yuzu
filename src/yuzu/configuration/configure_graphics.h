@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <vector>
 #include <QString>
 #include <QWidget>
@@ -33,13 +34,11 @@ private:
     void UpdateDeviceComboBox();
     void UpdateDeviceSelection(int device);
 
-    void RetrieveVulkanDevices();
-
     Settings::RendererBackend GetCurrentGraphicsBackend() const;
 
     std::unique_ptr<Ui::ConfigureGraphics> ui;
     QColor bg_color;
 
-    std::vector<QString> vulkan_devices;
+    std::vector<std::string> vulkan_devices;
     u32 vulkan_device{};
 };

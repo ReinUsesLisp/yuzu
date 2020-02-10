@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <mutex>
+#include "common/assert.h"
 #include "core/frontend/emu_window.h"
 #include "core/frontend/input.h"
 #include "core/settings.h"
@@ -43,11 +44,7 @@ private:
     };
 };
 
-EmuWindow::EmuWindow() {
-    // TODO: Find a better place to set this.
-    config.min_client_area_size =
-        std::make_pair(Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height);
-    active_config = config;
+EmuWindow::EmuWindow(WindowSystemInfo wsi) : window_info(wsi) {
     touch_state = std::make_shared<TouchState>();
     Input::RegisterFactory<Input::TouchDevice>("emu_window", touch_state);
 }
@@ -111,6 +108,15 @@ void EmuWindow::TouchMoved(unsigned framebuffer_x, unsigned framebuffer_y) {
 
 void EmuWindow::UpdateCurrentFramebufferLayout(unsigned width, unsigned height) {
     NotifyFramebufferLayoutChanged(Layout::DefaultFrameLayout(width, height));
+}
+
+BackendInfo* EmuWindow::GetBackendInfo(APIType type) {
+    const auto it = std::find_if(possible_backends.begin(), possible_backends.end(),
+                                 [type](const BackendInfo& b) { return b.api_type == type; });
+    if (it == possible_backends.end()) {
+        return nullptr;
+    }
+    return &*it;
 }
 
 } // namespace Core::Frontend

@@ -7,10 +7,8 @@
 #include <memory>
 #include <mutex>
 #include <vector>
-
 #include <boost/container/static_vector.hpp>
 #include <boost/functional/hash.hpp>
-
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/logging/log.h"

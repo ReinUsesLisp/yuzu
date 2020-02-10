@@ -60,7 +60,7 @@ protected:
     void Fullscreen();
 
     /// Called when a configuration change affects the minimal size of the window
-    void OnMinimalClientAreaChangeRequest(std::pair<unsigned, unsigned> minimal_size) override;
+    void OnMinimalClientAreaChangeRequest(std::pair<unsigned, unsigned> minimal_size);
 
     /// Instance of the system, used to access renderer for the presentation thread
     Core::System& system;

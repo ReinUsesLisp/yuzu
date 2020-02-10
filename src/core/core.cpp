@@ -169,6 +169,7 @@ struct System::Impl {
         GDBStub::Init();
 
         renderer = VideoCore::CreateRenderer(emu_window, system);
+
         if (!renderer->Init()) {
             return ResultStatus::ErrorVideoCore;
         }

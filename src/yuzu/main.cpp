@@ -875,7 +875,7 @@ bool GMainWindow::LoadROM(const QString& filename) {
     if (emu_thread != nullptr)
         ShutdownGame();
 
-    if (!render_window->InitRenderTarget()) {
+    if (!render_window->ReloadRenderTarget()) {
         return false;
     }
 
@@ -913,6 +913,8 @@ bool GMainWindow::LoadROM(const QString& filename) {
 
     if (result != Core::System::ResultStatus::Success) {
         switch (result) {
+        case Core::System::ResultStatus::Success:
+            break;
         case Core::System::ResultStatus::ErrorGetLoader:
             LOG_CRITICAL(Frontend, "Failed to obtain loader for {}!", filename.toStdString());
             QMessageBox::critical(this, tr("Error while loading ROM!"),
@@ -922,13 +924,11 @@ bool GMainWindow::LoadROM(const QString& filename) {
             QMessageBox::critical(
                 this, tr("An error occurred initializing the video core."),
                 tr("yuzu has encountered an error while running the video core, please see the "
-                   "log for more details."
+                   "log for more details.\n"
                    "For more information on accessing the log, please see the following page: "
                    "<a href='https://community.citra-emu.org/t/how-to-upload-the-log-file/296'>How "
-                   "to "
-                   "Upload the Log File</a>."
+                   "to Upload the Log File</a>.\n"
                    "Ensure that you have the latest graphics drivers for your GPU."));
-
             break;
 
         default:
