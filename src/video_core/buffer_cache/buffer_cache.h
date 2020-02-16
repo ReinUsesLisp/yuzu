@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -139,7 +140,9 @@ public:
         });
         for (auto& object : objects) {
             if (object->IsModified() && object->IsRegistered()) {
+                mutex.unlock();
                 FlushMap(object);
+                mutex.lock();
             }
         }
     }
@@ -154,6 +157,30 @@ public:
                 Unregister(object);
             }
         }
+    }
+
+    void OnCPUWrite(VAddr addr, std::size_t size) {
+        std::lock_guard lock{mutex};
+
+        for (const auto& object : GetMapsInRange(addr, size)) {
+            if (object->IsMemoryMarked() && object->IsRegistered()) {
+                Unmark(object);
+                object->SetSyncPending(true);
+                marked_for_unregister.emplace_back(object);
+            }
+        }
+    }
+
+    void SyncGuestHost() {
+        std::lock_guard lock{mutex};
+
+        for (const auto& object : marked_for_unregister) {
+            if (object->IsRegistered()) {
+                object->SetSyncPending(false);
+                Unregister(object);
+            }
+        }
+        marked_for_unregister.clear();
     }
 
     virtual const TBufferType* GetEmptyBuffer(std::size_t size) = 0;
@@ -198,17 +225,30 @@ protected:
         const IntervalType interval{new_map->GetStart(), new_map->GetEnd()};
         mapped_addresses.insert({interval, new_map});
         rasterizer.UpdatePagesCachedCount(cpu_addr, size, 1);
+        new_map->SetMemoryMarked(true);
         if (inherit_written) {
             MarkRegionAsWritten(new_map->GetStart(), new_map->GetEnd() - 1);
             new_map->MarkAsWritten(true);
         }
     }
 
-    /// Unregisters an object from the cache
-    void Unregister(MapInterval& map) {
+    void Unmark(const MapInterval& map) {
+        if (!map->IsMemoryMarked()) {
+            return;
+        }
         const std::size_t size = map->GetEnd() - map->GetStart();
         rasterizer.UpdatePagesCachedCount(map->GetStart(), size, -1);
+        map->SetMemoryMarked(false);
+    }
+
+    /// Unregisters an object from the cache
+    void Unregister(const MapInterval& map) {
+        Unmark(map);
         map->MarkAsRegistered(false);
+        if (map->IsSyncPending()) {
+            marked_for_unregister.remove(map);
+            map->SetSyncPending(false);
+        }
         if (map->IsWritten()) {
             UnmarkRegionAsWritten(map->GetStart(), map->GetEnd() - 1);
         }
@@ -482,6 +522,7 @@ private:
     u64 modified_ticks = 0;
 
     std::vector<u8> staging_buffer;
+    std::list<MapInterval> marked_for_unregister;
 
     std::recursive_mutex mutex;
 };

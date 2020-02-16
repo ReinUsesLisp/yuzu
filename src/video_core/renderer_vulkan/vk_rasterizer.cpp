@@ -533,12 +533,12 @@ void RasterizerVulkan::OnCPUWrite(VAddr addr, u64 size) {
     }
     texture_cache.OnCPUWrite(addr, size);
     pipeline_cache.InvalidateRegion(addr, size);
-    buffer_cache.InvalidateRegion(addr, size);
+    buffer_cache.OnCPUWrite(addr, size);
 }
 
 void RasterizerVulkan::SyncGuestHost() {
     texture_cache.SyncGuestHost();
-    // buffer_cache.SyncGuestHost();
+    buffer_cache.SyncGuestHost();
 }
 
 void RasterizerVulkan::FlushAndInvalidateRegion(VAddr addr, u64 size) {
