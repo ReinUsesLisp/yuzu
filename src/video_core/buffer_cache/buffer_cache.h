@@ -231,6 +231,13 @@ public:
         return true;
     }
 
+    bool HasUncommitedFlushes() {
+        if (uncommited_flushes) {
+            return true;
+        }
+        return false;
+    }
+
     void PopAsyncFlushes() {
         if (commited_flushes.empty()) {
             return;
