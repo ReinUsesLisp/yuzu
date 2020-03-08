@@ -190,51 +190,53 @@ GLenum GetComponent(PixelFormat format, bool is_first) {
     }
 }
 
-void ApplyTextureDefaults(const SurfaceParams& params, GLuint texture) {
+void ApplyTextureDefaults(const SurfaceParams& params, GLuint texture, GLenum target) {
     if (params.IsBuffer()) {
         return;
     }
-    glTextureParameteri(texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTextureParameteri(texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(texture, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(params.num_levels - 1));
+    glTextureParameteriEXT(texture, target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteriEXT(texture, target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteriEXT(texture, target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteriEXT(texture, target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTextureParameteriEXT(texture, target, GL_TEXTURE_MAX_LEVEL,
+                           static_cast<GLint>(params.num_levels - 1));
     if (params.num_levels == 1) {
-        glTextureParameterf(texture, GL_TEXTURE_LOD_BIAS, 1000.0f);
+        glTextureParameterfEXT(texture, target, GL_TEXTURE_LOD_BIAS, 1000.0f);
     }
 }
 
 OGLTexture CreateTexture(const SurfaceParams& params, GLenum target, GLenum internal_format,
                          OGLBuffer& texture_buffer) {
     OGLTexture texture;
-    texture.Create(target);
+    texture.Create();
 
     switch (params.target) {
     case SurfaceTarget::Texture1D:
-        glTextureStorage1D(texture.handle, params.emulated_levels, internal_format, params.width);
+        glTextureStorage1DEXT(texture.handle, target, params.emulated_levels, internal_format,
+                              params.width);
         break;
     case SurfaceTarget::TextureBuffer:
         texture_buffer.Create();
-        glNamedBufferStorage(texture_buffer.handle, params.width * params.GetBytesPerPixel(),
-                             nullptr, GL_DYNAMIC_STORAGE_BIT);
+        glNamedBufferStorageEXT(texture_buffer.handle, params.width * params.GetBytesPerPixel(),
+                                nullptr, GL_DYNAMIC_STORAGE_BIT);
         glTextureBuffer(texture.handle, internal_format, texture_buffer.handle);
         break;
     case SurfaceTarget::Texture2D:
     case SurfaceTarget::TextureCubemap:
-        glTextureStorage2D(texture.handle, params.emulated_levels, internal_format, params.width,
-                           params.height);
+        glTextureStorage2DEXT(texture.handle, target, params.emulated_levels, internal_format,
+                              params.width, params.height);
         break;
     case SurfaceTarget::Texture3D:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubeArray:
-        glTextureStorage3D(texture.handle, params.emulated_levels, internal_format, params.width,
-                           params.height, params.depth);
+        glTextureStorage3DEXT(texture.handle, target, params.emulated_levels, internal_format,
+                              params.width, params.height, params.depth);
         break;
     default:
         UNREACHABLE();
     }
 
-    ApplyTextureDefaults(params, texture.handle);
+    ApplyTextureDefaults(params, texture.handle, target);
 
     return texture;
 }
@@ -262,9 +264,9 @@ void CachedSurface::DownloadTexture(std::vector<u8>& staging_buffer) {
     MICROPROFILE_SCOPE(OpenGL_Texture_Download);
 
     if (params.IsBuffer()) {
-        glGetNamedBufferSubData(texture_buffer.handle, 0,
-                                static_cast<GLsizeiptr>(params.GetHostSizeInBytes()),
-                                staging_buffer.data());
+        glGetNamedBufferSubDataEXT(texture_buffer.handle, 0,
+                                   static_cast<GLsizeiptr>(params.GetHostSizeInBytes()),
+                                   staging_buffer.data());
         return;
     }
 
@@ -277,9 +279,9 @@ void CachedSurface::DownloadTexture(std::vector<u8>& staging_buffer) {
         u8* const mip_data = staging_buffer.data() + mip_offset;
         const GLsizei size = static_cast<GLsizei>(params.GetHostMipmapSize(level));
         if (is_compressed) {
-            glGetCompressedTextureImage(texture.handle, level, size, mip_data);
+            glGetCompressedTextureImageEXT(texture.handle, target, level, mip_data);
         } else {
-            glGetTextureImage(texture.handle, level, format, type, size, mip_data);
+            glGetTextureImageEXT(texture.handle, target, level, format, type, mip_data);
         }
     }
 }
@@ -306,28 +308,28 @@ void CachedSurface::UploadTextureMipmap(u32 level, const std::vector<u8>& stagin
         const auto image_size{static_cast<GLsizei>(params.GetHostMipmapSize(level))};
         switch (params.target) {
         case SurfaceTarget::Texture2D:
-            glCompressedTextureSubImage2D(texture.handle, level, 0, 0,
-                                          static_cast<GLsizei>(params.GetMipWidth(level)),
-                                          static_cast<GLsizei>(params.GetMipHeight(level)),
-                                          internal_format, image_size, buffer);
+            glCompressedTextureSubImage2DEXT(texture.handle, target, level, 0, 0,
+                                             static_cast<GLsizei>(params.GetMipWidth(level)),
+                                             static_cast<GLsizei>(params.GetMipHeight(level)),
+                                             internal_format, image_size, buffer);
             break;
         case SurfaceTarget::Texture3D:
         case SurfaceTarget::Texture2DArray:
         case SurfaceTarget::TextureCubeArray:
-            glCompressedTextureSubImage3D(texture.handle, level, 0, 0, 0,
-                                          static_cast<GLsizei>(params.GetMipWidth(level)),
-                                          static_cast<GLsizei>(params.GetMipHeight(level)),
-                                          static_cast<GLsizei>(params.GetMipDepth(level)),
-                                          internal_format, image_size, buffer);
+            glCompressedTextureSubImage3DEXT(texture.handle, target, level, 0, 0, 0,
+                                             static_cast<GLsizei>(params.GetMipWidth(level)),
+                                             static_cast<GLsizei>(params.GetMipHeight(level)),
+                                             static_cast<GLsizei>(params.GetMipDepth(level)),
+                                             internal_format, image_size, buffer);
             break;
         case SurfaceTarget::TextureCubemap: {
             const std::size_t layer_size{params.GetHostLayerSize(level)};
-            for (std::size_t face = 0; face < params.depth; ++face) {
-                glCompressedTextureSubImage3D(texture.handle, level, 0, 0, static_cast<GLint>(face),
-                                              static_cast<GLsizei>(params.GetMipWidth(level)),
-                                              static_cast<GLsizei>(params.GetMipHeight(level)), 1,
-                                              internal_format, static_cast<GLsizei>(layer_size),
-                                              buffer);
+            for (std::size_t face = 0; face < 6; ++face) {
+                glCompressedTextureSubImage2DEXT(
+                    texture.handle, static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face),
+                    level, 0, 0, static_cast<GLsizei>(params.GetMipWidth(level)),
+                    static_cast<GLsizei>(params.GetMipHeight(level)), internal_format,
+                    static_cast<GLsizei>(layer_size), buffer);
                 buffer += layer_size;
             }
             break;
@@ -338,13 +340,13 @@ void CachedSurface::UploadTextureMipmap(u32 level, const std::vector<u8>& stagin
     } else {
         switch (params.target) {
         case SurfaceTarget::Texture1D:
-            glTextureSubImage1D(texture.handle, level, 0, params.GetMipWidth(level), format, type,
-                                buffer);
+            glTextureSubImage1DEXT(texture.handle, target, level, 0, params.GetMipWidth(level),
+                                   format, type, buffer);
             break;
         case SurfaceTarget::TextureBuffer:
             ASSERT(level == 0);
-            glNamedBufferSubData(texture_buffer.handle, 0,
-                                 params.GetMipWidth(level) * params.GetBytesPerPixel(), buffer);
+            glNamedBufferSubDataEXT(texture_buffer.handle, 0,
+                                    params.GetMipWidth(level) * params.GetBytesPerPixel(), buffer);
             break;
         case SurfaceTarget::Texture1DArray:
         case SurfaceTarget::Texture2D:
@@ -406,7 +408,7 @@ CachedSurfaceView::CachedSurfaceView(CachedSurface& surface, const ViewParams& p
 
 CachedSurfaceView::~CachedSurfaceView() = default;
 
-void CachedSurfaceView::Attach(GLenum attachment, GLenum target) const {
+void CachedSurfaceView::Attach(GLuint fbo, GLenum attachment) const {
     ASSERT(params.num_levels == 1);
 
     const GLuint texture = surface.GetTexture();
@@ -416,7 +418,7 @@ void CachedSurfaceView::Attach(GLenum attachment, GLenum target) const {
 
         switch (params.target) {
         case SurfaceTarget::Texture2DArray:
-            glFramebufferTexture(target, attachment, texture, params.base_level);
+            glNamedFramebufferTextureEXT(fbo, attachment, texture, params.base_level);
             break;
         default:
             UNIMPLEMENTED();
@@ -427,17 +429,17 @@ void CachedSurfaceView::Attach(GLenum attachment, GLenum target) const {
     const GLenum view_target = surface.GetTarget();
     switch (surface.GetSurfaceParams().target) {
     case SurfaceTarget::Texture1D:
-        glFramebufferTexture1D(target, attachment, view_target, texture, params.base_level);
+        glNamedFramebufferTexture1DEXT(fbo, attachment, view_target, texture, params.base_level);
         break;
     case SurfaceTarget::Texture2D:
-        glFramebufferTexture2D(target, attachment, view_target, texture, params.base_level);
+        glNamedFramebufferTexture2DEXT(fbo, attachment, view_target, texture, params.base_level);
         break;
     case SurfaceTarget::Texture1DArray:
     case SurfaceTarget::Texture2DArray:
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::TextureCubeArray:
-        glFramebufferTextureLayer(target, attachment, texture, params.base_level,
-                                  params.base_layer);
+        glNamedFramebufferTextureLayerEXT(fbo, attachment, texture, params.base_level,
+                                          params.base_layer);
         break;
     default:
         UNIMPLEMENTED();
@@ -458,11 +460,11 @@ void CachedSurfaceView::ApplySwizzle(SwizzleSource x_source, SwizzleSource y_sou
     case PixelFormat::Z24S8:
     case PixelFormat::Z32FS8:
     case PixelFormat::S8Z24:
-        glTextureParameteri(handle, GL_DEPTH_STENCIL_TEXTURE_MODE,
-                            GetComponent(format, x_source == SwizzleSource::R));
+        glTextureParameteriEXT(handle, target, GL_DEPTH_STENCIL_TEXTURE_MODE,
+                               GetComponent(format, x_source == SwizzleSource::R));
         break;
     default:
-        glTextureParameteriv(handle, GL_TEXTURE_SWIZZLE_RGBA, gl_swizzle.data());
+        glTextureParameterivEXT(handle, target, GL_TEXTURE_SWIZZLE_RGBA, gl_swizzle.data());
         break;
     }
 }
@@ -473,7 +475,7 @@ OGLTextureView CachedSurfaceView::CreateTextureView() const {
 
     glTextureView(texture_view.handle, target, surface.texture.handle, format, params.base_level,
                   params.num_levels, params.base_layer, params.num_layers);
-    ApplyTextureDefaults(surface.GetSurfaceParams(), texture_view.handle);
+    ApplyTextureDefaults(surface.GetSurfaceParams(), texture_view.handle, target);
 
     return texture_view;
 }
@@ -531,36 +533,34 @@ void TextureCacheOpenGL::ImageBlit(View& src_view, View& dst_view,
     glDisable(GL_RASTERIZER_DISCARD);
     glDisablei(GL_SCISSOR_TEST, 0);
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, src_framebuffer.handle);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst_framebuffer.handle);
+    const GLuint src_fbo = src_framebuffer.handle;
+    const GLuint dst_fbo = dst_framebuffer.handle;
 
     GLenum buffers = 0;
     if (src_params.type == SurfaceType::ColorTexture) {
-        src_view->Attach(GL_COLOR_ATTACHMENT0, GL_READ_FRAMEBUFFER);
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0,
-                               0);
+        src_view->Attach(src_fbo, GL_COLOR_ATTACHMENT0);
+        glNamedFramebufferTexture2DEXT(src_fbo, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 
-        dst_view->Attach(GL_COLOR_ATTACHMENT0, GL_DRAW_FRAMEBUFFER);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0,
-                               0);
+        dst_view->Attach(dst_fbo, GL_COLOR_ATTACHMENT0);
+        glNamedFramebufferTexture2DEXT(dst_fbo, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 
         buffers = GL_COLOR_BUFFER_BIT;
     } else if (src_params.type == SurfaceType::Depth) {
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-        src_view->Attach(GL_DEPTH_ATTACHMENT, GL_READ_FRAMEBUFFER);
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+        glNamedFramebufferTexture2DEXT(src_fbo, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        src_view->Attach(src_fbo, GL_DEPTH_ATTACHMENT);
+        glNamedFramebufferTexture2DEXT(src_fbo, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-        dst_view->Attach(GL_DEPTH_ATTACHMENT, GL_DRAW_FRAMEBUFFER);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+        glNamedFramebufferTexture2DEXT(dst_fbo, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        dst_view->Attach(dst_fbo, GL_DEPTH_ATTACHMENT);
+        glNamedFramebufferTexture2DEXT(dst_fbo, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 
         buffers = GL_DEPTH_BUFFER_BIT;
     } else if (src_params.type == SurfaceType::DepthStencil) {
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-        src_view->Attach(GL_DEPTH_STENCIL_ATTACHMENT, GL_READ_FRAMEBUFFER);
+        glNamedFramebufferTexture2DEXT(src_fbo, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        src_view->Attach(src_fbo, GL_DEPTH_STENCIL_ATTACHMENT);
 
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-        dst_view->Attach(GL_DEPTH_STENCIL_ATTACHMENT, GL_DRAW_FRAMEBUFFER);
+        glNamedFramebufferTexture2DEXT(dst_fbo, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        dst_view->Attach(dst_fbo, GL_DEPTH_STENCIL_ATTACHMENT);
 
         buffers = GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
     }
@@ -569,6 +569,8 @@ void TextureCacheOpenGL::ImageBlit(View& src_view, View& dst_view,
     const Common::Rectangle<u32>& dst_rect = copy_config.dst_rect;
     const bool is_linear = copy_config.filter == Tegra::Engines::Fermi2D::Filter::Linear;
 
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src_fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst_fbo);
     glBlitFramebuffer(static_cast<GLint>(src_rect.left), static_cast<GLint>(src_rect.top),
                       static_cast<GLint>(src_rect.right), static_cast<GLint>(src_rect.bottom),
                       static_cast<GLint>(dst_rect.left), static_cast<GLint>(dst_rect.top),
@@ -595,12 +597,13 @@ void TextureCacheOpenGL::BufferCopy(Surface& src_surface, Surface& dst_surface) 
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, copy_pbo_handle);
 
+    const GLuint src_texture = src_surface->GetTexture();
+    const GLenum src_target = src_surface->GetTarget();
     if (source_format.compressed) {
-        glGetCompressedTextureImage(src_surface->GetTexture(), 0, static_cast<GLsizei>(source_size),
-                                    nullptr);
+        glGetCompressedTextureImageEXT(src_texture, src_target, 0, nullptr);
     } else {
-        glGetTextureImage(src_surface->GetTexture(), 0, source_format.format, source_format.type,
-                          static_cast<GLsizei>(source_size), nullptr);
+        glGetTextureImageEXT(src_texture, src_target, 0, source_format.format, source_format.type,
+                             nullptr);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
@@ -613,24 +616,27 @@ void TextureCacheOpenGL::BufferCopy(Surface& src_surface, Surface& dst_surface) 
         LOG_CRITICAL(HW_GPU, "Compressed buffer copy is unimplemented!");
         UNREACHABLE();
     } else {
+        const GLuint dest_texture = dst_surface->GetTexture();
+        const GLenum dest_target = dst_surface->GetTarget();
+
         switch (dst_params.target) {
         case SurfaceTarget::Texture1D:
-            glTextureSubImage1D(dst_surface->GetTexture(), 0, 0, width, dest_format.format,
-                                dest_format.type, nullptr);
+            glTextureSubImage1DEXT(dest_texture, dest_target, 0, 0, width, dest_format.format,
+                                   dest_format.type, nullptr);
             break;
         case SurfaceTarget::Texture2D:
-            glTextureSubImage2D(dst_surface->GetTexture(), 0, 0, 0, width, height,
-                                dest_format.format, dest_format.type, nullptr);
+            glTextureSubImage2DEXT(dest_texture, dest_target, 0, 0, 0, width, height,
+                                   dest_format.format, dest_format.type, nullptr);
             break;
         case SurfaceTarget::Texture3D:
         case SurfaceTarget::Texture2DArray:
         case SurfaceTarget::TextureCubeArray:
-            glTextureSubImage3D(dst_surface->GetTexture(), 0, 0, 0, 0, width, height, depth,
-                                dest_format.format, dest_format.type, nullptr);
+            glTextureSubImage3DEXT(dest_texture, dest_target, 0, 0, 0, 0, width, height, depth,
+                                   dest_format.format, dest_format.type, nullptr);
             break;
         case SurfaceTarget::TextureCubemap:
-            glTextureSubImage3D(dst_surface->GetTexture(), 0, 0, 0, 0, width, height, depth,
-                                dest_format.format, dest_format.type, nullptr);
+            glTextureSubImage3DEXT(dest_texture, dest_target, 0, 0, 0, 0, width, height, depth,
+                                   dest_format.format, dest_format.type, nullptr);
             break;
         default:
             LOG_CRITICAL(Render_OpenGL, "Unimplemented surface target={}",

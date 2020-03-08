@@ -76,7 +76,7 @@ private:
     std::size_t cbuf_cursor = 0;
     std::array<GLuint, Tegra::Engines::Maxwell3D::Regs::MaxConstBuffers *
                            Tegra::Engines::Maxwell3D::Regs::MaxShaderProgram>
-        cbufs;
+        cbufs{};
 };
 
 } // namespace OpenGL

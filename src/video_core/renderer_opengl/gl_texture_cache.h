@@ -76,8 +76,8 @@ public:
     explicit CachedSurfaceView(CachedSurface& surface, const ViewParams& params, bool is_proxy);
     ~CachedSurfaceView();
 
-    /// Attaches this texture view to the current bound GL_DRAW_FRAMEBUFFER
-    void Attach(GLenum attachment, GLenum target) const;
+    /// Attaches this texture view a framebuffer
+    void Attach(GLuint fbo, GLenum attachment) const;
 
     void ApplySwizzle(Tegra::Texture::SwizzleSource x_source,
                       Tegra::Texture::SwizzleSource y_source,

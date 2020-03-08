@@ -19,7 +19,7 @@ void OGLRenderbuffer::Create() {
         return;
 
     MICROPROFILE_SCOPE(OpenGL_ResourceCreation);
-    glCreateRenderbuffers(1, &handle);
+    glGenRenderbuffers(1, &handle);
 }
 
 void OGLRenderbuffer::Release() {
@@ -31,12 +31,12 @@ void OGLRenderbuffer::Release() {
     handle = 0;
 }
 
-void OGLTexture::Create(GLenum target) {
+void OGLTexture::Create() {
     if (handle != 0)
         return;
 
     MICROPROFILE_SCOPE(OpenGL_ResourceCreation);
-    glCreateTextures(target, 1, &handle);
+    glGenTextures(1, &handle);
 }
 
 void OGLTexture::Release() {
@@ -147,7 +147,7 @@ void OGLBuffer::Create() {
         return;
 
     MICROPROFILE_SCOPE(OpenGL_ResourceCreation);
-    glCreateBuffers(1, &handle);
+    glGenBuffers(1, &handle);
 }
 
 void OGLBuffer::Release() {
@@ -162,7 +162,7 @@ void OGLBuffer::Release() {
 void OGLBuffer::MakeStreamCopy(std::size_t buffer_size) {
     ASSERT_OR_EXECUTE((handle != 0 && buffer_size != 0), { return; });
 
-    glNamedBufferData(handle, buffer_size, nullptr, GL_STREAM_COPY);
+    glNamedBufferDataEXT(handle, buffer_size, nullptr, GL_STREAM_COPY);
 }
 
 void OGLSync::Create() {
@@ -204,7 +204,7 @@ void OGLQuery::Create(GLenum target) {
         return;
 
     MICROPROFILE_SCOPE(OpenGL_ResourceCreation);
-    glCreateQueries(target, 1, &handle);
+    glGenQueries(1, &handle);
 }
 
 void OGLQuery::Release() {

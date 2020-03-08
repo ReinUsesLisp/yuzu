@@ -33,14 +33,12 @@ GLuint FramebufferCacheOpenGL::GetFramebuffer(const FramebufferCacheKey& key) {
 OGLFramebuffer FramebufferCacheOpenGL::CreateFramebuffer(const FramebufferCacheKey& key) {
     OGLFramebuffer framebuffer;
     framebuffer.Create();
-
-    // TODO(Rodrigo): Use DSA here after Nvidia fixes their framebuffer DSA bugs.
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer.handle);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.handle);
 
     if (key.zeta) {
         const bool stencil = key.zeta->GetSurfaceParams().type == SurfaceType::DepthStencil;
         const GLenum attach_target = stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
-        key.zeta->Attach(attach_target, GL_DRAW_FRAMEBUFFER);
+        key.zeta->Attach(framebuffer.handle, attach_target);
     }
 
     std::size_t num_buffers = 0;
@@ -51,18 +49,20 @@ OGLFramebuffer FramebufferCacheOpenGL::CreateFramebuffer(const FramebufferCacheK
             targets[index] = GL_NONE;
             continue;
         }
-        const GLenum attach_target = GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index);
-        key.colors[index]->Attach(attach_target, GL_DRAW_FRAMEBUFFER);
-
         const u32 attachment = (key.color_attachments >> (BitsPerAttachment * index)) & 0b1111;
         targets[index] = GL_COLOR_ATTACHMENT0 + attachment;
+
+        const GLenum attach_target = GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index);
+        key.colors[index]->Attach(framebuffer.handle, attach_target);
+
         num_buffers = index + 1;
     }
 
     if (num_buffers > 0) {
-        glDrawBuffers(static_cast<GLsizei>(num_buffers), std::data(targets));
+        glFramebufferDrawBuffersEXT(framebuffer.handle, static_cast<GLsizei>(num_buffers),
+                                    std::data(targets));
     } else {
-        glDrawBuffer(GL_NONE);
+        glFramebufferDrawBufferEXT(framebuffer.handle, GL_NONE);
     }
 
     return framebuffer;

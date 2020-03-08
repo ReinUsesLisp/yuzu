@@ -24,7 +24,7 @@ MICROPROFILE_DEFINE(OpenGL_Buffer_Download, "OpenGL", "Buffer Download", MP_RGB(
 CachedBufferBlock::CachedBufferBlock(CacheAddr cache_addr, const std::size_t size)
     : VideoCommon::BufferBlock{cache_addr, size} {
     gl_buffer.Create();
-    glNamedBufferData(gl_buffer.handle, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferDataEXT(gl_buffer.handle, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW);
 }
 
 CachedBufferBlock::~CachedBufferBlock() = default;
@@ -37,9 +37,9 @@ OGLBufferCache::OGLBufferCache(RasterizerOpenGL& rasterizer, Core::System& syste
     }
 
     static constexpr auto size = static_cast<GLsizeiptr>(Maxwell::MaxConstBufferSize);
-    glCreateBuffers(static_cast<GLsizei>(std::size(cbufs)), std::data(cbufs));
+    glGenBuffers(static_cast<GLsizei>(std::size(cbufs)), std::data(cbufs));
     for (const GLuint cbuf : cbufs) {
-        glNamedBufferData(cbuf, size, nullptr, GL_STREAM_DRAW);
+        glNamedBufferDataEXT(cbuf, size, nullptr, GL_STREAM_DRAW);
     }
 }
 
@@ -66,29 +66,29 @@ const GLuint* OGLBufferCache::GetEmptyBuffer(std::size_t) {
 
 void OGLBufferCache::UploadBlockData(const Buffer& buffer, std::size_t offset, std::size_t size,
                                      const u8* data) {
-    glNamedBufferSubData(*buffer->GetHandle(), static_cast<GLintptr>(offset),
-                         static_cast<GLsizeiptr>(size), data);
+    glNamedBufferSubDataEXT(*buffer->GetHandle(), static_cast<GLintptr>(offset),
+                            static_cast<GLsizeiptr>(size), data);
 }
 
 void OGLBufferCache::DownloadBlockData(const Buffer& buffer, std::size_t offset, std::size_t size,
                                        u8* data) {
     MICROPROFILE_SCOPE(OpenGL_Buffer_Download);
-    glGetNamedBufferSubData(*buffer->GetHandle(), static_cast<GLintptr>(offset),
-                            static_cast<GLsizeiptr>(size), data);
+    glGetNamedBufferSubDataEXT(*buffer->GetHandle(), static_cast<GLintptr>(offset),
+                               static_cast<GLsizeiptr>(size), data);
 }
 
 void OGLBufferCache::CopyBlock(const Buffer& src, const Buffer& dst, std::size_t src_offset,
                                std::size_t dst_offset, std::size_t size) {
-    glCopyNamedBufferSubData(*src->GetHandle(), *dst->GetHandle(),
-                             static_cast<GLintptr>(src_offset), static_cast<GLintptr>(dst_offset),
-                             static_cast<GLsizeiptr>(size));
+    glNamedCopyBufferSubDataEXT(*src->GetHandle(), *dst->GetHandle(),
+                                static_cast<GLintptr>(src_offset),
+                                static_cast<GLintptr>(dst_offset), static_cast<GLsizeiptr>(size));
 }
 
 OGLBufferCache::BufferInfo OGLBufferCache::ConstBufferUpload(const void* raw_pointer,
                                                              std::size_t size) {
     DEBUG_ASSERT(cbuf_cursor < std::size(cbufs));
     const GLuint& cbuf = cbufs[cbuf_cursor++];
-    glNamedBufferSubData(cbuf, 0, static_cast<GLsizeiptr>(size), raw_pointer);
+    glNamedBufferSubDataEXT(cbuf, 0, static_cast<GLsizeiptr>(size), raw_pointer);
     return {&cbuf, 0};
 }
 

@@ -91,14 +91,14 @@ public:
         frame->color.Release();
         frame->color.Create();
         const GLenum internal_format = frame->is_srgb ? GL_SRGB8 : GL_RGB8;
-        glNamedRenderbufferStorage(frame->color.handle, internal_format, width, height);
+        glNamedRenderbufferStorageEXT(frame->color.handle, internal_format, width, height);
 
         // Recreate the FBO for the render target
         frame->render.Release();
         frame->render.Create();
         glBindFramebuffer(GL_FRAMEBUFFER, frame->render.handle);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
-                                  frame->color.handle);
+        glFramebufferRenderbufferEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                     frame->color.handle);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             LOG_CRITICAL(Render_OpenGL, "Failed to recreate render FBO!");
         }
@@ -414,9 +414,9 @@ void RendererOpenGL::LoadFBToScreenInfo(const Tegra::FramebufferConfig& framebuf
     //       they differ from the LCD resolution.
     // TODO: Applications could theoretically crash yuzu here by specifying too large
     //       framebuffer sizes. We should make sure that this cannot happen.
-    glTextureSubImage2D(screen_info.texture.resource.handle, 0, 0, 0, framebuffer.width,
-                        framebuffer.height, screen_info.texture.gl_format,
-                        screen_info.texture.gl_type, gl_framebuffer_data.data());
+    glTextureSubImage2DEXT(screen_info.texture.resource.handle, GL_TEXTURE_2D, 0, 0, 0,
+                           framebuffer.width, framebuffer.height, screen_info.texture.gl_format,
+                           screen_info.texture.gl_type, gl_framebuffer_data.data());
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 }
@@ -449,13 +449,14 @@ void RendererOpenGL::InitOpenGLObjects() {
     vertex_buffer.Create();
 
     // Attach vertex data to VAO
-    glNamedBufferData(vertex_buffer.handle, sizeof(ScreenRectVertex) * 4, nullptr, GL_STREAM_DRAW);
+    glNamedBufferDataEXT(vertex_buffer.handle, sizeof(ScreenRectVertex) * 4, nullptr,
+                         GL_STREAM_DRAW);
 
     // Allocate textures for the screen
-    screen_info.texture.resource.Create(GL_TEXTURE_2D);
+    screen_info.texture.resource.Create();
 
     const GLuint texture = screen_info.texture.resource.handle;
-    glTextureStorage2D(texture, 1, GL_RGBA8, 1, 1);
+    glTextureStorage2DEXT(texture, GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
 
     screen_info.display_texture = screen_info.texture.resource.handle;
 
@@ -518,8 +519,9 @@ void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
     }
 
     texture.resource.Release();
-    texture.resource.Create(GL_TEXTURE_2D);
-    glTextureStorage2D(texture.resource.handle, 1, internal_format, texture.width, texture.height);
+    texture.resource.Create();
+    glTextureStorage2DEXT(texture.resource.handle, GL_TEXTURE_2D, 1, internal_format, texture.width,
+                          texture.height);
 }
 
 void RendererOpenGL::DrawScreen(const Layout::FramebufferLayout& layout) {
@@ -573,7 +575,7 @@ void RendererOpenGL::DrawScreen(const Layout::FramebufferLayout& layout) {
         ScreenRectVertex(screen.left, screen.bottom, texcoords.top * scale_u, right * scale_v),
         ScreenRectVertex(screen.right, screen.bottom, texcoords.bottom * scale_u, right * scale_v),
     };
-    glNamedBufferSubData(vertex_buffer.handle, 0, sizeof(vertices), std::data(vertices));
+    glNamedBufferSubDataEXT(vertex_buffer.handle, 0, sizeof(vertices), std::data(vertices));
 
     // TODO: Signal state tracker about these changes
     state_tracker.NotifyScreenDrawVertexArray();
@@ -715,6 +717,7 @@ void RendererOpenGL::RenderScreenshot() {
 bool RendererOpenGL::Init() {
     if (GLAD_GL_KHR_debug) {
         glEnable(GL_DEBUG_OUTPUT);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
         glDebugMessageCallback(DebugHandler, nullptr);
     }
 
