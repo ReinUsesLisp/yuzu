@@ -29,7 +29,6 @@ enum class AspectRatio {
 struct FramebufferLayout {
     u32 width{ScreenUndocked::Width};
     u32 height{ScreenUndocked::Height};
-    bool is_srgb{};
 
     Common::Rectangle<u32> screen;
 

@@ -45,23 +45,19 @@ struct ScreenInfo {
     TextureInfo texture;
 };
 
-struct PresentationTexture {
-    u32 width = 0;
-    u32 height = 0;
-    OGLTexture texture;
-};
-
-class FrameMailbox;
-
 class RendererOpenGL final : public VideoCore::RendererBase {
 public:
     explicit RendererOpenGL(Core::Frontend::EmuWindow& emu_window, Core::System& system);
     ~RendererOpenGL() override;
 
-    bool Init() override;
-    void ShutDown() override;
+    /// Swap buffers (render frame)
     void SwapBuffers(const Tegra::FramebufferConfig* framebuffer) override;
-    void TryPresent(int timeout_ms) override;
+
+    /// Initialize the renderer
+    bool Init() override;
+
+    /// Shutdown the renderer
+    void ShutDown() override;
 
 private:
     /// Initializes the OpenGL state and creates persistent objects.
@@ -77,7 +73,12 @@ private:
     /// Draws the emulated screens to the emulator window.
     void DrawScreen(const Layout::FramebufferLayout& layout);
 
-    void RenderScreenshot();
+    void DrawScreenTriangles(const ScreenInfo& screen_info, float x, float y, float w, float h);
+
+    /// Updates the framerate.
+    void UpdateFramerate();
+
+    void CaptureScreenshot();
 
     /// Loads framebuffer from emulated memory into the active OpenGL texture.
     void LoadFBToScreenInfo(const Tegra::FramebufferConfig& framebuffer);
@@ -86,8 +87,6 @@ private:
     /// can be 1x1 but will stretch across whatever it's rendered on.
     void LoadColorToActiveGLTexture(u8 color_r, u8 color_g, u8 color_b, u8 color_a,
                                     const TextureInfo& texture);
-
-    void PrepareRendertarget(const Tegra::FramebufferConfig* framebuffer);
 
     Core::Frontend::EmuWindow& emu_window;
     Core::System& system;
@@ -112,9 +111,6 @@ private:
     /// Used for transforming the framebuffer orientation
     Tegra::FramebufferConfig::TransformFlags framebuffer_transform_flags;
     Common::Rectangle<int> framebuffer_crop_rect;
-
-    /// Frame presentation mailbox
-    std::unique_ptr<FrameMailbox> frame_mailbox;
 };
 
 } // namespace OpenGL

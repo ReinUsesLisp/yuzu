@@ -26,6 +26,9 @@ public:
 
     /// Releases (dunno if this is the "right" word) the context from the caller thread
     virtual void DoneCurrent() = 0;
+
+    /// Swap buffers to display the next frame
+    virtual void SwapBuffers() = 0;
 };
 
 /**

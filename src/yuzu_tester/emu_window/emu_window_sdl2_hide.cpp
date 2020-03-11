@@ -112,6 +112,10 @@ EmuWindow_SDL2_Hide::~EmuWindow_SDL2_Hide() {
     SDL_Quit();
 }
 
+void EmuWindow_SDL2_Hide::SwapBuffers() {
+    SDL_GL_SwapWindow(render_window);
+}
+
 void EmuWindow_SDL2_Hide::PollEvents() {}
 
 void EmuWindow_SDL2_Hide::MakeCurrent() {

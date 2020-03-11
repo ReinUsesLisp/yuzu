@@ -107,14 +107,8 @@ RendererVulkan::~RendererVulkan() {
 }
 
 void RendererVulkan::SwapBuffers(const Tegra::FramebufferConfig* framebuffer) {
-    render_window.PollEvents();
-
-    if (!framebuffer) {
-        return;
-    }
-
     const auto& layout = render_window.GetFramebufferLayout();
-    if (layout.width > 0 && layout.height > 0 && render_window.IsShown()) {
+    if (framebuffer && layout.width > 0 && layout.height > 0 && render_window.IsShown()) {
         const VAddr framebuffer_addr = framebuffer->address + framebuffer->offset;
         const bool use_accelerated =
             rasterizer->AccelerateDisplay(*framebuffer, framebuffer_addr, framebuffer->stride);
@@ -135,14 +129,11 @@ void RendererVulkan::SwapBuffers(const Tegra::FramebufferConfig* framebuffer) {
             blit_screen->Recreate();
         }
 
+        render_window.SwapBuffers();
         rasterizer->TickFrame();
     }
 
     render_window.PollEvents();
-}
-
-void RendererVulkan::TryPresent(int /*timeout_ms*/) {
-    // TODO (bunnei): ImplementMe
 }
 
 bool RendererVulkan::Init() {

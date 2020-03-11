@@ -39,10 +39,14 @@ public:
     explicit RendererVulkan(Core::Frontend::EmuWindow& window, Core::System& system);
     ~RendererVulkan() override;
 
-    bool Init() override;
-    void ShutDown() override;
+    /// Swap buffers (render frame)
     void SwapBuffers(const Tegra::FramebufferConfig* framebuffer) override;
-    void TryPresent(int timeout_ms) override;
+
+    /// Initialize the renderer
+    bool Init() override;
+
+    /// Shutdown the renderer
+    void ShutDown() override;
 
 private:
     std::optional<vk::DebugUtilsMessengerEXT> CreateDebugCallback(
