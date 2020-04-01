@@ -1180,24 +1180,21 @@ std::size_t RasterizerVulkan::CalculateConstBufferSize(
 }
 
 RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) const {
-    using namespace VideoCore::Surface;
-
-    const auto& regs = system.GPU().Maxwell3D().regs;
     RenderPassParams renderpass_params;
 
-    for (std::size_t rt = 0; rt < static_cast<std::size_t>(regs.rt_control.count); ++rt) {
-        const auto& rendertarget = regs.rt[rt];
-        if (rendertarget.Address() == 0 || rendertarget.format == Tegra::RenderTargetFormat::NONE) {
+    const std::size_t num_attachments = color_attachments.size();
+    for (std::size_t rt = 0; rt < num_attachments; ++rt) {
+        auto& attachment = color_attachments[rt];
+        if (!attachment) {
             continue;
         }
         renderpass_params.color_attachments.push_back(RenderPassParams::ColorAttachment{
-            static_cast<u32>(rt), PixelFormatFromRenderTargetFormat(rendertarget.format),
-            texceptions[rt]});
+            static_cast<u32>(rt), attachment->GetFormat(), texceptions[rt]});
     }
 
-    renderpass_params.has_zeta = regs.zeta_enable;
-    if (renderpass_params.has_zeta) {
-        renderpass_params.zeta_pixel_format = PixelFormatFromDepthFormat(regs.zeta.format);
+    renderpass_params.has_zeta = static_cast<bool>(zeta_attachment);
+    if (zeta_attachment) {
+        renderpass_params.zeta_pixel_format = zeta_attachment->GetFormat();
         renderpass_params.zeta_texception = texceptions[ZETA_TEXCEPTION_INDEX];
     }
 
