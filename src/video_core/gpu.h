@@ -156,6 +156,16 @@ public:
     void CallMethod(const MethodCall& method_call);
 
     void FlushCommands();
+    void SyncGuestHost();
+    virtual void OnCommandListEnd();
+
+    u64 RequestFlush(CacheAddr addr, std::size_t size);
+
+    u64 CurrentFlushRequestFence() const {
+        return current_flush_fence.load(std::memory_order_relaxed);
+    }
+
+    void TickWork();
 
     /// Returns a reference to the Maxwell3D GPU engine.
     Engines::Maxwell3D& Maxwell3D();
@@ -324,6 +334,19 @@ private:
     std::mutex sync_mutex;
 
     std::condition_variable sync_cv;
+
+    struct FlushRequest {
+        FlushRequest(u64 fence, CacheAddr addr, std::size_t size)
+            : fence{fence}, addr{addr}, size{size} {}
+        u64 fence;
+        CacheAddr addr;
+        std::size_t size;
+    };
+
+    std::list<FlushRequest> flush_requests;
+    std::atomic<u64> current_flush_fence{};
+    u64 last_flush_fence{};
+    std::mutex flush_request_mutex;
 
     const bool is_async;
 };

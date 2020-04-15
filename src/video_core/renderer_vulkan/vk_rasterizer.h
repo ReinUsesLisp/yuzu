@@ -118,7 +118,13 @@ public:
     void Query(GPUVAddr gpu_addr, VideoCore::QueryType type, std::optional<u64> timestamp) override;
     void FlushAll() override;
     void FlushRegion(VAddr addr, u64 size) override;
+    bool MustFlushRegion(VAddr addr, u64 size) override;
     void InvalidateRegion(VAddr addr, u64 size) override;
+    void OnCPUWrite(VAddr addr, u64 size) override;
+    void SyncGuestHost() override;
+    void SignalSemaphore(GPUVAddr addr, u32 value) override;
+    void SignalSyncPoint(u32 value) override;
+    void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void FlushCommands() override;
     void TickFrame() override;
