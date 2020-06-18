@@ -68,6 +68,10 @@ public:
         return has_image_load_formatted;
     }
 
+    bool HasVertexBufferUnifiedMemory() const {
+        return has_vertex_buffer_unified_memory;
+    }
+
     bool HasASTC() const {
         return has_astc;
     }
@@ -110,6 +114,7 @@ private:
     bool has_shader_ballot{};
     bool has_vertex_viewport_layer{};
     bool has_image_load_formatted{};
+    bool has_vertex_buffer_unified_memory{};
     bool has_astc{};
     bool has_variable_aoffi{};
     bool has_component_indexing_bug{};
