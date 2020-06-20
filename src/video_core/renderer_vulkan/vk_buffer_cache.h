@@ -36,6 +36,12 @@ public:
     void CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst_offset,
                   std::size_t size) const;
 
+    void LaunchAsyncDownload(std::size_t offset, std::size_t size) {}
+
+    const u8* QueryAsyncDownload(std::size_t offset, std::size_t size) {
+        return nullptr;
+    }
+
     VkBuffer Handle() const {
         return *buffer.handle;
     }

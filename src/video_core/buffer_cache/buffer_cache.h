@@ -217,9 +217,12 @@ public:
             auto commit_list = std::make_shared<std::list<MapInterval*>>();
             for (MapInterval* map : *uncommitted_flushes) {
                 if (map->is_registered && map->is_modified) {
-                    // TODO(Blinkhawk): Implement backend asynchronous flushing
-                    // AsyncFlushMap(map)
                     commit_list->push_back(map);
+
+                    const auto it = blocks.find(map->start >> BLOCK_PAGE_BITS);
+                    ASSERT(it != blocks.end());
+                    Buffer& buffer = *it->second;
+                    buffer.LaunchAsyncDownload(buffer.Offset(map->start), map->end - map->start);
                 }
             }
             if (!commit_list->empty()) {
@@ -250,11 +253,20 @@ public:
             committed_flushes.pop_front();
             return;
         }
-        for (MapInterval* map : *flush_list) {
-            if (map->is_registered) {
-                // TODO(Blinkhawk): Replace this for reading the asynchronous flush
-                FlushMap(map);
+        for (MapInterval* const map : *flush_list) {
+            if (!map->is_registered) {
+                continue;
             }
+            const VAddr cpu_addr = map->start;
+            const std::size_t size = map->end - map->start;
+
+            const auto it = blocks.find(cpu_addr >> BLOCK_PAGE_BITS);
+            ASSERT(it != blocks.end());
+
+            Buffer& buffer = *it->second;
+            const u8* const host_memory = buffer.QueryAsyncDownload(buffer.Offset(cpu_addr), size);
+            system.Memory().WriteBlockUnsafe(cpu_addr, host_memory, size);
+            map->MarkAsModified(false, 0);
         }
         committed_flushes.pop_front();
     }

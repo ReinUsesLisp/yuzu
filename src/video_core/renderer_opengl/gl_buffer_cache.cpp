@@ -52,6 +52,33 @@ void Buffer::CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst
                              static_cast<GLintptr>(dst_offset), static_cast<GLsizeiptr>(size));
 }
 
+void Buffer::LaunchAsyncDownload(std::size_t offset, std::size_t size) {
+    if (host_cached_buffer.handle == 0) {
+        CreateHostCachedBuffer();
+    }
+    // FIXME: Barrier once
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    glCopyNamedBufferSubData(Handle(), host_cached_buffer.handle, offset, offset, size);
+}
+
+const u8* Buffer::QueryAsyncDownload(std::size_t offset, std::size_t size) {
+    // FIXME: Barrier once
+    glMemoryBarrier(GL_ALL_BARRIER_BITS_EXT);
+    ASSERT(host_cached_map != nullptr);
+    return host_cached_map + offset;
+}
+
+void Buffer::CreateHostCachedBuffer() {
+    static constexpr GLenum STORAGE_FLAGS =
+        GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_CLIENT_STORAGE_BIT;
+    static constexpr GLenum MAP_FLAGS = GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT;
+
+    host_cached_buffer.Create();
+    const GLuint handle = host_cached_buffer.handle;
+    glNamedBufferStorage(handle, Size(), nullptr, STORAGE_FLAGS);
+    host_cached_map = static_cast<const u8*>(glMapNamedBufferRange(handle, 0, Size(), MAP_FLAGS));
+}
+
 OGLBufferCache::OGLBufferCache(RasterizerOpenGL& rasterizer, Core::System& system,
                                const Device& device_, std::size_t stream_size)
     : GenericBufferCache{rasterizer, system,

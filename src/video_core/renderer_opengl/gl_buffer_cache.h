@@ -35,6 +35,10 @@ public:
     void CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst_offset,
                   std::size_t size) const;
 
+    void LaunchAsyncDownload(std::size_t offset, std::size_t size);
+
+    const u8* QueryAsyncDownload(std::size_t offset, std::size_t size);
+
     GLuint Handle() const noexcept {
         return gl_buffer.handle;
     }
@@ -44,8 +48,13 @@ public:
     }
 
 private:
+    void CreateHostCachedBuffer();
+
     OGLBuffer gl_buffer;
     u64 gpu_address = 0;
+
+    OGLBuffer host_cached_buffer;
+    const u8* host_cached_map = nullptr;
 };
 
 using GenericBufferCache = VideoCommon::BufferCache<Buffer, GLuint, OGLStreamBuffer>;
