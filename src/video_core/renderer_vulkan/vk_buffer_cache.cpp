@@ -37,8 +37,9 @@ std::unique_ptr<VKStreamBuffer> CreateStreamBuffer(const VKDevice& device, VKSch
 
 } // Anonymous namespace
 
-Buffer::Buffer(const VKDevice& device, VKMemoryManager& memory_manager, VKScheduler& scheduler_,
-               VKStagingBufferPool& staging_pool_, VAddr cpu_addr, std::size_t size)
+CachedBuffer::CachedBuffer(const VKDevice& device, VKMemoryManager& memory_manager,
+                           VKScheduler& scheduler_, VKStagingBufferPool& staging_pool_,
+                           VAddr cpu_addr, std::size_t size)
     : VideoCommon::BufferBlock{cpu_addr, size}, scheduler{scheduler_}, staging_pool{staging_pool_} {
     VkBufferCreateInfo ci;
     ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -54,16 +55,16 @@ Buffer::Buffer(const VKDevice& device, VKMemoryManager& memory_manager, VKSchedu
     buffer.commit = memory_manager.Commit(buffer.handle, false);
 }
 
-Buffer::~Buffer() = default;
+CachedBuffer::~CachedBuffer() = default;
 
-void Buffer::Upload(std::size_t offset, std::size_t size, const u8* data) {
-    const auto& staging = staging_pool.GetUnusedBuffer(size, true);
-    std::memcpy(staging.commit->Map(size), data, size);
+void CachedBuffer::Upload(std::size_t offset, std::size_t size, const u8* data) {
+    const Buffer& staging = staging_pool.GetUnusedBuffer(size, true);
+    std::memcpy(staging.Map(size), data, size);
 
     scheduler.RequestOutsideRenderPassOperationContext();
 
     const VkBuffer handle = Handle();
-    scheduler.Record([staging = *staging.handle, handle, offset, size](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([staging = staging.Handle(), handle, offset, size](vk::CommandBuffer cmdbuf) {
         cmdbuf.CopyBuffer(staging, handle, VkBufferCopy{0, offset, size});
 
         VkBufferMemoryBarrier barrier;
@@ -81,12 +82,12 @@ void Buffer::Upload(std::size_t offset, std::size_t size, const u8* data) {
     });
 }
 
-void Buffer::Download(std::size_t offset, std::size_t size, u8* data) {
-    const auto& staging = staging_pool.GetUnusedBuffer(size, true);
+void CachedBuffer::Download(std::size_t offset, std::size_t size, u8* data) {
+    const Buffer& staging = staging_pool.GetUnusedBuffer(size, true);
     scheduler.RequestOutsideRenderPassOperationContext();
 
     const VkBuffer handle = Handle();
-    scheduler.Record([staging = *staging.handle, handle, offset, size](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([staging = staging.Handle(), handle, offset, size](vk::CommandBuffer cmdbuf) {
         VkBufferMemoryBarrier barrier;
         barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
         barrier.pNext = nullptr;
@@ -106,11 +107,11 @@ void Buffer::Download(std::size_t offset, std::size_t size, u8* data) {
     });
     scheduler.Finish();
 
-    std::memcpy(data, staging.commit->Map(size), size);
+    std::memcpy(data, staging.Map(size), size);
 }
 
-void Buffer::CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst_offset,
-                      std::size_t size) {
+void CachedBuffer::CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,
+                            std::size_t size) {
     scheduler.RequestOutsideRenderPassOperationContext();
 
     const VkBuffer dst_buffer = Handle();
@@ -145,27 +146,27 @@ void Buffer::CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst
 VKBufferCache::VKBufferCache(VideoCore::RasterizerInterface& rasterizer, Core::System& system,
                              const VKDevice& device, VKMemoryManager& memory_manager,
                              VKScheduler& scheduler, VKStagingBufferPool& staging_pool)
-    : VideoCommon::BufferCache<Buffer, VkBuffer, VKStreamBuffer>{rasterizer, system,
-                                                                 CreateStreamBuffer(device,
-                                                                                    scheduler)},
+    : VideoCommon::BufferCache<CachedBuffer, VkBuffer, VKStreamBuffer>{rasterizer, system,
+                                                                       CreateStreamBuffer(
+                                                                           device, scheduler)},
       device{device}, memory_manager{memory_manager}, scheduler{scheduler}, staging_pool{
                                                                                 staging_pool} {}
 
 VKBufferCache::~VKBufferCache() = default;
 
-std::shared_ptr<Buffer> VKBufferCache::CreateBlock(VAddr cpu_addr, std::size_t size) {
-    return std::make_shared<Buffer>(device, memory_manager, scheduler, staging_pool, cpu_addr,
-                                    size);
+std::shared_ptr<CachedBuffer> VKBufferCache::CreateBlock(VAddr cpu_addr, std::size_t size) {
+    return std::make_shared<CachedBuffer>(device, memory_manager, scheduler, staging_pool, cpu_addr,
+                                          size);
 }
 
 VKBufferCache::BufferInfo VKBufferCache::GetEmptyBuffer(std::size_t size) {
     size = std::max(size, std::size_t(4));
-    const auto& empty = staging_pool.GetUnusedBuffer(size, false);
+    const Buffer& empty = staging_pool.GetUnusedBuffer(size, false);
     scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([size, buffer = *empty.handle](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([size, buffer = empty.Handle()](vk::CommandBuffer cmdbuf) {
         cmdbuf.FillBuffer(buffer, 0, size, 0);
     });
-    return {*empty.handle, 0, 0};
+    return {empty.Handle(), 0, 0};
 }
 
 } // namespace Vulkan

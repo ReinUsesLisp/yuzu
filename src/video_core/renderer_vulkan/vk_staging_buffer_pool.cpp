@@ -17,34 +17,14 @@
 
 namespace Vulkan {
 
-VKStagingBufferPool::StagingBuffer::StagingBuffer(std::unique_ptr<VKBuffer> buffer, VKFence& fence,
-                                                  u64 last_epoch)
-    : buffer{std::move(buffer)}, watch{fence}, last_epoch{last_epoch} {}
-
-VKStagingBufferPool::StagingBuffer::StagingBuffer(StagingBuffer&& rhs) noexcept {
-    buffer = std::move(rhs.buffer);
-    watch = std::move(rhs.watch);
-    last_epoch = rhs.last_epoch;
-}
-
-VKStagingBufferPool::StagingBuffer::~StagingBuffer() = default;
-
-VKStagingBufferPool::StagingBuffer& VKStagingBufferPool::StagingBuffer::operator=(
-    StagingBuffer&& rhs) noexcept {
-    buffer = std::move(rhs.buffer);
-    watch = std::move(rhs.watch);
-    last_epoch = rhs.last_epoch;
-    return *this;
-}
-
 VKStagingBufferPool::VKStagingBufferPool(const VKDevice& device, VKMemoryManager& memory_manager,
                                          VKScheduler& scheduler)
     : device{device}, memory_manager{memory_manager}, scheduler{scheduler} {}
 
 VKStagingBufferPool::~VKStagingBufferPool() = default;
 
-VKBuffer& VKStagingBufferPool::GetUnusedBuffer(std::size_t size, bool host_visible) {
-    if (const auto buffer = TryGetReservedBuffer(size, host_visible)) {
+Buffer& VKStagingBufferPool::GetUnusedBuffer(std::size_t size, bool host_visible) {
+    if (Buffer* const buffer = TryGetReservedBuffer(size, host_visible)) {
         return *buffer;
     }
     return CreateStagingBuffer(size, host_visible);
@@ -58,17 +38,17 @@ void VKStagingBufferPool::TickFrame() {
     ReleaseCache(false);
 }
 
-VKBuffer* VKStagingBufferPool::TryGetReservedBuffer(std::size_t size, bool host_visible) {
+Buffer* VKStagingBufferPool::TryGetReservedBuffer(std::size_t size, bool host_visible) {
     for (auto& entry : GetCache(host_visible)[Common::Log2Ceil64(size)].entries) {
         if (entry.watch.TryWatch(scheduler.GetFence())) {
             entry.last_epoch = epoch;
-            return &*entry.buffer;
+            return &entry.buffer;
         }
     }
     return nullptr;
 }
 
-VKBuffer& VKStagingBufferPool::CreateStagingBuffer(std::size_t size, bool host_visible) {
+Buffer& VKStagingBufferPool::CreateStagingBuffer(std::size_t size, bool host_visible) {
     const u32 log2 = Common::Log2Ceil64(size);
 
     VkBufferCreateInfo ci;
@@ -83,12 +63,13 @@ VKBuffer& VKStagingBufferPool::CreateStagingBuffer(std::size_t size, bool host_v
     ci.queueFamilyIndexCount = 0;
     ci.pQueueFamilyIndices = nullptr;
 
-    auto buffer = std::make_unique<VKBuffer>();
-    buffer->handle = device.GetLogical().CreateBuffer(ci);
-    buffer->commit = memory_manager.Commit(buffer->handle, host_visible);
-
-    auto& entries = GetCache(host_visible)[log2].entries;
-    return *entries.emplace_back(std::move(buffer), scheduler.GetFence(), epoch).buffer;
+    Buffer buffer;
+    buffer.handle = device.GetLogical().CreateBuffer(ci);
+    buffer.commit = memory_manager.Commit(buffer.handle, host_visible);
+    return GetCache(host_visible)[log2]
+        .entries
+        .emplace_back(StagingBuffer{std::move(buffer), VKFenceWatch{scheduler.GetFence()}, epoch})
+        .buffer;
 }
 
 VKStagingBufferPool::StagingBuffersCache& VKStagingBufferPool::GetCache(bool host_visible) {
