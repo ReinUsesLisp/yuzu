@@ -82,7 +82,7 @@ void CachedBuffer::Upload(std::size_t offset, std::size_t size, Buffer& staging)
     });
 }
 
-void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& staging) {
+void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& staging, bool block) {
     scheduler.RequestOutsideRenderPassOperationContext();
 
     const VkBuffer handle = Handle();
@@ -104,7 +104,9 @@ void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& stagin
                                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, {}, barrier, {});
         cmdbuf.CopyBuffer(handle, staging, VkBufferCopy{offset, 0, size});
     });
-    scheduler.Finish();
+    if (block) {
+        scheduler.Finish();
+    }
 }
 
 void CachedBuffer::CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,

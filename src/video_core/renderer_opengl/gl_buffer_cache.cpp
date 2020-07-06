@@ -42,16 +42,20 @@ void CachedBuffer::Upload(std::size_t offset, std::size_t size, Buffer& staging)
     glCopyNamedBufferSubData(staging.Handle(), Handle(), 0, static_cast<GLintptr>(offset), length);
 }
 
-void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& staging) {
+void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& staging, bool block) {
     MICROPROFILE_SCOPE(OpenGL_Buffer_Download);
 
-    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
 
     const GLsizeiptr gl_size = static_cast<GLsizeiptr>(size);
     const GLintptr gl_offset = static_cast<GLintptr>(offset);
     glCopyNamedBufferSubData(gl_buffer.handle, staging.Handle(), gl_offset, 0, gl_size);
     glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
-    glFinish();
+    if (block) {
+        glFinish();
+    } else {
+        glFlush();
+    }
 }
 
 void CachedBuffer::CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,

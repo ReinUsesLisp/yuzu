@@ -40,7 +40,7 @@ private:
     };
 
     static constexpr size_t NUM_LEVELS = sizeof(size_t) * CHAR_BIT;
-    using StagingBuffersCache = std::array<std::vector<StagingBuffer>, NUM_LEVELS>;
+    using StagingBuffersCache = std::array<std::list<StagingBuffer>, NUM_LEVELS>;
 
     Buffer* TryGetReservedBuffer(size_t size, VideoCommon::HostBufferType type);
 

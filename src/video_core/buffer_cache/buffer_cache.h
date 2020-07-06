@@ -220,13 +220,24 @@ public:
 
     void CommitAsyncFlushes() {
         if (uncommitted_flushes) {
-            auto commit_list = std::make_shared<std::list<MapInterval*>>();
+            auto commit_list = std::make_shared<std::list<AsyncFlush>>();
             for (MapInterval* map : *uncommitted_flushes) {
-                if (map->is_registered && map->is_modified) {
-                    // TODO(Blinkhawk): Implement backend asynchronous flushing
-                    // AsyncFlushMap(map)
-                    commit_list->push_back(map);
+                if (!map->is_registered || !map->is_modified) {
+                    continue;
                 }
+
+                const auto it = blocks.find(map->start >> BLOCK_PAGE_BITS);
+                ASSERT(it != blocks.end());
+                Buffer& buffer = *it->second;
+
+                const size_t size = map->end - map->start;
+                StagingBuffer& staging =
+                    staging_buffer_pool.GetUnusedBuffer(size, HostBufferType::Download);
+                buffer.Download(buffer.Offset(map->start), size, staging, false);
+
+                AsyncFlush& flush = commit_list->emplace_back();
+                flush.map = map;
+                flush.staging = &staging;
             }
             if (!commit_list->empty()) {
                 committed_flushes.push_back(commit_list);
@@ -256,11 +267,17 @@ public:
             committed_flushes.pop_front();
             return;
         }
-        for (MapInterval* map : *flush_list) {
-            if (map->is_registered) {
-                // TODO(Blinkhawk): Replace this for reading the asynchronous flush
-                FlushMap(map);
+        for (const AsyncFlush flush : *flush_list) {
+            MapInterval* const map = flush.map;
+            if (!map->is_registered) {
+                continue;
             }
+            const VAddr cpu_addr = map->start;
+            const size_t size = map->end - map->start;
+
+            auto mapped_memory = flush.staging->Map(size);
+            system.Memory().WriteBlockUnsafe(cpu_addr, mapped_memory, size);
+            map->MarkAsModified(false, 0);
         }
         committed_flushes.pop_front();
     }
@@ -451,7 +468,7 @@ private:
             staging_buffer_pool.GetUnusedBuffer(size, HostBufferType::Download);
         auto mapped_memory = staging.Map(size);
 
-        block->Download(block->Offset(map->start), size, staging);
+        block->Download(block->Offset(map->start), size, staging, true);
         system.Memory().WriteBlockUnsafe(map->start, mapped_memory, size);
         map->MarkAsModified(false, 0);
     }
@@ -616,8 +633,13 @@ private:
 
     std::list<MapInterval*> marked_for_unregister;
 
+    struct AsyncFlush {
+        MapInterval* map;
+        StagingBuffer* staging;
+    };
+
     std::shared_ptr<std::unordered_set<MapInterval*>> uncommitted_flushes;
-    std::list<std::shared_ptr<std::list<MapInterval*>>> committed_flushes;
+    std::list<std::shared_ptr<std::list<AsyncFlush>>> committed_flushes;
 
     std::recursive_mutex mutex;
 };

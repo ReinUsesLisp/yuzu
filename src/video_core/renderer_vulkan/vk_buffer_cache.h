@@ -32,7 +32,7 @@ public:
 
     void Upload(std::size_t offset, std::size_t size, Buffer& staging);
 
-    void Download(std::size_t offset, std::size_t size, Buffer& staging);
+    void Download(std::size_t offset, std::size_t size, Buffer& staging, bool block);
 
     void CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,
                   std::size_t size);
