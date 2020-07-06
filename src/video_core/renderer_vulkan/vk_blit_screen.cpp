@@ -18,6 +18,7 @@
 #include "core/memory.h"
 
 #include "video_core/gpu.h"
+#include "video_core/host_buffer_type.h"
 #include "video_core/morton.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
@@ -690,7 +691,7 @@ void VKBlitScreen::CreateStagingBuffer(const Tegra::FramebufferConfig& framebuff
     ci.pQueueFamilyIndices = nullptr;
 
     buffer = device.GetLogical().CreateBuffer(ci);
-    buffer_commit = memory_manager.Commit(buffer, true);
+    buffer_commit = memory_manager.Commit(buffer, VideoCommon::HostBufferType::Upload);
 }
 
 void VKBlitScreen::CreateRawImages(const Tegra::FramebufferConfig& framebuffer) {
@@ -718,7 +719,8 @@ void VKBlitScreen::CreateRawImages(const Tegra::FramebufferConfig& framebuffer) 
 
     for (std::size_t i = 0; i < image_count; ++i) {
         raw_images[i] = std::make_unique<VKImage>(device, scheduler, ci, VK_IMAGE_ASPECT_COLOR_BIT);
-        raw_buffer_commits[i] = memory_manager.Commit(raw_images[i]->GetHandle(), false);
+        raw_buffer_commits[i] = memory_manager.Commit(raw_images[i]->GetHandle(),
+                                                      VideoCommon::HostBufferType::DeviceLocal);
     }
 }
 

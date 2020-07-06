@@ -25,12 +25,13 @@
 #include "core/settings.h"
 #include "video_core/buffer_cache/buffer_block.h"
 #include "video_core/buffer_cache/map_interval.h"
+#include "video_core/host_buffer_type.h"
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 
 namespace VideoCommon {
 
-template <typename Buffer, typename BufferType, typename StreamBuffer>
+template <typename Buffer, typename BufferType, typename StreamBuffer, typename StagingBufferPool>
 class BufferCache {
     using IntervalSet = boost::icl::interval_set<VAddr>;
     using IntervalType = typename IntervalSet::interval_type;
@@ -46,6 +47,8 @@ public:
         u64 offset;
         u64 address;
     };
+
+    using StagingBuffer = typename StagingBufferPool::Buffer;
 
     BufferInfo UploadMemory(GPUVAddr gpu_addr, std::size_t size, std::size_t alignment = 4,
                             bool is_written = false, bool use_fast_cbuf = false) {
@@ -69,8 +72,11 @@ public:
                     if (is_granular) {
                         dest = memory_manager.GetPointer(gpu_addr);
                     } else {
-                        staging_buffer.resize(size);
-                        dest = staging_buffer.data();
+                        if (size > temporary_buffer_size) {
+                            temporary_buffer_size = size;
+                            temporary_buffer = std::make_unique<u8[]>(size);
+                        }
+                        dest = temporary_buffer.get();
                         memory_manager.ReadBlockUnsafe(gpu_addr, dest, size);
                     }
                     return ConstBufferUpload(dest, size);
@@ -262,9 +268,11 @@ public:
     virtual BufferInfo GetEmptyBuffer(std::size_t size) = 0;
 
 protected:
-    explicit BufferCache(VideoCore::RasterizerInterface& rasterizer, Core::System& system,
-                         std::unique_ptr<StreamBuffer> stream_buffer)
-        : rasterizer{rasterizer}, system{system}, stream_buffer{std::move(stream_buffer)} {}
+    explicit BufferCache(VideoCore::RasterizerInterface& rasterizer_, Core::System& system_,
+                         StagingBufferPool& staging_buffer_pool_,
+                         std::unique_ptr<StreamBuffer> stream_buffer_)
+        : rasterizer{rasterizer_}, system{system_}, staging_buffer_pool{staging_buffer_pool_},
+          stream_buffer{std::move(stream_buffer_)} {}
 
     ~BufferCache() = default;
 
@@ -328,14 +336,19 @@ private:
         if (overlaps.empty()) {
             auto& memory_manager = system.GPU().MemoryManager();
             const VAddr cpu_addr_end = cpu_addr + size;
+
+            StagingBuffer& staging =
+                staging_buffer_pool.GetUnusedBuffer(size, HostBufferType::Upload);
+            auto mapped_memory = staging.Map(size);
+
             if (memory_manager.IsGranularRange(gpu_addr, size)) {
-                u8* host_ptr = memory_manager.GetPointer(gpu_addr);
-                block->Upload(block->Offset(cpu_addr), size, host_ptr);
+                u8* const host_ptr = memory_manager.GetPointer(gpu_addr);
+                std::memcpy(mapped_memory, host_ptr, size);
             } else {
-                staging_buffer.resize(size);
-                memory_manager.ReadBlockUnsafe(gpu_addr, staging_buffer.data(), size);
-                block->Upload(block->Offset(cpu_addr), size, staging_buffer.data());
+                memory_manager.ReadBlockUnsafe(gpu_addr, mapped_memory, size);
             }
+            block->Upload(block->Offset(cpu_addr), size, staging);
+
             return Register(MapInterval(cpu_addr, cpu_addr_end, gpu_addr));
         }
 
@@ -391,9 +404,13 @@ private:
             if (size == 0) {
                 continue;
             }
-            staging_buffer.resize(size);
-            system.Memory().ReadBlockUnsafe(interval.lower(), staging_buffer.data(), size);
-            block->Upload(block->Offset(interval.lower()), size, staging_buffer.data());
+
+            StagingBuffer& staging =
+                staging_buffer_pool.GetUnusedBuffer(size, HostBufferType::Upload);
+            auto mapped_memory = staging.Map(size);
+
+            system.Memory().ReadBlockUnsafe(interval.lower(), mapped_memory, size);
+            block->Upload(block->Offset(interval.lower()), size, staging);
         }
     }
 
@@ -429,9 +446,13 @@ private:
         std::shared_ptr<Buffer> block = it->second;
 
         const std::size_t size = map->end - map->start;
-        staging_buffer.resize(size);
-        block->Download(block->Offset(map->start), size, staging_buffer.data());
-        system.Memory().WriteBlockUnsafe(map->start, staging_buffer.data(), size);
+
+        StagingBuffer& staging =
+            staging_buffer_pool.GetUnusedBuffer(size, HostBufferType::Download);
+        auto mapped_memory = staging.Map(size);
+
+        block->Download(block->Offset(map->start), size, staging);
+        system.Memory().WriteBlockUnsafe(map->start, mapped_memory, size);
         map->MarkAsModified(false, 0);
     }
 
@@ -571,9 +592,12 @@ private:
 
     VideoCore::RasterizerInterface& rasterizer;
     Core::System& system;
+    StagingBufferPool& staging_buffer_pool;
 
     std::unique_ptr<StreamBuffer> stream_buffer;
-    BufferType stream_buffer_handle;
+
+    std::unique_ptr<u8[]> temporary_buffer;
+    size_t temporary_buffer_size = 0;
 
     u8* buffer_ptr = nullptr;
     u64 buffer_offset = 0;
@@ -589,8 +613,6 @@ private:
     std::queue<std::shared_ptr<Buffer>> pending_destruction;
     u64 epoch = 0;
     u64 modified_ticks = 0;
-
-    std::vector<u8> staging_buffer;
 
     std::list<MapInterval*> marked_for_unregister;
 

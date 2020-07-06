@@ -30,9 +30,9 @@ public:
                           std::size_t size);
     ~CachedBuffer();
 
-    void Upload(std::size_t offset, std::size_t size, const u8* data);
+    void Upload(std::size_t offset, std::size_t size, Buffer& staging);
 
-    void Download(std::size_t offset, std::size_t size, u8* data);
+    void Download(std::size_t offset, std::size_t size, Buffer& staging);
 
     void CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,
                   std::size_t size);
@@ -53,7 +53,7 @@ private:
 };
 
 class VKBufferCache final
-    : public VideoCommon::BufferCache<CachedBuffer, VkBuffer, VKStreamBuffer> {
+    : public VideoCommon::BufferCache<CachedBuffer, VkBuffer, VKStreamBuffer, VKStagingBufferPool> {
 public:
     explicit VKBufferCache(VideoCore::RasterizerInterface& rasterizer, Core::System& system,
                            const VKDevice& device, VKMemoryManager& memory_manager,

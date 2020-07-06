@@ -27,6 +27,7 @@ add_library(video_core STATIC
     engines/shader_bytecode.h
     engines/shader_header.h
     engines/shader_type.h
+    host_buffer_type.h
     macro/macro.cpp
     macro/macro.h
     macro/macro_hle.cpp
@@ -82,6 +83,8 @@ add_library(video_core STATIC
     renderer_opengl/gl_shader_manager.h
     renderer_opengl/gl_shader_util.cpp
     renderer_opengl/gl_shader_util.h
+    renderer_opengl/gl_staging_buffer_pool.cpp
+    renderer_opengl/gl_staging_buffer_pool.h
     renderer_opengl/gl_state_tracker.cpp
     renderer_opengl/gl_state_tracker.h
     renderer_opengl/gl_stream_buffer.cpp

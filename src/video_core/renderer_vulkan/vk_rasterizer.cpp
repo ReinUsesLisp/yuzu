@@ -16,8 +16,10 @@
 #include "common/microprofile.h"
 #include "core/core.h"
 #include "core/settings.h"
+#include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/engines/kepler_compute.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/host_buffer_type.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
@@ -1564,7 +1566,8 @@ VkBuffer RasterizerVulkan::DefaultBuffer() {
     ci.queueFamilyIndexCount = 0;
     ci.pQueueFamilyIndices = nullptr;
     default_buffer = device.GetLogical().CreateBuffer(ci);
-    default_buffer_commit = memory_manager.Commit(default_buffer, false);
+    default_buffer_commit =
+        memory_manager.Commit(default_buffer, VideoCommon::HostBufferType::DeviceLocal);
 
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([buffer = *default_buffer](vk::CommandBuffer cmdbuf) {

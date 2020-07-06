@@ -9,6 +9,7 @@
 
 #include "common/bit_util.h"
 #include "common/common_types.h"
+#include "video_core/host_buffer_type.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -17,29 +18,32 @@
 
 namespace Vulkan {
 
+using VideoCommon::HostBufferType;
+
 VKStagingBufferPool::VKStagingBufferPool(const VKDevice& device, VKMemoryManager& memory_manager,
                                          VKScheduler& scheduler)
     : device{device}, memory_manager{memory_manager}, scheduler{scheduler} {}
 
 VKStagingBufferPool::~VKStagingBufferPool() = default;
 
-Buffer& VKStagingBufferPool::GetUnusedBuffer(std::size_t size, bool host_visible) {
-    if (Buffer* const buffer = TryGetReservedBuffer(size, host_visible)) {
+Buffer& VKStagingBufferPool::GetUnusedBuffer(std::size_t size, HostBufferType type) {
+    if (Buffer* const buffer = TryGetReservedBuffer(size, type)) {
         return *buffer;
     }
-    return CreateStagingBuffer(size, host_visible);
+    return CreateStagingBuffer(size, type);
 }
 
 void VKStagingBufferPool::TickFrame() {
     ++epoch;
-    current_delete_level = (current_delete_level + 1) % NumLevels;
+    current_delete_level = (current_delete_level + 1) % NUM_LEVELS;
 
-    ReleaseCache(true);
-    ReleaseCache(false);
+    ReleaseCache(HostBufferType::Upload);
+    ReleaseCache(HostBufferType::Download);
+    ReleaseCache(HostBufferType::DeviceLocal);
 }
 
-Buffer* VKStagingBufferPool::TryGetReservedBuffer(std::size_t size, bool host_visible) {
-    for (auto& entry : GetCache(host_visible)[Common::Log2Ceil64(size)].entries) {
+Buffer* VKStagingBufferPool::TryGetReservedBuffer(std::size_t size, HostBufferType type) {
+    for (auto& entry : Cache(type)[Common::Log2Ceil64(size)].entries) {
         if (entry.watch.TryWatch(scheduler.GetFence())) {
             entry.last_epoch = epoch;
             return &entry.buffer;
@@ -48,7 +52,7 @@ Buffer* VKStagingBufferPool::TryGetReservedBuffer(std::size_t size, bool host_vi
     return nullptr;
 }
 
-Buffer& VKStagingBufferPool::CreateStagingBuffer(std::size_t size, bool host_visible) {
+Buffer& VKStagingBufferPool::CreateStagingBuffer(std::size_t size, HostBufferType type) {
     const u32 log2 = Common::Log2Ceil64(size);
 
     VkBufferCreateInfo ci;
@@ -65,26 +69,22 @@ Buffer& VKStagingBufferPool::CreateStagingBuffer(std::size_t size, bool host_vis
 
     Buffer buffer;
     buffer.handle = device.GetLogical().CreateBuffer(ci);
-    buffer.commit = memory_manager.Commit(buffer.handle, host_visible);
-    return GetCache(host_visible)[log2]
+    buffer.commit = memory_manager.Commit(buffer.handle, type);
+    return Cache(type)[log2]
         .entries
         .emplace_back(StagingBuffer{std::move(buffer), VKFenceWatch{scheduler.GetFence()}, epoch})
         .buffer;
 }
 
-VKStagingBufferPool::StagingBuffersCache& VKStagingBufferPool::GetCache(bool host_visible) {
-    return host_visible ? host_staging_buffers : device_staging_buffers;
+VKStagingBufferPool::StagingBuffersCache& VKStagingBufferPool::Cache(HostBufferType type) {
+    return caches[static_cast<size_t>(type)];
 }
 
-void VKStagingBufferPool::ReleaseCache(bool host_visible) {
-    auto& cache = GetCache(host_visible);
-    const u64 size = ReleaseLevel(cache, current_delete_level);
-    if (size == 0) {
-        return;
-    }
+void VKStagingBufferPool::ReleaseCache(HostBufferType type) {
+    ReleaseLevel(Cache(type), current_delete_level);
 }
 
-u64 VKStagingBufferPool::ReleaseLevel(StagingBuffersCache& cache, std::size_t log2) {
+u64 VKStagingBufferPool::ReleaseLevel(StagingBuffersCache& cache, size_t log2) {
     static constexpr std::size_t deletions_per_tick = 16;
 
     auto& staging = cache[log2];

@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 #include "common/common_types.h"
+#include "video_core/host_buffer_type.h"
 #include "video_core/renderer_vulkan/wrapper.h"
 
 namespace Vulkan {
@@ -32,13 +33,14 @@ public:
      *                     memory. When passing false, it will try to allocate device local memory.
      * @returns A memory commit.
      */
-    VKMemoryCommit Commit(const VkMemoryRequirements& requirements, bool host_visible);
+    VKMemoryCommit Commit(const VkMemoryRequirements& requirements,
+                          VideoCommon::HostBufferType type);
 
     /// Commits memory required by the buffer and binds it.
-    VKMemoryCommit Commit(const vk::Buffer& buffer, bool host_visible);
+    VKMemoryCommit Commit(const vk::Buffer& buffer, VideoCommon::HostBufferType type);
 
     /// Commits memory required by the image and binds it.
-    VKMemoryCommit Commit(const vk::Image& image, bool host_visible);
+    VKMemoryCommit Commit(const vk::Image& image, VideoCommon::HostBufferType type);
 
 private:
     /// Allocates a chunk of memory.

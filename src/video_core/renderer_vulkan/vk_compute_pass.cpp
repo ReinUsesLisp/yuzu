@@ -20,6 +20,8 @@
 
 namespace Vulkan {
 
+using VideoCommon::HostBufferType;
+
 namespace {
 
 // Quad array SPIR-V module. Generated from the "shaders/" directory, read the instructions there.
@@ -469,7 +471,7 @@ QuadArrayPass::~QuadArrayPass() = default;
 std::pair<VkBuffer, VkDeviceSize> QuadArrayPass::Assemble(u32 num_vertices, u32 first) {
     const u32 num_triangle_vertices = (num_vertices / 4) * 6;
     const std::size_t staging_size = num_triangle_vertices * sizeof(u32);
-    auto& buffer = staging_buffer_pool.GetUnusedBuffer(staging_size, false);
+    auto& buffer = staging_buffer_pool.GetUnusedBuffer(staging_size, HostBufferType::DeviceLocal);
 
     update_descriptor_queue.Acquire();
     update_descriptor_queue.AddBuffer(*buffer.handle, 0, staging_size);
@@ -517,7 +519,7 @@ Uint8Pass::~Uint8Pass() = default;
 std::pair<VkBuffer, u64> Uint8Pass::Assemble(u32 num_vertices, VkBuffer src_buffer,
                                              u64 src_offset) {
     const auto staging_size = static_cast<u32>(num_vertices * sizeof(u16));
-    auto& buffer = staging_buffer_pool.GetUnusedBuffer(staging_size, false);
+    auto& buffer = staging_buffer_pool.GetUnusedBuffer(staging_size, HostBufferType::DeviceLocal);
 
     update_descriptor_queue.Acquire();
     update_descriptor_queue.AddBuffer(src_buffer, src_offset, num_vertices);
@@ -580,7 +582,7 @@ std::pair<VkBuffer, u64> QuadIndexedPass::Assemble(
     const u32 num_tri_vertices = (num_vertices / 4) * 6;
 
     const std::size_t staging_size = num_tri_vertices * sizeof(u32);
-    auto& buffer = staging_buffer_pool.GetUnusedBuffer(staging_size, false);
+    auto& buffer = staging_buffer_pool.GetUnusedBuffer(staging_size, HostBufferType::DeviceLocal);
 
     update_descriptor_queue.Acquire();
     update_descriptor_queue.AddBuffer(src_buffer, src_offset, input_size);

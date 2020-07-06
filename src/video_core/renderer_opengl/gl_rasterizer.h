@@ -30,6 +30,7 @@
 #include "video_core/renderer_opengl/gl_shader_cache.h"
 #include "video_core/renderer_opengl/gl_shader_decompiler.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
+#include "video_core/renderer_opengl/gl_staging_buffer_pool.h"
 #include "video_core/renderer_opengl/gl_state_tracker.h"
 #include "video_core/renderer_opengl/gl_texture_cache.h"
 #include "video_core/renderer_opengl/utils.h"
@@ -235,6 +236,7 @@ private:
     SamplerCacheOpenGL sampler_cache;
     FramebufferCacheOpenGL framebuffer_cache;
     QueryCache query_cache;
+    StagingBufferPool staging_buffer_pool;
     OGLBufferCache buffer_cache;
     FenceManagerOpenGL fence_manager;
 

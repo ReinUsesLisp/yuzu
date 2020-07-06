@@ -11,7 +11,7 @@
 #include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_stream_buffer.h"
 
-MICROPROFILE_DEFINE(OpenGL_StreamBuffer, "OpenGL", "Stream Buffer Orphaning",
+MICROPROFILE_DEFINE(OpenGL_StreamBuffer, "OpenGL", "Stream CachedBuffer Orphaning",
                     MP_RGB(128, 128, 192));
 
 namespace OpenGL {

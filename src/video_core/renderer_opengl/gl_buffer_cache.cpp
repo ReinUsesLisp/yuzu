@@ -15,6 +15,7 @@
 #include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
+#include "video_core/renderer_opengl/gl_staging_buffer_pool.h"
 
 namespace OpenGL {
 
@@ -22,46 +23,47 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 MICROPROFILE_DEFINE(OpenGL_Buffer_Download, "OpenGL", "Buffer Download", MP_RGB(192, 192, 128));
 
-Buffer::Buffer(const Device& device, VAddr cpu_addr, std::size_t size)
+CachedBuffer::CachedBuffer(const Device& device, VAddr cpu_addr, std::size_t size)
     : VideoCommon::BufferBlock{cpu_addr, size} {
     gl_buffer.Create();
-    glNamedBufferData(gl_buffer.handle, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(gl_buffer.handle, static_cast<GLsizeiptr>(size), nullptr, GL_STATIC_COPY);
     if (device.HasVertexBufferUnifiedMemory()) {
         glMakeNamedBufferResidentNV(gl_buffer.handle, GL_READ_WRITE);
         glGetNamedBufferParameterui64vNV(gl_buffer.handle, GL_BUFFER_GPU_ADDRESS_NV, &gpu_address);
     }
 }
 
-Buffer::~Buffer() = default;
+CachedBuffer::~CachedBuffer() = default;
 
-void Buffer::Upload(std::size_t offset, std::size_t size, const u8* data) {
-    glNamedBufferSubData(Handle(), static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size),
-                         data);
+void CachedBuffer::Upload(std::size_t offset, std::size_t size, Buffer& staging) {
+    const GLsizeiptr length = static_cast<GLsizeiptr>(size);
+
+    glFlushMappedNamedBufferRange(staging.Handle(), 0, length);
+    glCopyNamedBufferSubData(staging.Handle(), Handle(), 0, static_cast<GLintptr>(offset), length);
 }
 
-void Buffer::Download(std::size_t offset, std::size_t size, u8* data) {
+void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& staging) {
     MICROPROFILE_SCOPE(OpenGL_Buffer_Download);
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+
     const GLsizeiptr gl_size = static_cast<GLsizeiptr>(size);
     const GLintptr gl_offset = static_cast<GLintptr>(offset);
-    if (read_buffer.handle == 0) {
-        read_buffer.Create();
-        glNamedBufferData(read_buffer.handle, static_cast<GLsizeiptr>(Size()), nullptr,
-                          GL_STREAM_READ);
-    }
-    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
-    glCopyNamedBufferSubData(gl_buffer.handle, read_buffer.handle, gl_offset, gl_offset, gl_size);
-    glGetNamedBufferSubData(read_buffer.handle, gl_offset, gl_size, data);
+    glCopyNamedBufferSubData(gl_buffer.handle, staging.Handle(), gl_offset, 0, gl_size);
+    glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+    glFinish();
 }
 
-void Buffer::CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst_offset,
-                      std::size_t size) {
+void CachedBuffer::CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,
+                            std::size_t size) {
     glCopyNamedBufferSubData(src.Handle(), Handle(), static_cast<GLintptr>(src_offset),
                              static_cast<GLintptr>(dst_offset), static_cast<GLsizeiptr>(size));
 }
 
 OGLBufferCache::OGLBufferCache(RasterizerOpenGL& rasterizer, Core::System& system,
-                               const Device& device_, std::size_t stream_size)
-    : GenericBufferCache{rasterizer, system,
+                               const Device& device_, StagingBufferPool& staging_buffer_pool,
+                               std::size_t stream_size)
+    : GenericBufferCache{rasterizer, system, staging_buffer_pool,
                          std::make_unique<OGLStreamBuffer>(device_, stream_size, true)},
       device{device_} {
     if (!device.HasFastBufferSubData()) {
@@ -79,8 +81,8 @@ OGLBufferCache::~OGLBufferCache() {
     glDeleteBuffers(static_cast<GLsizei>(std::size(cbufs)), std::data(cbufs));
 }
 
-std::shared_ptr<Buffer> OGLBufferCache::CreateBlock(VAddr cpu_addr, std::size_t size) {
-    return std::make_shared<Buffer>(device, cpu_addr, size);
+std::shared_ptr<CachedBuffer> OGLBufferCache::CreateBlock(VAddr cpu_addr, std::size_t size) {
+    return std::make_shared<CachedBuffer>(device, cpu_addr, size);
 }
 
 OGLBufferCache::BufferInfo OGLBufferCache::GetEmptyBuffer(std::size_t) {

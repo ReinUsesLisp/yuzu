@@ -42,10 +42,10 @@ using VideoCore::Surface::SurfaceTarget;
 using VideoCore::Surface::SurfaceType;
 
 MICROPROFILE_DEFINE(OpenGL_VAO, "OpenGL", "Vertex Format Setup", MP_RGB(128, 128, 192));
-MICROPROFILE_DEFINE(OpenGL_VB, "OpenGL", "Vertex Buffer Setup", MP_RGB(128, 128, 192));
+MICROPROFILE_DEFINE(OpenGL_VB, "OpenGL", "Vertex CachedBuffer Setup", MP_RGB(128, 128, 192));
 MICROPROFILE_DEFINE(OpenGL_Shader, "OpenGL", "Shader Setup", MP_RGB(128, 128, 192));
-MICROPROFILE_DEFINE(OpenGL_UBO, "OpenGL", "Const Buffer Setup", MP_RGB(128, 128, 192));
-MICROPROFILE_DEFINE(OpenGL_Index, "OpenGL", "Index Buffer Setup", MP_RGB(128, 128, 192));
+MICROPROFILE_DEFINE(OpenGL_UBO, "OpenGL", "Const CachedBuffer Setup", MP_RGB(128, 128, 192));
+MICROPROFILE_DEFINE(OpenGL_Index, "OpenGL", "Index CachedBuffer Setup", MP_RGB(128, 128, 192));
 MICROPROFILE_DEFINE(OpenGL_Texture, "OpenGL", "Texture Setup", MP_RGB(128, 128, 192));
 MICROPROFILE_DEFINE(OpenGL_Framebuffer, "OpenGL", "Framebuffer Setup", MP_RGB(128, 128, 192));
 MICROPROFILE_DEFINE(OpenGL_Drawing, "OpenGL", "Drawing", MP_RGB(128, 128, 192));
@@ -147,7 +147,7 @@ RasterizerOpenGL::RasterizerOpenGL(Core::System& system, Core::Frontend::EmuWind
     : RasterizerAccelerated{system.Memory()}, device{device}, texture_cache{system, *this, device,
                                                                             state_tracker},
       shader_cache{*this, system, emu_window, device}, query_cache{system, *this},
-      buffer_cache{*this, system, device, STREAM_BUFFER_SIZE},
+      buffer_cache{*this, system, device, staging_buffer_pool, STREAM_BUFFER_SIZE},
       fence_manager{system, *this, texture_cache, buffer_cache, query_cache}, system{system},
       screen_info{info}, program_manager{program_manager}, state_tracker{state_tracker} {
     CheckExtensions();
@@ -865,6 +865,7 @@ void RasterizerOpenGL::TickFrame() {
     num_queued_commands = 0;
 
     buffer_cache.TickFrame();
+    staging_buffer_pool.TickFrame();
 }
 
 bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
@@ -1035,6 +1036,10 @@ void RasterizerOpenGL::SetupComputeGlobalMemory(Shader* kernel) {
 
 void RasterizerOpenGL::SetupGlobalMemory(u32 binding, const GlobalMemoryEntry& entry,
                                          GPUVAddr gpu_addr, std::size_t size) {
+    if (size == 0) {
+        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, binding, 0, 0, 0);
+        return;
+    }
     const auto alignment{device.GetShaderStorageBufferAlignment()};
     const auto info = buffer_cache.UploadMemory(gpu_addr, size, alignment, entry.is_written);
     glBindBufferRange(GL_SHADER_STORAGE_BUFFER, binding, info.handle, info.offset,

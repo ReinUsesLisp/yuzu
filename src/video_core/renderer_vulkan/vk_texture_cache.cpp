@@ -27,10 +27,10 @@
 
 namespace Vulkan {
 
+using Tegra::Texture::SwizzleSource;
+using VideoCommon::HostBufferType;
 using VideoCore::MortonSwizzle;
 using VideoCore::MortonSwizzleMode;
-
-using Tegra::Texture::SwizzleSource;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceTarget;
 
@@ -194,7 +194,7 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
       memory_manager{memory_manager}, scheduler{scheduler}, staging_pool{staging_pool} {
     if (params.IsBuffer()) {
         buffer = CreateBuffer(device, params, host_memory_size);
-        commit = memory_manager.Commit(buffer, false);
+        commit = memory_manager.Commit(buffer, HostBufferType::DeviceLocal);
 
         const auto buffer_view_ci =
             GenerateBufferViewCreateInfo(device, params, *buffer, host_memory_size);
@@ -206,7 +206,7 @@ CachedSurface::CachedSurface(Core::System& system, const VKDevice& device,
         format = image_ci.format;
 
         image.emplace(device, scheduler, image_ci, PixelFormatToImageAspect(params.pixel_format));
-        commit = memory_manager.Commit(image->GetHandle(), false);
+        commit = memory_manager.Commit(image->GetHandle(), HostBufferType::DeviceLocal);
     }
 
     // TODO(Rodrigo): Move this to a virtual function.
@@ -243,7 +243,7 @@ void CachedSurface::DownloadTexture(std::vector<u8>& staging_buffer) {
     FullTransition(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    const Buffer& buffer = staging_pool.GetUnusedBuffer(host_memory_size, true);
+    const Buffer& buffer = staging_pool.GetUnusedBuffer(host_memory_size, HostBufferType::Download);
     // TODO(Rodrigo): Do this in a single copy
     for (u32 level = 0; level < params.num_levels; ++level) {
         scheduler.Record([image = *image->GetHandle(), buffer = buffer.Handle(),
@@ -267,7 +267,8 @@ View CachedSurface::CreateView(const ViewParams& params) {
 }
 
 void CachedSurface::UploadBuffer(const std::vector<u8>& staging_buffer) {
-    const Buffer& src_buffer = staging_pool.GetUnusedBuffer(host_memory_size, true);
+    const Buffer& src_buffer =
+        staging_pool.GetUnusedBuffer(host_memory_size, HostBufferType::Upload);
     std::memcpy(src_buffer.Map(host_memory_size), staging_buffer.data(), host_memory_size);
 
     scheduler.Record([src_buffer = src_buffer.Handle(), dst_buffer = *buffer,
@@ -296,7 +297,8 @@ void CachedSurface::UploadBuffer(const std::vector<u8>& staging_buffer) {
 }
 
 void CachedSurface::UploadImage(const std::vector<u8>& staging_buffer) {
-    const Buffer& src_buffer = staging_pool.GetUnusedBuffer(host_memory_size, true);
+    const Buffer& src_buffer =
+        staging_pool.GetUnusedBuffer(host_memory_size, HostBufferType::Upload);
     std::memcpy(src_buffer.Map(host_memory_size), staging_buffer.data(), host_memory_size);
 
     FullTransition(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,

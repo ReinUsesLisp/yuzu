@@ -8,6 +8,7 @@
 
 #include "core/core.h"
 #include "video_core/buffer_cache/buffer_cache.h"
+#include "video_core/host_buffer_type.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -15,6 +16,8 @@
 #include "video_core/renderer_vulkan/wrapper.h"
 
 namespace Vulkan {
+
+using VideoCommon::HostBufferType;
 
 namespace {
 
@@ -52,15 +55,12 @@ CachedBuffer::CachedBuffer(const VKDevice& device, VKMemoryManager& memory_manag
     ci.pQueueFamilyIndices = nullptr;
 
     buffer.handle = device.GetLogical().CreateBuffer(ci);
-    buffer.commit = memory_manager.Commit(buffer.handle, false);
+    buffer.commit = memory_manager.Commit(buffer.handle, VideoCommon::HostBufferType::DeviceLocal);
 }
 
 CachedBuffer::~CachedBuffer() = default;
 
-void CachedBuffer::Upload(std::size_t offset, std::size_t size, const u8* data) {
-    const Buffer& staging = staging_pool.GetUnusedBuffer(size, true);
-    std::memcpy(staging.Map(size), data, size);
-
+void CachedBuffer::Upload(std::size_t offset, std::size_t size, Buffer& staging) {
     scheduler.RequestOutsideRenderPassOperationContext();
 
     const VkBuffer handle = Handle();
@@ -82,8 +82,7 @@ void CachedBuffer::Upload(std::size_t offset, std::size_t size, const u8* data) 
     });
 }
 
-void CachedBuffer::Download(std::size_t offset, std::size_t size, u8* data) {
-    const Buffer& staging = staging_pool.GetUnusedBuffer(size, true);
+void CachedBuffer::Download(std::size_t offset, std::size_t size, Buffer& staging) {
     scheduler.RequestOutsideRenderPassOperationContext();
 
     const VkBuffer handle = Handle();
@@ -106,8 +105,6 @@ void CachedBuffer::Download(std::size_t offset, std::size_t size, u8* data) {
         cmdbuf.CopyBuffer(handle, staging, VkBufferCopy{offset, 0, size});
     });
     scheduler.Finish();
-
-    std::memcpy(data, staging.Map(size), size);
 }
 
 void CachedBuffer::CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,
@@ -146,9 +143,9 @@ void CachedBuffer::CopyFrom(const CachedBuffer& src, std::size_t src_offset, std
 VKBufferCache::VKBufferCache(VideoCore::RasterizerInterface& rasterizer, Core::System& system,
                              const VKDevice& device, VKMemoryManager& memory_manager,
                              VKScheduler& scheduler, VKStagingBufferPool& staging_pool)
-    : VideoCommon::BufferCache<CachedBuffer, VkBuffer, VKStreamBuffer>{rasterizer, system,
-                                                                       CreateStreamBuffer(
-                                                                           device, scheduler)},
+    : VideoCommon::BufferCache<CachedBuffer, VkBuffer, VKStreamBuffer,
+                               VKStagingBufferPool>{rasterizer, system, staging_pool,
+                                                    CreateStreamBuffer(device, scheduler)},
       device{device}, memory_manager{memory_manager}, scheduler{scheduler}, staging_pool{
                                                                                 staging_pool} {}
 
@@ -161,7 +158,7 @@ std::shared_ptr<CachedBuffer> VKBufferCache::CreateBlock(VAddr cpu_addr, std::si
 
 VKBufferCache::BufferInfo VKBufferCache::GetEmptyBuffer(std::size_t size) {
     size = std::max(size, std::size_t(4));
-    const Buffer& empty = staging_pool.GetUnusedBuffer(size, false);
+    const Buffer& empty = staging_pool.GetUnusedBuffer(size, HostBufferType::DeviceLocal);
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([size, buffer = empty.Handle()](vk::CommandBuffer cmdbuf) {
         cmdbuf.FillBuffer(buffer, 0, size, 0);

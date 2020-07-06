@@ -11,6 +11,7 @@
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
+#include "video_core/renderer_opengl/gl_staging_buffer_pool.h"
 #include "video_core/renderer_opengl/gl_stream_buffer.h"
 
 namespace Core {
@@ -23,16 +24,16 @@ class Device;
 class OGLStreamBuffer;
 class RasterizerOpenGL;
 
-class Buffer : public VideoCommon::BufferBlock {
+class CachedBuffer : public VideoCommon::BufferBlock {
 public:
-    explicit Buffer(const Device& device, VAddr cpu_addr, std::size_t size);
-    ~Buffer();
+    explicit CachedBuffer(const Device& device, VAddr cpu_addr, std::size_t size);
+    ~CachedBuffer();
 
-    void Upload(std::size_t offset, std::size_t size, const u8* data);
+    void Upload(std::size_t offset, std::size_t size, Buffer& staging);
 
-    void Download(std::size_t offset, std::size_t size, u8* data);
+    void Download(std::size_t offset, std::size_t size, Buffer& staging);
 
-    void CopyFrom(const Buffer& src, std::size_t src_offset, std::size_t dst_offset,
+    void CopyFrom(const CachedBuffer& src, std::size_t src_offset, std::size_t dst_offset,
                   std::size_t size);
 
     GLuint Handle() const noexcept {
@@ -45,15 +46,17 @@ public:
 
 private:
     OGLBuffer gl_buffer;
-    OGLBuffer read_buffer;
     u64 gpu_address = 0;
 };
 
-using GenericBufferCache = VideoCommon::BufferCache<Buffer, GLuint, OGLStreamBuffer>;
+using GenericBufferCache =
+    VideoCommon::BufferCache<CachedBuffer, GLuint, OGLStreamBuffer, StagingBufferPool>;
+
 class OGLBufferCache final : public GenericBufferCache {
 public:
     explicit OGLBufferCache(RasterizerOpenGL& rasterizer, Core::System& system,
-                            const Device& device, std::size_t stream_size);
+                            const Device& device, StagingBufferPool& staging_buffer_pool,
+                            std::size_t stream_size);
     ~OGLBufferCache();
 
     BufferInfo GetEmptyBuffer(std::size_t) override;
@@ -63,7 +66,7 @@ public:
     }
 
 protected:
-    std::shared_ptr<Buffer> CreateBlock(VAddr cpu_addr, std::size_t size) override;
+    std::shared_ptr<CachedBuffer> CreateBlock(VAddr cpu_addr, std::size_t size) override;
 
     BufferInfo ConstBufferUpload(const void* raw_pointer, std::size_t size) override;
 

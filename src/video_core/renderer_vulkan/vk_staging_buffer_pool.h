@@ -12,6 +12,7 @@
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/wrapper.h"
+#include "video_core/host_buffer_type.h"
 
 namespace Vulkan {
 
@@ -34,11 +35,13 @@ struct Buffer {
 
 class VKStagingBufferPool final {
 public:
+    using Buffer = ::Vulkan::Buffer;
+
     explicit VKStagingBufferPool(const VKDevice& device, VKMemoryManager& memory_manager,
                                  VKScheduler& scheduler);
     ~VKStagingBufferPool();
 
-    Buffer& GetUnusedBuffer(std::size_t size, bool host_visible);
+    Buffer& GetUnusedBuffer(size_t size, VideoCommon::HostBufferType type);
 
     void TickFrame();
 
@@ -51,32 +54,31 @@ private:
 
     struct StagingBuffers {
         std::vector<StagingBuffer> entries;
-        std::size_t delete_index = 0;
+        size_t delete_index = 0;
     };
 
-    static constexpr std::size_t NumLevels = sizeof(std::size_t) * CHAR_BIT;
-    using StagingBuffersCache = std::array<StagingBuffers, NumLevels>;
+    static constexpr size_t NUM_LEVELS = sizeof(size_t) * CHAR_BIT;
+    using StagingBuffersCache = std::array<StagingBuffers, NUM_LEVELS>;
 
-    Buffer* TryGetReservedBuffer(std::size_t size, bool host_visible);
+    Buffer* TryGetReservedBuffer(size_t size, VideoCommon::HostBufferType type);
 
-    Buffer& CreateStagingBuffer(std::size_t size, bool host_visible);
+    Buffer& CreateStagingBuffer(size_t size, VideoCommon::HostBufferType type);
 
-    StagingBuffersCache& GetCache(bool host_visible);
+    StagingBuffersCache& Cache(VideoCommon::HostBufferType type);
 
-    void ReleaseCache(bool host_visible);
+    void ReleaseCache(VideoCommon::HostBufferType type);
 
-    u64 ReleaseLevel(StagingBuffersCache& cache, std::size_t log2);
+    u64 ReleaseLevel(StagingBuffersCache& cache, size_t log2);
 
     const VKDevice& device;
     VKMemoryManager& memory_manager;
     VKScheduler& scheduler;
 
-    StagingBuffersCache host_staging_buffers;
-    StagingBuffersCache device_staging_buffers;
+    std::array<StagingBuffersCache, VideoCommon::NUM_HOST_BUFFER_TYPES> caches;
 
     u64 epoch = 0;
 
-    std::size_t current_delete_level = 0;
+    size_t current_delete_level = 0;
 };
 
 } // namespace Vulkan

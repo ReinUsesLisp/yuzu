@@ -282,7 +282,7 @@ const char* GetImageTypeDeclaration(Tegra::Shader::ImageType image_type) {
     case Tegra::Shader::ImageType::Texture1D:
         return "1D";
     case Tegra::Shader::ImageType::TextureBuffer:
-        return "Buffer";
+        return "CachedBuffer";
     case Tegra::Shader::ImageType::Texture1DArray:
         return "1DArray";
     case Tegra::Shader::ImageType::Texture2D:

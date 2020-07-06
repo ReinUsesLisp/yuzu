@@ -17,7 +17,23 @@
 
 namespace Vulkan {
 
+using VideoCommon::HostBufferType;
+
 namespace {
+
+VkMemoryPropertyFlags WantedProperties(HostBufferType type) {
+    switch (type) {
+    case HostBufferType::Upload:
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    case HostBufferType::Download:
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    case HostBufferType::DeviceLocal:
+        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    UNREACHABLE();
+    return 0;
+}
 
 u64 GetAllocationChunkSize(u64 required_size) {
     static constexpr u64 sizes[] = {16ULL << 20, 32ULL << 20, 64ULL << 20, 128ULL << 20};
@@ -141,14 +157,12 @@ VKMemoryManager::VKMemoryManager(const VKDevice& device)
 VKMemoryManager::~VKMemoryManager() = default;
 
 VKMemoryCommit VKMemoryManager::Commit(const VkMemoryRequirements& requirements,
-                                       bool host_visible) {
+                                       HostBufferType type) {
     const u64 chunk_size = GetAllocationChunkSize(requirements.size);
 
     // When a host visible commit is asked, search for host visible and coherent, otherwise search
     // for a fast device local type.
-    const VkMemoryPropertyFlags wanted_properties =
-        host_visible ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-                     : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    const VkMemoryPropertyFlags wanted_properties = WantedProperties(type);
 
     if (auto commit = TryAllocCommit(requirements, wanted_properties)) {
         return commit;
@@ -169,14 +183,14 @@ VKMemoryCommit VKMemoryManager::Commit(const VkMemoryRequirements& requirements,
     return commit;
 }
 
-VKMemoryCommit VKMemoryManager::Commit(const vk::Buffer& buffer, bool host_visible) {
-    auto commit = Commit(device.GetLogical().GetBufferMemoryRequirements(*buffer), host_visible);
+VKMemoryCommit VKMemoryManager::Commit(const vk::Buffer& buffer, HostBufferType type) {
+    auto commit = Commit(device.GetLogical().GetBufferMemoryRequirements(*buffer), type);
     buffer.BindMemory(commit->Memory(), commit->Offset());
     return commit;
 }
 
-VKMemoryCommit VKMemoryManager::Commit(const vk::Image& image, bool host_visible) {
-    auto commit = Commit(device.GetLogical().GetImageMemoryRequirements(*image), host_visible);
+VKMemoryCommit VKMemoryManager::Commit(const vk::Image& image, HostBufferType type) {
+    auto commit = Commit(device.GetLogical().GetImageMemoryRequirements(*image), type);
     image.BindMemory(commit->Memory(), commit->Offset());
     return commit;
 }
