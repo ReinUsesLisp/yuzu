@@ -438,16 +438,6 @@ public:
             DecrWrapOGL = 0x8508,
         };
 
-        enum class MemoryLayout : u32 {
-            Linear = 0,
-            BlockLinear = 1,
-        };
-
-        enum class InvMemoryLayout : u32 {
-            BlockLinear = 0,
-            Linear = 1,
-        };
-
         enum class CounterReset : u32 {
             SampleCnt = 0x01,
             Unk02 = 0x02,
@@ -589,21 +579,26 @@ public:
             NegativeW = 7,
         };
 
+        struct TileMode {
+            union {
+                BitField<0, 4, u32> block_width;
+                BitField<4, 4, u32> block_height;
+                BitField<8, 4, u32> block_depth;
+                BitField<12, 1, u32> is_pitch_linear;
+                BitField<16, 1, u32> is_3d;
+            };
+        };
+        static_assert(sizeof(TileMode) == 4);
+
         struct RenderTargetConfig {
             u32 address_high;
             u32 address_low;
             u32 width;
             u32 height;
             Tegra::RenderTargetFormat format;
+            TileMode tile_mode;
             union {
-                BitField<0, 3, u32> block_width;
-                BitField<4, 3, u32> block_height;
-                BitField<8, 3, u32> block_depth;
-                BitField<12, 1, InvMemoryLayout> type;
-                BitField<16, 1, u32> is_3d;
-            } memory_layout;
-            union {
-                BitField<0, 16, u32> layers;
+                BitField<0, 16, u32> depth;
                 BitField<16, 1, u32> volume;
             };
             u32 layer_stride;
@@ -838,7 +833,11 @@ public:
                 u32 stencil_back_mask;
                 u32 stencil_back_func_mask;
 
-                INSERT_UNION_PADDING_WORDS(0xC);
+                INSERT_UNION_PADDING_WORDS(0x5);
+
+                u32 invalidate_texture_data_cache;
+
+                INSERT_UNION_PADDING_WORDS(0x6);
 
                 u32 color_mask_common;
 
@@ -862,12 +861,7 @@ public:
                     u32 address_high;
                     u32 address_low;
                     Tegra::DepthFormat format;
-                    union {
-                        BitField<0, 4, u32> block_width;
-                        BitField<4, 4, u32> block_height;
-                        BitField<8, 4, u32> block_depth;
-                        BitField<20, 1, InvMemoryLayout> type;
-                    } memory_layout;
+                    TileMode tile_mode;
                     u32 layer_stride;
 
                     GPUVAddr Address() const {
@@ -876,7 +870,18 @@ public:
                     }
                 } zeta;
 
-                INSERT_UNION_PADDING_WORDS(0x41);
+                struct {
+                    union {
+                        BitField<0, 16, u32> x;
+                        BitField<16, 16, u32> width;
+                    };
+                    union {
+                        BitField<0, 16, u32> y;
+                        BitField<16, 16, u32> height;
+                    };
+                } render_area;
+
+                INSERT_UNION_PADDING_WORDS(0x3F);
 
                 union {
                     BitField<0, 4, u32> stencil;
@@ -930,7 +935,7 @@ public:
                 u32 zeta_width;
                 u32 zeta_height;
                 union {
-                    BitField<0, 16, u32> zeta_layers;
+                    BitField<0, 16, u32> zeta_depth;
                     BitField<16, 1, u32> zeta_volume;
                 };
 
@@ -960,6 +965,7 @@ public:
                     float b;
                     float a;
                 } blend_color;
+
                 INSERT_UNION_PADDING_WORDS(0x4);
 
                 struct {
@@ -997,7 +1003,12 @@ public:
                 float line_width_smooth;
                 float line_width_aliased;
 
-                INSERT_UNION_PADDING_WORDS(0x1F);
+                INSERT_UNION_PADDING_WORDS(0x1B);
+
+                u32 invalidate_sampler_cache_no_wfi;
+                u32 invalidate_texture_header_cache_no_wfi;
+
+                INSERT_UNION_PADDING_WORDS(0x2);
 
                 u32 vb_element_base;
                 u32 vb_base_instance;
@@ -1041,13 +1052,13 @@ public:
                 } condition;
 
                 struct {
-                    u32 tsc_address_high;
-                    u32 tsc_address_low;
-                    u32 tsc_limit;
+                    u32 address_high;
+                    u32 address_low;
+                    u32 limit;
 
-                    GPUVAddr TSCAddress() const {
-                        return static_cast<GPUVAddr>(
-                            (static_cast<GPUVAddr>(tsc_address_high) << 32) | tsc_address_low);
+                    GPUVAddr Address() const {
+                        return static_cast<GPUVAddr>((static_cast<GPUVAddr>(address_high) << 32) |
+                                                     address_low);
                     }
                 } tsc;
 
@@ -1058,13 +1069,13 @@ public:
                 u32 line_smooth_enable;
 
                 struct {
-                    u32 tic_address_high;
-                    u32 tic_address_low;
-                    u32 tic_limit;
+                    u32 address_high;
+                    u32 address_low;
+                    u32 limit;
 
-                    GPUVAddr TICAddress() const {
-                        return static_cast<GPUVAddr>(
-                            (static_cast<GPUVAddr>(tic_address_high) << 32) | tic_address_low);
+                    GPUVAddr Address() const {
+                        return static_cast<GPUVAddr>((static_cast<GPUVAddr>(address_high) << 32) |
+                                                     address_low);
                     }
                 } tic;
 
@@ -1393,12 +1404,6 @@ public:
 
     void FlushMMEInlineDraw();
 
-    /// Given a texture handle, returns the TSC and TIC entries.
-    Texture::FullTextureInfo GetTextureInfo(Texture::TextureHandle tex_handle) const;
-
-    /// Returns the texture information for a specific texture in a specific shader stage.
-    Texture::FullTextureInfo GetStageTexture(ShaderType stage, std::size_t offset) const;
-
     u32 AccessConstBuffer32(ShaderType stage, u64 const_buffer, u64 offset) const override;
 
     SamplerDescriptor AccessBoundSampler(ShaderType stage, u64 offset) const override;
@@ -1598,6 +1603,7 @@ ASSERT_REG_POSITION(scissor_test, 0x380);
 ASSERT_REG_POSITION(stencil_back_func_ref, 0x3D5);
 ASSERT_REG_POSITION(stencil_back_mask, 0x3D6);
 ASSERT_REG_POSITION(stencil_back_func_mask, 0x3D7);
+ASSERT_REG_POSITION(invalidate_texture_data_cache, 0x3DD);
 ASSERT_REG_POSITION(color_mask_common, 0x3E4);
 ASSERT_REG_POSITION(depth_bounds, 0x3E7);
 ASSERT_REG_POSITION(rt_separate_frag_data, 0x3EB);
@@ -1605,6 +1611,7 @@ ASSERT_REG_POSITION(multisample_raster_enable, 0x3ED);
 ASSERT_REG_POSITION(multisample_raster_samples, 0x3EE);
 ASSERT_REG_POSITION(multisample_sample_mask, 0x3EF);
 ASSERT_REG_POSITION(zeta, 0x3F8);
+ASSERT_REG_POSITION(render_area, 0x3FD);
 ASSERT_REG_POSITION(clear_flags, 0x43E);
 ASSERT_REG_POSITION(fill_rectangle, 0x44F);
 ASSERT_REG_POSITION(vertex_attrib_format, 0x458);
@@ -1613,7 +1620,7 @@ ASSERT_REG_POSITION(multisample_coverage_to_color, 0x47E);
 ASSERT_REG_POSITION(rt_control, 0x487);
 ASSERT_REG_POSITION(zeta_width, 0x48a);
 ASSERT_REG_POSITION(zeta_height, 0x48b);
-ASSERT_REG_POSITION(zeta_layers, 0x48c);
+ASSERT_REG_POSITION(zeta_depth, 0x48c);
 ASSERT_REG_POSITION(depth_test_enable, 0x4B3);
 ASSERT_REG_POSITION(independent_blend_enable, 0x4B9);
 ASSERT_REG_POSITION(depth_write_enabled, 0x4BA);
@@ -1637,6 +1644,8 @@ ASSERT_REG_POSITION(frag_color_clamp, 0x4EA);
 ASSERT_REG_POSITION(screen_y_control, 0x4EB);
 ASSERT_REG_POSITION(line_width_smooth, 0x4EC);
 ASSERT_REG_POSITION(line_width_aliased, 0x4ED);
+ASSERT_REG_POSITION(invalidate_sampler_cache_no_wfi, 0x509);
+ASSERT_REG_POSITION(invalidate_texture_header_cache_no_wfi, 0x50A);
 ASSERT_REG_POSITION(vb_element_base, 0x50D);
 ASSERT_REG_POSITION(vb_base_instance, 0x50E);
 ASSERT_REG_POSITION(clip_distance_enabled, 0x544);

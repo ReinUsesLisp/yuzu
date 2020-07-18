@@ -23,10 +23,10 @@
 #include "core/telemetry_session.h"
 #include "video_core/host_shaders/opengl_present_frag.h"
 #include "video_core/host_shaders/opengl_present_vert.h"
-#include "video_core/morton.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
 #include "video_core/renderer_opengl/renderer_opengl.h"
+#include "video_core/textures/decoders.h"
 
 namespace OpenGL {
 
@@ -189,16 +189,16 @@ void RendererOpenGL::LoadFBToScreenInfo(const Tegra::FramebufferConfig& framebuf
 
     const auto pixel_format{
         VideoCore::Surface::PixelFormatFromGPUPixelFormat(framebuffer.pixel_format)};
-    const u32 bytes_per_pixel{VideoCore::Surface::GetBytesPerPixel(pixel_format)};
+    const u32 bytes_per_pixel{VideoCore::Surface::BytesPerBlock(pixel_format)};
     const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
     u8* const host_ptr{cpu_memory.GetPointer(framebuffer_addr)};
     rasterizer->FlushRegion(ToCacheAddr(host_ptr), size_in_bytes);
 
     // TODO(Rodrigo): Read this from HLE
     constexpr u32 block_height_log2 = 4;
-    VideoCore::MortonSwizzle(VideoCore::MortonSwizzleMode::MortonToLinear, pixel_format,
-                             framebuffer.stride, block_height_log2, framebuffer.height, 0, 1, 1,
-                             gl_framebuffer_data.data(), host_ptr);
+    Tegra::Texture::UnswizzleTexture(gl_framebuffer_data, std::span<u8>(host_ptr, size_in_bytes),
+                                     bytes_per_pixel, framebuffer.width, framebuffer.height, 1,
+                                     block_height_log2, 0);
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(framebuffer.stride));
 
@@ -237,6 +237,10 @@ void RendererOpenGL::InitOpenGLObjects() {
     pipeline.Create();
     glUseProgramStages(pipeline.handle, GL_VERTEX_SHADER_BIT, vertex_program.handle);
     glUseProgramStages(pipeline.handle, GL_FRAGMENT_SHADER_BIT, fragment_program.handle);
+
+    // Generate presentation sampler
+    present_sampler.Create();
+    glSamplerParameteri(present_sampler.handle, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
     // Generate VBO handle for drawing
     vertex_buffer.Create();
@@ -296,7 +300,7 @@ void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
 
     const auto pixel_format{
         VideoCore::Surface::PixelFormatFromGPUPixelFormat(framebuffer.pixel_format)};
-    const u32 bytes_per_pixel{VideoCore::Surface::GetBytesPerPixel(pixel_format)};
+    const u32 bytes_per_pixel{VideoCore::Surface::BytesPerBlock(pixel_format)};
     gl_framebuffer_data.resize(texture.width * texture.height * bytes_per_pixel);
 
     GLint internal_format;
@@ -440,7 +444,7 @@ void RendererOpenGL::DrawScreen(const Layout::FramebufferLayout& layout) {
     }
 
     glBindTextureUnit(0, screen_info.display_texture);
-    glBindSampler(0, 0);
+    glBindSampler(0, present_sampler.handle);
 
     glClear(GL_COLOR_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

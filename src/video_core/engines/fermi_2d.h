@@ -74,9 +74,9 @@ public:
             RenderTargetFormat format;
             BitField<0, 1, u32> linear;
             union {
-                BitField<0, 4, u32> block_width;
-                BitField<4, 4, u32> block_height;
-                BitField<8, 4, u32> block_depth;
+                BitField<0, 3, u32> block_width;
+                BitField<4, 3, u32> block_height;
+                BitField<8, 3, u32> block_depth;
             };
             u32 depth;
             u32 layer;
@@ -89,18 +89,6 @@ public:
             GPUVAddr Address() const {
                 return static_cast<GPUVAddr>((static_cast<GPUVAddr>(address_high) << 32) |
                                              address_low);
-            }
-
-            u32 BlockWidth() const {
-                return block_width.Value();
-            }
-
-            u32 BlockHeight() const {
-                return block_height.Value();
-            }
-
-            u32 BlockDepth() const {
-                return block_depth.Value();
             }
         };
         static_assert(sizeof(Surface) == 0x28, "Surface has incorrect size");

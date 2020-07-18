@@ -30,8 +30,6 @@
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
-#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
-#include "video_core/renderer_vulkan/vk_sampler_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
 #include "video_core/renderer_vulkan/vk_state_tracker.h"
@@ -39,10 +37,12 @@
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/renderer_vulkan/wrapper.h"
 #include "video_core/shader_cache.h"
+#include "video_core/texture_cache/texture_cache.h"
 
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
+using Tegra::Texture::TextureHandle;
 
 MICROPROFILE_DEFINE(Vulkan_WaitForWorker, "Vulkan", "Wait for worker", MP_RGB(255, 192, 192));
 MICROPROFILE_DEFINE(Vulkan_Drawing, "Vulkan", "Record drawing", MP_RGB(192, 128, 128));
@@ -109,40 +109,24 @@ std::array<GPUVAddr, Maxwell::MaxShaderProgram> GetShaderAddresses(
     return addresses;
 }
 
-void TransitionImages(const std::vector<ImageView>& views, VkPipelineStageFlags pipeline_stage,
-                      VkAccessFlags access) {
-    for (auto& [view, layout] : views) {
-        view->Transition(*layout, pipeline_stage, access);
-    }
-}
-
 template <typename Engine, typename Entry>
-Tegra::Texture::FullTextureInfo GetTextureInfo(const Engine& engine, const Entry& entry,
-                                               std::size_t stage, std::size_t index = 0) {
-    const auto stage_type = static_cast<Tegra::Engines::ShaderType>(stage);
+TextureHandle GetTextureInfo(const Engine& engine, const Entry& entry, size_t stage,
+                             size_t index = 0) {
+    const auto shader_type = static_cast<Tegra::Engines::ShaderType>(stage);
     if constexpr (std::is_same_v<Entry, SamplerEntry>) {
         if (entry.is_separated) {
             const u32 buffer_1 = entry.buffer;
             const u32 buffer_2 = entry.secondary_buffer;
             const u32 offset_1 = entry.offset;
             const u32 offset_2 = entry.secondary_offset;
-            const u32 handle_1 = engine.AccessConstBuffer32(stage_type, buffer_1, offset_1);
-            const u32 handle_2 = engine.AccessConstBuffer32(stage_type, buffer_2, offset_2);
-            return engine.GetTextureInfo(handle_1 | handle_2);
+            const u32 handle_1 = engine.AccessConstBuffer32(shader_type, buffer_1, offset_1);
+            const u32 handle_2 = engine.AccessConstBuffer32(shader_type, buffer_2, offset_2);
+            return handle_1 | handle_2;
         }
     }
-    if (entry.is_bindless) {
-        const auto tex_handle = engine.AccessConstBuffer32(stage_type, entry.buffer, entry.offset);
-        return engine.GetTextureInfo(tex_handle);
-    }
-    const auto& gpu_profile = engine.AccessGuestDriverProfile();
-    const u32 entry_offset = static_cast<u32>(index * gpu_profile.GetTextureHandlerSize());
-    const u32 offset = entry.offset + entry_offset;
-    if constexpr (std::is_same_v<Engine, Tegra::Engines::Maxwell3D>) {
-        return engine.GetStageTexture(stage_type, offset);
-    } else {
-        return engine.GetTexture(offset);
-    }
+    const u32 buffer = entry.is_bindless ? entry.buffer : engine.GetBoundBuffer();
+    const u64 offset = (entry.offset + index) * sizeof(u32);
+    return engine.AccessConstBuffer32(shader_type, buffer, offset);
 }
 
 /// @brief Determine if an attachment to be updated has to preserve contents
@@ -385,20 +369,22 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window, Tegra:
                                    Core::Memory::Memory& cpu_memory, VKScreenInfo& screen_info_,
                                    const VKDevice& device_, VKMemoryManager& memory_manager_,
                                    StateTracker& state_tracker_, VKScheduler& scheduler_)
-    : RasterizerAccelerated(cpu_memory), gpu(gpu_), gpu_memory(gpu_memory_),
-      maxwell3d(gpu.Maxwell3D()), kepler_compute(gpu.KeplerCompute()), screen_info(screen_info_),
-      device(device_), memory_manager(memory_manager_), state_tracker(state_tracker_),
-      scheduler(scheduler_), staging_pool(device, memory_manager, scheduler),
-      descriptor_pool(device, scheduler_), update_descriptor_queue(device, scheduler),
-      renderpass_cache(device),
+    : RasterizerAccelerated{cpu_memory}, gpu{gpu_},
+      gpu_memory{gpu_memory_}, maxwell3d{gpu.Maxwell3D()}, kepler_compute{gpu.KeplerCompute()},
+      screen_info{screen_info_}, device{device_}, memory_manager{memory_manager_},
+      state_tracker{state_tracker_}, scheduler{scheduler_}, stream_buffer(device, scheduler),
+      staging_pool(device, memory_manager, scheduler), descriptor_pool(device, scheduler),
+      update_descriptor_queue(device, scheduler),
       quad_array_pass(device, scheduler, descriptor_pool, staging_pool, update_descriptor_queue),
       quad_indexed_pass(device, scheduler, descriptor_pool, staging_pool, update_descriptor_queue),
       uint8_pass(device, scheduler, descriptor_pool, staging_pool, update_descriptor_queue),
-      texture_cache(*this, maxwell3d, gpu_memory, device, memory_manager, scheduler, staging_pool),
+      texture_cache_runtime{device, scheduler, memory_manager, staging_pool},
+      texture_cache(texture_cache_runtime, *this, maxwell3d, kepler_compute, gpu_memory),
       pipeline_cache(*this, gpu, maxwell3d, kepler_compute, gpu_memory, device, scheduler,
-                     descriptor_pool, update_descriptor_queue, renderpass_cache),
-      buffer_cache(*this, gpu_memory, cpu_memory, device, memory_manager, scheduler, staging_pool),
-      sampler_cache(device), query_cache(*this, maxwell3d, gpu_memory, device, scheduler),
+                     descriptor_pool, update_descriptor_queue),
+      buffer_cache(*this, gpu_memory, cpu_memory, device, memory_manager, scheduler, stream_buffer,
+                   staging_pool),
+      query_cache{*this, maxwell3d, gpu_memory, device, scheduler},
       fence_manager(*this, gpu, gpu_memory, texture_cache, buffer_cache, query_cache, device,
                     scheduler),
       wfi_event(device.GetLogical().CreateEvent()), async_shaders(emu_window) {
@@ -417,6 +403,7 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
     FlushWork();
 
     query_cache.UpdateCounters();
+    texture_cache.ImplicitDescriptorInvalidations();
 
     GraphicsPipelineCacheKey key;
     key.fixed_state.Fill(maxwell3d.regs, device.IsExtExtendedDynamicStateSupported());
@@ -428,8 +415,6 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
         SetupGeometry(key.fixed_state, buffer_bindings, is_indexed, is_instanced);
 
     update_descriptor_queue.Acquire();
-    sampled_views.clear();
-    image_views.clear();
 
     const auto shaders = pipeline_cache.GetShaders();
     key.shaders = GetShaderAddresses(shaders);
@@ -437,11 +422,10 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
 
     buffer_cache.Unmap();
 
-    const Texceptions texceptions = UpdateAttachments(false);
-    SetupImageTransitions(texceptions, color_attachments, zeta_attachment);
+    texture_cache.UpdateRenderTargets();
+    Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
-    key.renderpass_params = GetRenderPassParams(texceptions);
-    key.padding = 0;
+    key.renderpass = framebuffer->RenderPass();
 
     auto* pipeline = pipeline_cache.GetGraphicsPipeline(key, async_shaders);
     if (pipeline == nullptr || pipeline->GetHandle() == VK_NULL_HANDLE) {
@@ -449,11 +433,8 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
         return;
     }
 
+    scheduler.RequestRenderpass(key.renderpass, framebuffer->Handle(), framebuffer->RenderArea());
     scheduler.BindGraphicsPipeline(pipeline->GetHandle());
-
-    const auto renderpass = pipeline->GetRenderPass();
-    const auto [framebuffer, render_area] = ConfigureFramebuffers(renderpass);
-    scheduler.RequestRenderpass(renderpass, framebuffer, render_area);
 
     UpdateDynamicStates();
 
@@ -481,9 +462,7 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    sampled_views.clear();
-    image_views.clear();
-
+    texture_cache.ImplicitDescriptorInvalidations();
     query_cache.UpdateCounters();
 
     const auto& regs = maxwell3d.regs;
@@ -495,13 +474,10 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    [[maybe_unused]] const auto texceptions = UpdateAttachments(true);
-    DEBUG_ASSERT(texceptions.none());
-    SetupImageTransitions(0, color_attachments, zeta_attachment);
-
-    const VkRenderPass renderpass = renderpass_cache.GetRenderPass(GetRenderPassParams(0));
-    const auto [framebuffer, render_area] = ConfigureFramebuffers(renderpass);
-    scheduler.RequestRenderpass(renderpass, framebuffer, render_area);
+    texture_cache.UpdateRenderTargets();
+    Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
+    const VkExtent2D render_area = framebuffer->RenderArea();
+    scheduler.RequestRenderpass(framebuffer->RenderPass(), framebuffer->Handle(), render_area);
 
     VkClearRect clear_rect;
     clear_rect.baseArrayLayer = regs.clear_buffers.layer;
@@ -550,8 +526,6 @@ void RasterizerVulkan::Clear() {
 void RasterizerVulkan::DispatchCompute(GPUVAddr code_addr) {
     MICROPROFILE_SCOPE(Vulkan_Compute);
     update_descriptor_queue.Acquire();
-    sampled_views.clear();
-    image_views.clear();
 
     query_cache.UpdateCounters();
 
@@ -582,11 +556,6 @@ void RasterizerVulkan::DispatchCompute(GPUVAddr code_addr) {
 
     buffer_cache.Unmap();
 
-    TransitionImages(sampled_views, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                     VK_ACCESS_SHADER_READ_BIT);
-    TransitionImages(image_views, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                     VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
-
     scheduler.Record([grid_x = launch_desc.grid_dim_x, grid_y = launch_desc.grid_dim_y,
                       grid_z = launch_desc.grid_dim_z, pipeline_handle = pipeline.GetHandle(),
                       layout = pipeline.GetLayout(),
@@ -613,7 +582,7 @@ void RasterizerVulkan::FlushRegion(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.FlushRegion(addr, size);
+    texture_cache.DownloadMemory(addr, size);
     buffer_cache.FlushRegion(addr, size);
     query_cache.FlushRegion(addr, size);
 }
@@ -622,14 +591,15 @@ bool RasterizerVulkan::MustFlushRegion(VAddr addr, u64 size) {
     if (!Settings::IsGPULevelHigh()) {
         return buffer_cache.MustFlushRegion(addr, size);
     }
-    return texture_cache.MustFlushRegion(addr, size) || buffer_cache.MustFlushRegion(addr, size);
+    // return texture_cache.MustFlushRegion(addr, size) || buffer_cache.MustFlushRegion(addr, size);
+    return buffer_cache.MustFlushRegion(addr, size);
 }
 
 void RasterizerVulkan::InvalidateRegion(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.InvalidateRegion(addr, size);
+    texture_cache.WriteMemory(addr, size);
     pipeline_cache.InvalidateRegion(addr, size);
     buffer_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
@@ -639,15 +609,22 @@ void RasterizerVulkan::OnCPUWrite(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.OnCPUWrite(addr, size);
+    texture_cache.WriteMemory(addr, size);
     pipeline_cache.OnCPUWrite(addr, size);
     buffer_cache.OnCPUWrite(addr, size);
 }
 
 void RasterizerVulkan::SyncGuestHost() {
-    texture_cache.SyncGuestHost();
+    // texture_cache.SyncGuestHost();
     buffer_cache.SyncGuestHost();
     pipeline_cache.SyncGuestHost();
+}
+
+void RasterizerVulkan::UnmapMemory(VAddr addr, u64 size) {
+    texture_cache.UnmapMemory(addr, size);
+    buffer_cache.InvalidateRegion(addr, size);
+    pipeline_cache.InvalidateRegion(addr, size);
+    query_cache.InvalidateRegion(addr, size);
 }
 
 void RasterizerVulkan::SignalSemaphore(GPUVAddr addr, u32 value) {
@@ -700,6 +677,18 @@ void RasterizerVulkan::WaitForIdle() {
     });
 }
 
+void RasterizerVulkan::InvalidateTextureDataCache() {
+    texture_cache.InvalidateContents();
+}
+
+void RasterizerVulkan::InvalidateSamplerDescriptorTable() {
+    texture_cache.InvalidateSamplerDescriptorTable();
+}
+
+void RasterizerVulkan::InvalidateImageDescriptorTable() {
+    texture_cache.InvalidateImageDescriptorTable();
+}
+
 void RasterizerVulkan::FlushCommands() {
     if (draw_counter > 0) {
         draw_counter = 0;
@@ -717,7 +706,7 @@ void RasterizerVulkan::TickFrame() {
 bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
                                              const Tegra::Engines::Fermi2D::Regs::Surface& dst,
                                              const Tegra::Engines::Fermi2D::Config& copy_config) {
-    texture_cache.DoFermiCopy(src, dst, copy_config);
+    // texture_cache.DoFermiCopy(src, dst, copy_config);
     return true;
 }
 
@@ -727,20 +716,15 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
         return false;
     }
 
-    const auto surface{texture_cache.TryFindFramebufferSurface(framebuffer_addr)};
-    if (!surface) {
+    ImageView* const image_view = texture_cache.TryFindFramebufferImageView(framebuffer_addr);
+    if (!image_view) {
         return false;
     }
 
-    // Verify that the cached surface is the same size and format as the requested framebuffer
-    const auto& params{surface->GetSurfaceParams()};
-    ASSERT_MSG(params.width == config.width, "Framebuffer width is different");
-    ASSERT_MSG(params.height == config.height, "Framebuffer height is different");
-
-    screen_info.image = &surface->GetImage();
-    screen_info.width = params.width;
-    screen_info.height = params.height;
-    screen_info.is_srgb = surface->GetSurfaceParams().srgb_conversion;
+    screen_info.image_view = image_view->Handle();
+    screen_info.width = image_view->size.width;
+    screen_info.height = image_view->size.height;
+    screen_info.is_srgb = VideoCore::Surface::IsPixelFormatSRGB(image_view->format);
     return true;
 }
 
@@ -763,103 +747,6 @@ void RasterizerVulkan::FlushWork() {
     // This submits commands to the Vulkan driver.
     scheduler.Flush();
     draw_counter = 0;
-}
-
-RasterizerVulkan::Texceptions RasterizerVulkan::UpdateAttachments(bool is_clear) {
-    MICROPROFILE_SCOPE(Vulkan_RenderTargets);
-
-    const auto& regs = maxwell3d.regs;
-    auto& dirty = maxwell3d.dirty.flags;
-    const bool update_rendertargets = dirty[VideoCommon::Dirty::RenderTargets];
-    dirty[VideoCommon::Dirty::RenderTargets] = false;
-
-    texture_cache.GuardRenderTargets(true);
-
-    Texceptions texceptions;
-    for (std::size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
-        if (update_rendertargets) {
-            const bool preserve_contents = HasToPreserveColorContents(is_clear, regs);
-            color_attachments[rt] = texture_cache.GetColorBufferSurface(rt, preserve_contents);
-        }
-        if (color_attachments[rt] && WalkAttachmentOverlaps(*color_attachments[rt])) {
-            texceptions[rt] = true;
-        }
-    }
-
-    if (update_rendertargets) {
-        const bool preserve_contents = HasToPreserveDepthContents(is_clear, regs);
-        zeta_attachment = texture_cache.GetDepthBufferSurface(preserve_contents);
-    }
-    if (zeta_attachment && WalkAttachmentOverlaps(*zeta_attachment)) {
-        texceptions[ZETA_TEXCEPTION_INDEX] = true;
-    }
-
-    texture_cache.GuardRenderTargets(false);
-
-    return texceptions;
-}
-
-bool RasterizerVulkan::WalkAttachmentOverlaps(const CachedSurfaceView& attachment) {
-    bool overlap = false;
-    for (auto& [view, layout] : sampled_views) {
-        if (!attachment.IsSameSurface(*view)) {
-            continue;
-        }
-        overlap = true;
-        *layout = VK_IMAGE_LAYOUT_GENERAL;
-    }
-    return overlap;
-}
-
-std::tuple<VkFramebuffer, VkExtent2D> RasterizerVulkan::ConfigureFramebuffers(
-    VkRenderPass renderpass) {
-    FramebufferCacheKey key{
-        .renderpass = renderpass,
-        .width = std::numeric_limits<u32>::max(),
-        .height = std::numeric_limits<u32>::max(),
-        .layers = std::numeric_limits<u32>::max(),
-        .views = {},
-    };
-
-    const auto try_push = [&key](const View& view) {
-        if (!view) {
-            return false;
-        }
-        key.views.push_back(view->GetAttachment());
-        key.width = std::min(key.width, view->GetWidth());
-        key.height = std::min(key.height, view->GetHeight());
-        key.layers = std::min(key.layers, view->GetNumLayers());
-        return true;
-    };
-
-    const auto& regs = maxwell3d.regs;
-    const std::size_t num_attachments = static_cast<std::size_t>(regs.rt_control.count);
-    for (std::size_t index = 0; index < num_attachments; ++index) {
-        if (try_push(color_attachments[index])) {
-            texture_cache.MarkColorBufferInUse(index);
-        }
-    }
-    if (try_push(zeta_attachment)) {
-        texture_cache.MarkDepthBufferInUse();
-    }
-
-    const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(key);
-    auto& framebuffer = fbentry->second;
-    if (is_cache_miss) {
-        framebuffer = device.GetLogical().CreateFramebuffer({
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .renderPass = key.renderpass,
-            .attachmentCount = static_cast<u32>(key.views.size()),
-            .pAttachments = key.views.data(),
-            .width = key.width,
-            .height = key.height,
-            .layers = key.layers,
-        });
-    }
-
-    return {*framebuffer, VkExtent2D{key.width, key.height}};
 }
 
 RasterizerVulkan::DrawParameters RasterizerVulkan::SetupGeometry(FixedPipelineState& fixed_state,
@@ -885,8 +772,6 @@ RasterizerVulkan::DrawParameters RasterizerVulkan::SetupGeometry(FixedPipelineSt
 
 void RasterizerVulkan::SetupShaderDescriptors(
     const std::array<Shader*, Maxwell::MaxShaderProgram>& shaders) {
-    texture_cache.GuardSamplers(true);
-
     for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
         // Skip VertexA stage
         Shader* const shader = shaders[stage + 1];
@@ -900,36 +785,6 @@ void RasterizerVulkan::SetupShaderDescriptors(
         SetupGraphicsTextures(entries, stage);
         SetupGraphicsStorageTexels(entries, stage);
         SetupGraphicsImages(entries, stage);
-    }
-    texture_cache.GuardSamplers(false);
-}
-
-void RasterizerVulkan::SetupImageTransitions(
-    Texceptions texceptions, const std::array<View, Maxwell::NumRenderTargets>& color_attachments,
-    const View& zeta_attachment) {
-    TransitionImages(sampled_views, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_ACCESS_SHADER_READ_BIT);
-    TransitionImages(image_views, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-                     VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
-
-    for (std::size_t rt = 0; rt < std::size(color_attachments); ++rt) {
-        const auto color_attachment = color_attachments[rt];
-        if (color_attachment == nullptr) {
-            continue;
-        }
-        const auto image_layout =
-            texceptions[rt] ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachment->Transition(image_layout, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                     VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-    }
-
-    if (zeta_attachment != nullptr) {
-        const auto image_layout = texceptions[ZETA_TEXCEPTION_INDEX]
-                                      ? VK_IMAGE_LAYOUT_GENERAL
-                                      : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        zeta_attachment->Transition(image_layout, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-                                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     }
 }
 
@@ -1092,17 +947,20 @@ void RasterizerVulkan::SetupGraphicsGlobalBuffers(const ShaderEntries& entries, 
 void RasterizerVulkan::SetupGraphicsUniformTexels(const ShaderEntries& entries, std::size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     for (const auto& entry : entries.uniform_texels) {
-        const auto image = GetTextureInfo(maxwell3d, entry, stage).tic;
-        SetupUniformTexels(image, entry);
+        const TextureHandle handle = GetTextureInfo(maxwell3d, entry, stage);
+        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
+        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
     }
 }
 
 void RasterizerVulkan::SetupGraphicsTextures(const ShaderEntries& entries, std::size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     for (const auto& entry : entries.samplers) {
-        for (std::size_t i = 0; i < entry.size; ++i) {
-            const auto texture = GetTextureInfo(maxwell3d, entry, stage, i);
-            SetupTexture(texture, entry);
+        for (std::size_t index = 0; index < entry.size; ++index) {
+            const TextureHandle handle = GetTextureInfo(maxwell3d, entry, stage, index);
+            ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
+            Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.tsc_id);
+            SetupTexture(image_view, sampler);
         }
     }
 }
@@ -1110,16 +968,18 @@ void RasterizerVulkan::SetupGraphicsTextures(const ShaderEntries& entries, std::
 void RasterizerVulkan::SetupGraphicsStorageTexels(const ShaderEntries& entries, std::size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     for (const auto& entry : entries.storage_texels) {
-        const auto image = GetTextureInfo(maxwell3d, entry, stage).tic;
-        SetupStorageTexel(image, entry);
+        const TextureHandle handle = GetTextureInfo(maxwell3d, entry, stage);
+        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
+        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
     }
 }
 
 void RasterizerVulkan::SetupGraphicsImages(const ShaderEntries& entries, std::size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Images);
     for (const auto& entry : entries.images) {
-        const auto tic = GetTextureInfo(maxwell3d, entry, stage).tic;
-        SetupImage(tic, entry);
+        const TextureHandle handle = GetTextureInfo(maxwell3d, entry, stage);
+        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
+        SetupImage(image_view, entry);
     }
 }
 
@@ -1149,17 +1009,21 @@ void RasterizerVulkan::SetupComputeGlobalBuffers(const ShaderEntries& entries) {
 void RasterizerVulkan::SetupComputeUniformTexels(const ShaderEntries& entries) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     for (const auto& entry : entries.uniform_texels) {
-        const auto image = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex).tic;
-        SetupUniformTexels(image, entry);
+        const TextureHandle handle = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex);
+        ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
+        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
     }
 }
 
 void RasterizerVulkan::SetupComputeTextures(const ShaderEntries& entries) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     for (const auto& entry : entries.samplers) {
-        for (std::size_t i = 0; i < entry.size; ++i) {
-            const auto texture = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex, i);
-            SetupTexture(texture, entry);
+        for (std::size_t index = 0; index < entry.size; ++index) {
+            const TextureHandle handle =
+                GetTextureInfo(kepler_compute, entry, ComputeShaderIndex, index);
+            ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
+            Sampler* const sampler = texture_cache.GetComputeSampler(handle.tsc_id);
+            SetupTexture(image_view, sampler);
         }
     }
 }
@@ -1167,16 +1031,18 @@ void RasterizerVulkan::SetupComputeTextures(const ShaderEntries& entries) {
 void RasterizerVulkan::SetupComputeStorageTexels(const ShaderEntries& entries) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     for (const auto& entry : entries.storage_texels) {
-        const auto image = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex).tic;
-        SetupStorageTexel(image, entry);
+        const TextureHandle handle = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex);
+        ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
+        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
     }
 }
 
 void RasterizerVulkan::SetupComputeImages(const ShaderEntries& entries) {
     MICROPROFILE_SCOPE(Vulkan_Images);
     for (const auto& entry : entries.images) {
-        const auto tic = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex).tic;
-        SetupImage(tic, entry);
+        const TextureHandle handle = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex);
+        ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
+        SetupImage(image_view, entry);
     }
 }
 
@@ -1218,53 +1084,16 @@ void RasterizerVulkan::SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAdd
     update_descriptor_queue.AddBuffer(info.handle, info.offset, size);
 }
 
-void RasterizerVulkan::SetupUniformTexels(const Tegra::Texture::TICEntry& tic,
-                                          const UniformTexelEntry& entry) {
-    const auto view = texture_cache.GetTextureSurface(tic, entry);
-    ASSERT(view->IsBufferView());
-
-    update_descriptor_queue.AddTexelBuffer(view->GetBufferView());
+void RasterizerVulkan::SetupTexture(ImageView* image_view, Sampler* sampler) {
+    update_descriptor_queue.AddSampledImage(image_view->Handle(), sampler->Handle());
 }
 
-void RasterizerVulkan::SetupTexture(const Tegra::Texture::FullTextureInfo& texture,
-                                    const SamplerEntry& entry) {
-    auto view = texture_cache.GetTextureSurface(texture.tic, entry);
-    ASSERT(!view->IsBufferView());
-
-    const VkImageView image_view = view->GetImageView(texture.tic.x_source, texture.tic.y_source,
-                                                      texture.tic.z_source, texture.tic.w_source);
-    const auto sampler = sampler_cache.GetSampler(texture.tsc);
-    update_descriptor_queue.AddSampledImage(sampler, image_view);
-
-    VkImageLayout* const image_layout = update_descriptor_queue.LastImageLayout();
-    *image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    sampled_views.push_back(ImageView{std::move(view), image_layout});
-}
-
-void RasterizerVulkan::SetupStorageTexel(const Tegra::Texture::TICEntry& tic,
-                                         const StorageTexelEntry& entry) {
-    const auto view = texture_cache.GetImageSurface(tic, entry);
-    ASSERT(view->IsBufferView());
-
-    update_descriptor_queue.AddTexelBuffer(view->GetBufferView());
-}
-
-void RasterizerVulkan::SetupImage(const Tegra::Texture::TICEntry& tic, const ImageEntry& entry) {
-    auto view = texture_cache.GetImageSurface(tic, entry);
-
+void RasterizerVulkan::SetupImage(ImageView* image_view, const ImageEntry& entry) {
     if (entry.is_written) {
-        view->MarkAsModified(texture_cache.Tick());
+        UNREACHABLE();
+        // image_view->image->flags |= VideoCommon::ImageFlagBits::GpuModified;
     }
-
-    UNIMPLEMENTED_IF(tic.IsBuffer());
-
-    const VkImageView image_view =
-        view->GetImageView(tic.x_source, tic.y_source, tic.z_source, tic.w_source);
-    update_descriptor_queue.AddImage(image_view);
-
-    VkImageLayout* const image_layout = update_descriptor_queue.LastImageLayout();
-    *image_layout = VK_IMAGE_LAYOUT_GENERAL;
-    image_views.push_back(ImageView{std::move(view), image_layout});
+    update_descriptor_queue.AddImage(image_view->Handle());
 }
 
 void RasterizerVulkan::UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs) {
@@ -1501,32 +1330,6 @@ std::size_t RasterizerVulkan::CalculateConstBufferSize(
         // Buffer is accessed directly, upload just what we use
         return entry.GetSize();
     }
-}
-
-RenderPassParams RasterizerVulkan::GetRenderPassParams(Texceptions texceptions) const {
-    const auto& regs = maxwell3d.regs;
-    const std::size_t num_attachments = static_cast<std::size_t>(regs.rt_control.count);
-
-    RenderPassParams params;
-    params.color_formats = {};
-    std::size_t color_texceptions = 0;
-
-    std::size_t index = 0;
-    for (std::size_t rt = 0; rt < num_attachments; ++rt) {
-        const auto& rendertarget = regs.rt[rt];
-        if (rendertarget.Address() == 0 || rendertarget.format == Tegra::RenderTargetFormat::NONE) {
-            continue;
-        }
-        params.color_formats[index] = static_cast<u8>(rendertarget.format);
-        color_texceptions |= (texceptions[rt] ? 1ULL : 0ULL) << index;
-        ++index;
-    }
-    params.num_color_attachments = static_cast<u8>(index);
-    params.texceptions = static_cast<u8>(color_texceptions);
-
-    params.zeta_format = regs.zeta_enable ? static_cast<u8>(regs.zeta.format) : 0;
-    params.zeta_texception = texceptions[ZETA_TEXCEPTION_INDEX];
-    return params;
 }
 
 VkBuffer RasterizerVulkan::DefaultBuffer() {

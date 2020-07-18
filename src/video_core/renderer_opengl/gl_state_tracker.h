@@ -92,6 +92,8 @@ class StateTracker {
 public:
     explicit StateTracker(Tegra::GPU& gpu);
 
+    void InvalidateStreamBuffer();
+
     void BindIndexBuffer(GLuint new_index_buffer) {
         if (index_buffer == new_index_buffer) {
             return;

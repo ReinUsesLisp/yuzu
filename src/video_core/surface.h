@@ -120,7 +120,7 @@ enum class PixelFormat {
     Max = MaxDepthStencilFormat,
     Invalid = 255,
 };
-static constexpr std::size_t MaxPixelFormat = static_cast<std::size_t>(PixelFormat::Max);
+constexpr std::size_t MaxPixelFormat = static_cast<std::size_t>(PixelFormat::Max);
 
 enum class SurfaceType {
     ColorTexture = 0,
@@ -140,7 +140,7 @@ enum class SurfaceTarget {
     TextureCubeArray,
 };
 
-constexpr std::array<u32, MaxPixelFormat> compression_factor_shift_table = {{
+constexpr std::array<u32, MaxPixelFormat> COMPRESSION_FACTOR_SHIFT_TABLE = {{
     0, // A8B8G8R8_UNORM
     0, // A8B8G8R8_SNORM
     0, // A8B8G8R8_SINT
@@ -240,17 +240,17 @@ constexpr std::array<u32, MaxPixelFormat> compression_factor_shift_table = {{
  * compressed image. This is used for maintaining proper surface sizes for compressed
  * texture formats.
  */
-inline constexpr u32 GetCompressionFactorShift(PixelFormat format) {
+constexpr u32 CompressionFactorShift(PixelFormat format) {
     DEBUG_ASSERT(format != PixelFormat::Invalid);
-    DEBUG_ASSERT(static_cast<std::size_t>(format) < compression_factor_shift_table.size());
-    return compression_factor_shift_table[static_cast<std::size_t>(format)];
+    DEBUG_ASSERT(static_cast<std::size_t>(format) < COMPRESSION_FACTOR_SHIFT_TABLE.size());
+    return COMPRESSION_FACTOR_SHIFT_TABLE[static_cast<std::size_t>(format)];
 }
 
-inline constexpr u32 GetCompressionFactor(PixelFormat format) {
-    return 1U << GetCompressionFactorShift(format);
+constexpr u32 CompressionFactor(PixelFormat format) {
+    return 1U << CompressionFactorShift(format);
 }
 
-constexpr std::array<u32, MaxPixelFormat> block_width_table = {{
+constexpr std::array<u32, MaxPixelFormat> BLOCK_WIDTH_TABLE = {{
     1,  // A8B8G8R8_UNORM
     1,  // A8B8G8R8_SNORM
     1,  // A8B8G8R8_SINT
@@ -344,15 +344,15 @@ constexpr std::array<u32, MaxPixelFormat> block_width_table = {{
     1,  // D32_FLOAT_S8_UINT
 }};
 
-static constexpr u32 GetDefaultBlockWidth(PixelFormat format) {
+constexpr u32 DefaultBlockWidth(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
-    ASSERT(static_cast<std::size_t>(format) < block_width_table.size());
-    return block_width_table[static_cast<std::size_t>(format)];
+    ASSERT(static_cast<std::size_t>(format) < BLOCK_WIDTH_TABLE.size());
+    return BLOCK_WIDTH_TABLE[static_cast<std::size_t>(format)];
 }
 
-constexpr std::array<u32, MaxPixelFormat> block_height_table = {{
+constexpr std::array<u32, MaxPixelFormat> BLOCK_HEIGHT_TABLE = {{
     1,  // A8B8G8R8_UNORM
     1,  // A8B8G8R8_SNORM
     1,  // A8B8G8R8_SINT
@@ -446,15 +446,15 @@ constexpr std::array<u32, MaxPixelFormat> block_height_table = {{
     1,  // D32_FLOAT_S8_UINT
 }};
 
-static constexpr u32 GetDefaultBlockHeight(PixelFormat format) {
+constexpr u32 DefaultBlockHeight(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
-    ASSERT(static_cast<std::size_t>(format) < block_height_table.size());
-    return block_height_table[static_cast<std::size_t>(format)];
+    ASSERT(static_cast<std::size_t>(format) < BLOCK_HEIGHT_TABLE.size());
+    return BLOCK_HEIGHT_TABLE[static_cast<std::size_t>(format)];
 }
 
-constexpr std::array<u32, MaxPixelFormat> bpp_table = {{
+constexpr std::array<u32, MaxPixelFormat> BITS_PER_BLOCK_TABLE = {{
     32,  // A8B8G8R8_UNORM
     32,  // A8B8G8R8_SNORM
     32,  // A8B8G8R8_SINT
@@ -548,20 +548,20 @@ constexpr std::array<u32, MaxPixelFormat> bpp_table = {{
     64,  // D32_FLOAT_S8_UINT
 }};
 
-static constexpr u32 GetFormatBpp(PixelFormat format) {
+constexpr u32 BitsPerBlock(PixelFormat format) {
     if (format == PixelFormat::Invalid)
         return 0;
 
-    ASSERT(static_cast<std::size_t>(format) < bpp_table.size());
-    return bpp_table[static_cast<std::size_t>(format)];
+    ASSERT(static_cast<std::size_t>(format) < BITS_PER_BLOCK_TABLE.size());
+    return BITS_PER_BLOCK_TABLE[static_cast<std::size_t>(format)];
 }
 
 /// Returns the sizer in bytes of the specified pixel format
-static constexpr u32 GetBytesPerPixel(PixelFormat pixel_format) {
+constexpr u32 BytesPerBlock(PixelFormat pixel_format) {
     if (pixel_format == PixelFormat::Invalid) {
         return 0;
     }
-    return GetFormatBpp(pixel_format) / CHAR_BIT;
+    return BitsPerBlock(pixel_format) / CHAR_BIT;
 }
 
 SurfaceTarget SurfaceTargetFromTextureType(Tegra::Texture::TextureType texture_type);

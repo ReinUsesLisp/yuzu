@@ -50,6 +50,8 @@ constexpr std::array REQUIRED_EXTENSIONS{
     VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME,
     VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME,
     VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME,
+    VK_EXT_ROBUSTNESS_2_EXTENSION_NAME,
+    VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME,
 };
 
 template <typename T>
@@ -269,6 +271,15 @@ bool VKDevice::Create() {
         .inheritedQueries = false,
     };
 
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT,
+        .pNext = nullptr,
+        .robustBufferAccess2 = false,
+        .robustImageAccess2 = false,
+        .nullDescriptor = true,
+    };
+    SetNext(next, robustness2);
+
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR,
         .pNext = nullptr,
@@ -369,6 +380,7 @@ bool VKDevice::Create() {
     }
 
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynamic_state;
+    ext_extended_dynamic_state = false; // FIXME
     if (ext_extended_dynamic_state) {
         dynamic_state = {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,

@@ -243,10 +243,16 @@ FormatInfo SurfaceFormat(const VKDevice& device, FormatType format_type, PixelFo
     const bool storage = tuple.usage & Storage;
 
     VkFormatFeatureFlags usage;
-    if (format_type == FormatType::Buffer) {
+    switch (format_type) {
+    case FormatType::Buffer:
         usage =
             VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT;
-    } else {
+        break;
+    case FormatType::Linear:
+        usage = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+                VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+        break;
+    case FormatType::Optimal:
         usage = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
                 VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
         if (attachable) {
@@ -256,6 +262,7 @@ FormatInfo SurfaceFormat(const VKDevice& device, FormatType format_type, PixelFo
         if (storage) {
             usage |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
         }
+        break;
     }
     return {device.GetSupportedFormat(tuple.format, usage, format_type), attachable, storage};
 }
@@ -725,6 +732,19 @@ VkViewportCoordinateSwizzleNV ViewportSwizzle(Maxwell::ViewportSwizzle swizzle) 
     }
     UNREACHABLE_MSG("Invalid swizzle={}", static_cast<int>(swizzle));
     return {};
+}
+
+VkSamplerReductionMode SamplerReduction(Tegra::Texture::SamplerReduction reduction) {
+    switch (reduction) {
+    case Tegra::Texture::SamplerReduction::WeightedAverage:
+        return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
+    case Tegra::Texture::SamplerReduction::Min:
+        return VK_SAMPLER_REDUCTION_MODE_MIN_EXT;
+    case Tegra::Texture::SamplerReduction::Max:
+        return VK_SAMPLER_REDUCTION_MODE_MAX_EXT;
+    }
+    UNREACHABLE_MSG("Invalid sampler mode={}", static_cast<int>(reduction));
+    return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
 }
 
 } // namespace Vulkan::MaxwellToVK

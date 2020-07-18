@@ -21,7 +21,6 @@
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_blit_screen.h"
 #include "video_core/renderer_vulkan/vk_device.h"
-#include "video_core/renderer_vulkan/vk_image.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -175,7 +174,7 @@ constexpr std::array<f32, 4 * 4> MakeOrthographicMatrix(f32 width, f32 height) {
 
 std::size_t GetBytesPerPixel(const Tegra::FramebufferConfig& framebuffer) {
     using namespace VideoCore::Surface;
-    return GetBytesPerPixel(PixelFormatFromGPUPixelFormat(framebuffer.pixel_format));
+    return BytesPerBlock(PixelFormatFromGPUPixelFormat(framebuffer.pixel_format));
 }
 
 std::size_t GetSizeInBytes(const Tegra::FramebufferConfig& framebuffer) {
@@ -239,16 +238,15 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
     scheduler.Wait(resource_ticks[image_index]);
     resource_ticks[image_index] = scheduler.CurrentTick();
 
-    VKImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
-
-    UpdateDescriptorSet(image_index, blit_image->GetPresentView());
+    UpdateDescriptorSet(image_index,
+                        use_accelerated ? screen_info.image_view : *raw_image_views[image_index]);
 
     BufferData data;
     SetUniformData(data, framebuffer);
     SetVertexData(data, framebuffer);
 
     auto map = buffer_commit->Map();
-    std::memcpy(map.GetAddress(), &data, sizeof(data));
+    std::memcpy(map.Address(), &data, sizeof(data));
 
     if (!use_accelerated) {
         const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
@@ -261,12 +259,12 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
 
         // TODO(Rodrigo): Read this from HLE
         constexpr u32 block_height_log2 = 4;
+        UNREACHABLE();
+        /*
         VideoCore::MortonSwizzle(VideoCore::MortonSwizzleMode::MortonToLinear, pixel_format,
                                  framebuffer.stride, block_height_log2, framebuffer.height, 0, 1, 1,
                                  map.GetAddress() + image_offset, host_ptr);
-
-        blit_image->Transition(0, 1, 0, 1, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                               VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        */
 
         const VkBufferImageCopy copy{
             .bufferOffset = image_offset,
@@ -288,14 +286,11 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
                 },
         };
         scheduler.Record(
-            [buffer = *buffer, image = *blit_image->GetHandle(), copy](vk::CommandBuffer cmdbuf) {
-                cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copy);
+            [buffer = *buffer, image = *raw_images[image_index], copy](vk::CommandBuffer cmdbuf) {
+                cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_GENERAL, copy);
             });
     }
     map.Release();
-
-    blit_image->Transition(0, 1, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                           VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     scheduler.Record([renderpass = *renderpass, framebuffer = *framebuffers[image_index],
                       descriptor_set = descriptor_sets[image_index], buffer = *buffer,
@@ -420,7 +415,7 @@ void VKBlitScreen::CreateRenderPass() {
 
     const VkAttachmentReference color_attachment_ref{
         .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .layout = VK_IMAGE_LAYOUT_GENERAL,
     };
 
     const VkSubpassDescription subpass_description{
@@ -760,9 +755,9 @@ void VKBlitScreen::CreateRawImages(const Tegra::FramebufferConfig& framebuffer) 
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
 
-    for (std::size_t i = 0; i < image_count; ++i) {
-        raw_images[i] = std::make_unique<VKImage>(device, scheduler, ci, VK_IMAGE_ASPECT_COLOR_BIT);
-        raw_buffer_commits[i] = memory_manager.Commit(raw_images[i]->GetHandle(), false);
+    for (size_t i = 0; i < image_count; ++i) {
+        raw_images[i] = device.GetLogical().CreateImage(ci);
+        raw_buffer_commits[i] = memory_manager.Commit(raw_images[i], false);
     }
 }
 
@@ -789,7 +784,7 @@ void VKBlitScreen::UpdateDescriptorSet(std::size_t image_index, VkImageView imag
     const VkDescriptorImageInfo image_info{
         .sampler = *sampler,
         .imageView = image_view,
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
     };
 
     const VkWriteDescriptorSet sampler_write{

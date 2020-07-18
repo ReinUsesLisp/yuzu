@@ -16,6 +16,7 @@
 
 namespace Tegra::Texture {
 
+using VideoCore::Surface::BytesPerBlock;
 using VideoCore::Surface::PixelFormat;
 
 template <bool reverse>
@@ -34,8 +35,7 @@ void SwapS8Z24ToZ24S8(u8* data, u32 width, u32 height) {
 
     S8Z24 s8z24_pixel{};
     Z24S8 z24s8_pixel{};
-    constexpr auto bpp{
-        VideoCore::Surface::GetBytesPerPixel(VideoCore::Surface::PixelFormat::S8_UINT_D24_UNORM)};
+    static constexpr u32 bpp{BytesPerBlock(PixelFormat::S8_UINT_D24_UNORM)};
     for (std::size_t y = 0; y < height; ++y) {
         for (std::size_t x = 0; x < width; ++x) {
             const std::size_t offset{bpp * (y * width + x)};

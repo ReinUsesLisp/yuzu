@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/cityhash.h"
 #include "common/microprofile.h"
 #include "core/core.h"
 #include "core/memory.h"
@@ -21,7 +22,6 @@
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
-#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/renderer_vulkan/wrapper.h"
@@ -149,12 +149,11 @@ VKPipelineCache::VKPipelineCache(RasterizerVulkan& rasterizer, Tegra::GPU& gpu_,
                                  Tegra::Engines::KeplerCompute& kepler_compute_,
                                  Tegra::MemoryManager& gpu_memory_, const VKDevice& device_,
                                  VKScheduler& scheduler_, VKDescriptorPool& descriptor_pool_,
-                                 VKUpdateDescriptorQueue& update_descriptor_queue_,
-                                 VKRenderPassCache& renderpass_cache_)
+                                 VKUpdateDescriptorQueue& update_descriptor_queue_)
     : VideoCommon::ShaderCache<Shader>{rasterizer}, gpu{gpu_}, maxwell3d{maxwell3d_},
       kepler_compute{kepler_compute_}, gpu_memory{gpu_memory_}, device{device_},
-      scheduler{scheduler_}, descriptor_pool{descriptor_pool_},
-      update_descriptor_queue{update_descriptor_queue_}, renderpass_cache{renderpass_cache_} {}
+      scheduler{scheduler_}, descriptor_pool{descriptor_pool_}, update_descriptor_queue{
+                                                                    update_descriptor_queue_} {}
 
 VKPipelineCache::~VKPipelineCache() = default;
 
@@ -215,8 +214,7 @@ VKGraphicsPipeline* VKPipelineCache::GetGraphicsPipeline(
             LOG_INFO(Render_Vulkan, "Compile 0x{:016X}", key.Hash());
             const auto [program, bindings] = DecompileShaders(key.fixed_state);
             async_shaders.QueueVulkanShader(this, device, scheduler, descriptor_pool,
-                                            update_descriptor_queue, renderpass_cache, bindings,
-                                            program, key);
+                                            update_descriptor_queue, bindings, program, key);
         }
         last_graphics_pipeline = pair->second.get();
         return last_graphics_pipeline;
@@ -228,9 +226,8 @@ VKGraphicsPipeline* VKPipelineCache::GetGraphicsPipeline(
         gpu.ShaderNotify().MarkSharderBuilding();
         LOG_INFO(Render_Vulkan, "Compile 0x{:016X}", key.Hash());
         const auto [program, bindings] = DecompileShaders(key.fixed_state);
-        entry = std::make_unique<VKGraphicsPipeline>(device, scheduler, descriptor_pool,
-                                                     update_descriptor_queue, renderpass_cache, key,
-                                                     bindings, program);
+        entry = std::make_unique<VKGraphicsPipeline>(
+            device, scheduler, descriptor_pool, update_descriptor_queue, key, bindings, program);
         gpu.ShaderNotify().MarkShaderComplete();
     }
     last_graphics_pipeline = entry.get();

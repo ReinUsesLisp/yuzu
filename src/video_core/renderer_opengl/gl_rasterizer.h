@@ -23,14 +23,13 @@
 #include "video_core/renderer_opengl/gl_buffer_cache.h"
 #include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_fence_manager.h"
-#include "video_core/renderer_opengl/gl_framebuffer_cache.h"
 #include "video_core/renderer_opengl/gl_query_cache.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
-#include "video_core/renderer_opengl/gl_sampler_cache.h"
 #include "video_core/renderer_opengl/gl_shader_cache.h"
 #include "video_core/renderer_opengl/gl_shader_decompiler.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
 #include "video_core/renderer_opengl/gl_state_tracker.h"
+#include "video_core/renderer_opengl/gl_stream_buffer.h"
 #include "video_core/renderer_opengl/gl_texture_cache.h"
 #include "video_core/renderer_opengl/utils.h"
 #include "video_core/shader/async_shaders.h"
@@ -79,11 +78,15 @@ public:
     void InvalidateRegion(VAddr addr, u64 size) override;
     void OnCPUWrite(VAddr addr, u64 size) override;
     void SyncGuestHost() override;
+    void UnmapMemory(VAddr addr, u64 size) override;
     void SignalSemaphore(GPUVAddr addr, u32 value) override;
     void SignalSyncPoint(u32 value) override;
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
+    void InvalidateTextureDataCache() override;
+    void InvalidateSamplerDescriptorTable() override;
+    void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;
     void TickFrame() override;
     bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
@@ -108,12 +111,6 @@ public:
     }
 
 private:
-    /// Configures the color and depth framebuffer states.
-    void ConfigureFramebuffers();
-
-    /// Configures the color and depth framebuffer for clearing.
-    void ConfigureClearFramebuffer(bool using_color, bool using_depth_stencil);
-
     /// Configures the current constbuffers to use for the draw command.
     void SetupDrawConstBuffers(std::size_t stage_index, Shader* shader);
 
@@ -141,18 +138,11 @@ private:
     /// Configures the textures used in a compute shader.
     void SetupComputeTextures(Shader* kernel);
 
-    /// Configures a texture.
-    void SetupTexture(u32 binding, const Tegra::Texture::FullTextureInfo& texture,
-                      const SamplerEntry& entry);
-
     /// Configures images in a graphics shader.
     void SetupDrawImages(std::size_t stage_index, Shader* shader);
 
     /// Configures images in a compute shader.
     void SetupComputeImages(Shader* shader);
-
-    /// Configures an image.
-    void SetupImage(u32 binding, const Tegra::Texture::TICEntry& tic, const ImageEntry& entry);
 
     /// Syncs the viewport and depth range to match the guest state
     void SyncViewport();
@@ -242,7 +232,7 @@ private:
 
     GLintptr SetupIndexBuffer();
 
-    void SetupShaders(GLenum primitive_mode);
+    void SetupShaders();
 
     Tegra::GPU& gpu;
     Tegra::Engines::Maxwell3D& maxwell3d;
@@ -254,10 +244,10 @@ private:
     ProgramManager& program_manager;
     StateTracker& state_tracker;
 
-    TextureCacheOpenGL texture_cache;
+    OGLStreamBuffer stream_buffer;
+    TextureCacheRuntime texture_cache_runtime;
+    TextureCache texture_cache;
     ShaderCacheOpenGL shader_cache;
-    SamplerCacheOpenGL sampler_cache;
-    FramebufferCacheOpenGL framebuffer_cache;
     QueryCache query_cache;
     OGLBufferCache buffer_cache;
     FenceManagerOpenGL fence_manager;

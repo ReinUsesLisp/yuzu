@@ -76,12 +76,24 @@ public:
     /// Sync memory between guest and host.
     virtual void SyncGuestHost() = 0;
 
+    /// Unmap memory range
+    virtual void UnmapMemory(VAddr addr, u64 size) = 0;
+
     /// Notify rasterizer that any caches of the specified region should be flushed to Switch memory
     /// and invalidated
     virtual void FlushAndInvalidateRegion(VAddr addr, u64 size) = 0;
 
     /// Notify the host renderer to wait for previous primitive and compute operations.
     virtual void WaitForIdle() = 0;
+
+    /// Notify the rasterizer to invalidate texture data cache
+    virtual void InvalidateTextureDataCache() = 0;
+
+    /// Notify the rasterizer to invalidate the sampler descriptor table
+    virtual void InvalidateSamplerDescriptorTable() = 0;
+
+    /// Notify the rasterizer to invalidate the image descriptor table
+    virtual void InvalidateImageDescriptorTable() = 0;
 
     /// Notify the rasterizer to send all written commands to the host GPU.
     virtual void FlushCommands() = 0;

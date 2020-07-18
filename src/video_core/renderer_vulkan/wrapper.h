@@ -18,6 +18,10 @@
 
 #include "common/common_types.h"
 
+#ifdef _MSC_VER
+#pragma warning(disable : 26812) // Disable prefer enum class over enum
+#endif
+
 namespace Vulkan::vk {
 
 /**
@@ -941,6 +945,23 @@ public:
                                   memory_barriers.size(), memory_barriers.data(),
                                   buffer_barriers.size(), buffer_barriers.data(),
                                   image_barriers.size(), image_barriers.data());
+    }
+
+    void PipelineBarrier(VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask,
+                         VkDependencyFlags dependency_flags = 0) const noexcept {
+        PipelineBarrier(src_stage_mask, dst_stage_mask, dependency_flags, {}, {}, {});
+    }
+
+    void PipelineBarrier(VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask,
+                         VkDependencyFlags dependency_flags,
+                         const VkBufferMemoryBarrier& buffer_barrier) const noexcept {
+        PipelineBarrier(src_stage_mask, dst_stage_mask, dependency_flags, {}, buffer_barrier, {});
+    }
+
+    void PipelineBarrier(VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask,
+                         VkDependencyFlags dependency_flags,
+                         const VkImageMemoryBarrier& image_barrier) const noexcept {
+        PipelineBarrier(src_stage_mask, dst_stage_mask, dependency_flags, {}, {}, image_barrier);
     }
 
     void CopyBufferToImage(VkBuffer src_buffer, VkImage dst_image, VkImageLayout dst_image_layout,

@@ -24,10 +24,9 @@
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_query_cache.h"
-#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
-#include "video_core/renderer_vulkan/vk_sampler_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+#include "video_core/renderer_vulkan/vk_stream_buffer.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/renderer_vulkan/wrapper.h"
@@ -98,9 +97,9 @@ namespace Vulkan {
 class StateTracker;
 class BufferBindings;
 
-struct ImageView {
-    View view;
-    VkImageLayout* layout = nullptr;
+struct Transition {
+    ImageView* view;
+    VkImageLayout* layout;
 };
 
 class RasterizerVulkan final : public VideoCore::RasterizerAccelerated {
@@ -123,11 +122,15 @@ public:
     void InvalidateRegion(VAddr addr, u64 size) override;
     void OnCPUWrite(VAddr addr, u64 size) override;
     void SyncGuestHost() override;
+    void UnmapMemory(VAddr addr, u64 size) override;
     void SignalSemaphore(GPUVAddr addr, u32 value) override;
     void SignalSyncPoint(u32 value) override;
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
+    void InvalidateTextureDataCache() override;
+    void InvalidateSamplerDescriptorTable() override;
+    void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;
     void TickFrame() override;
     bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
@@ -167,13 +170,6 @@ private:
 
     void FlushWork();
 
-    /// @brief Updates the currently bound attachments
-    /// @param is_clear True when the framebuffer is updated as a clear
-    /// @return Bitfield of attachments being used as sampled textures
-    Texceptions UpdateAttachments(bool is_clear);
-
-    std::tuple<VkFramebuffer, VkExtent2D> ConfigureFramebuffers(VkRenderPass renderpass);
-
     /// Setups geometry buffers and state.
     DrawParameters SetupGeometry(FixedPipelineState& fixed_state, BufferBindings& buffer_bindings,
                                  bool is_indexed, bool is_instanced);
@@ -181,17 +177,11 @@ private:
     /// Setup descriptors in the graphics pipeline.
     void SetupShaderDescriptors(const std::array<Shader*, Maxwell::MaxShaderProgram>& shaders);
 
-    void SetupImageTransitions(Texceptions texceptions,
-                               const std::array<View, Maxwell::NumRenderTargets>& color_attachments,
-                               const View& zeta_attachment);
-
     void UpdateDynamicStates();
 
     void BeginTransformFeedback();
 
     void EndTransformFeedback();
-
-    bool WalkAttachmentOverlaps(const CachedSurfaceView& attachment);
 
     void SetupVertexArrays(BufferBindings& buffer_bindings);
 
@@ -238,13 +228,9 @@ private:
 
     void SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAddr address);
 
-    void SetupUniformTexels(const Tegra::Texture::TICEntry& image, const UniformTexelEntry& entry);
+    void SetupTexture(ImageView* image_view, Sampler* sampler);
 
-    void SetupTexture(const Tegra::Texture::FullTextureInfo& texture, const SamplerEntry& entry);
-
-    void SetupStorageTexel(const Tegra::Texture::TICEntry& tic, const StorageTexelEntry& entry);
-
-    void SetupImage(const Tegra::Texture::TICEntry& tic, const ImageEntry& entry);
+    void SetupImage(ImageView* image_view, const ImageEntry& entry);
 
     void UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateScissorsState(Tegra::Engines::Maxwell3D::Regs& regs);
@@ -273,8 +259,6 @@ private:
     std::size_t CalculateConstBufferSize(const ConstBufferEntry& entry,
                                          const Tegra::Engines::ConstBufferInfo& buffer) const;
 
-    RenderPassParams GetRenderPassParams(Texceptions texceptions) const;
-
     VkBuffer DefaultBuffer();
 
     Tegra::GPU& gpu;
@@ -288,18 +272,18 @@ private:
     StateTracker& state_tracker;
     VKScheduler& scheduler;
 
+    VKStreamBuffer stream_buffer;
     VKStagingBufferPool staging_pool;
     VKDescriptorPool descriptor_pool;
     VKUpdateDescriptorQueue update_descriptor_queue;
-    VKRenderPassCache renderpass_cache;
     QuadArrayPass quad_array_pass;
     QuadIndexedPass quad_indexed_pass;
     Uint8Pass uint8_pass;
 
-    VKTextureCache texture_cache;
+    TextureCacheRuntime texture_cache_runtime;
+    TextureCache texture_cache;
     VKPipelineCache pipeline_cache;
     VKBufferCache buffer_cache;
-    VKSamplerCache sampler_cache;
     VKQueryCache query_cache;
     VKFenceManager fence_manager;
 
@@ -308,16 +292,7 @@ private:
     vk::Event wfi_event;
     VideoCommon::Shader::AsyncShaders async_shaders;
 
-    std::array<View, Maxwell::NumRenderTargets> color_attachments;
-    View zeta_attachment;
-
-    std::vector<ImageView> sampled_views;
-    std::vector<ImageView> image_views;
-
     u32 draw_counter = 0;
-
-    // TODO(Rodrigo): Invalidate on image destruction
-    std::unordered_map<FramebufferCacheKey, vk::Framebuffer> framebuffer_cache;
 };
 
 } // namespace Vulkan

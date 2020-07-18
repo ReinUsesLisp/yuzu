@@ -98,7 +98,6 @@ public:
                            Vulkan::VKScheduler& scheduler,
                            Vulkan::VKDescriptorPool& descriptor_pool,
                            Vulkan::VKUpdateDescriptorQueue& update_descriptor_queue,
-                           Vulkan::VKRenderPassCache& renderpass_cache,
                            std::vector<VkDescriptorSetLayoutBinding> bindings,
                            Vulkan::SPIRVProgram program, Vulkan::GraphicsPipelineCacheKey key);
 
@@ -127,7 +126,6 @@ private:
         Vulkan::VKScheduler* scheduler;
         Vulkan::VKDescriptorPool* descriptor_pool;
         Vulkan::VKUpdateDescriptorQueue* update_descriptor_queue;
-        Vulkan::VKRenderPassCache* renderpass_cache;
         std::vector<VkDescriptorSetLayoutBinding> bindings;
         Vulkan::SPIRVProgram program;
         Vulkan::GraphicsPipelineCacheKey key;

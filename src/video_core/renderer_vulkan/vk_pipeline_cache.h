@@ -19,7 +19,6 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
-#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 #include "video_core/renderer_vulkan/wrapper.h"
 #include "video_core/shader/async_shaders.h"
@@ -124,8 +123,7 @@ public:
                              Tegra::Engines::KeplerCompute& kepler_compute,
                              Tegra::MemoryManager& gpu_memory, const VKDevice& device,
                              VKScheduler& scheduler, VKDescriptorPool& descriptor_pool,
-                             VKUpdateDescriptorQueue& update_descriptor_queue,
-                             VKRenderPassCache& renderpass_cache);
+                             VKUpdateDescriptorQueue& update_descriptor_queue);
     ~VKPipelineCache() override;
 
     std::array<Shader*, Maxwell::MaxShaderProgram> GetShaders();
@@ -153,7 +151,6 @@ private:
     VKScheduler& scheduler;
     VKDescriptorPool& descriptor_pool;
     VKUpdateDescriptorQueue& update_descriptor_queue;
-    VKRenderPassCache& renderpass_cache;
 
     std::unique_ptr<Shader> null_shader;
     std::unique_ptr<Shader> null_kernel;

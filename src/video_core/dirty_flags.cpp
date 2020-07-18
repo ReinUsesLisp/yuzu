@@ -16,6 +16,9 @@ namespace VideoCommon::Dirty {
 using Tegra::Engines::Maxwell3D;
 
 void SetupDirtyRenderTargets(Tegra::Engines::Maxwell3D::DirtyState::Tables& tables) {
+    FillBlock(tables[0], OFF(tic), NUM(tic), Descriptors);
+    FillBlock(tables[0], OFF(tsc), NUM(tsc), Descriptors);
+
     static constexpr std::size_t num_per_rt = NUM(rt[0]);
     static constexpr std::size_t begin = OFF(rt);
     static constexpr std::size_t num = num_per_rt * Maxwell3D::Regs::NumRenderTargets;

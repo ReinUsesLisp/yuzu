@@ -72,7 +72,7 @@ bool InnerFence::IsEventSignalled() const {
 }
 
 VKFenceManager::VKFenceManager(VideoCore::RasterizerInterface& rasterizer, Tegra::GPU& gpu,
-                               Tegra::MemoryManager& memory_manager, VKTextureCache& texture_cache,
+                               Tegra::MemoryManager& memory_manager, TextureCache& texture_cache,
                                VKBufferCache& buffer_cache, VKQueryCache& query_cache,
                                const VKDevice& device_, VKScheduler& scheduler_)
     : GenericFenceManager(rasterizer, gpu, texture_cache, buffer_cache, query_cache),

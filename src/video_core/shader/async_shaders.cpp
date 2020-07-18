@@ -137,7 +137,6 @@ void AsyncShaders::QueueVulkanShader(Vulkan::VKPipelineCache* pp_cache,
                                      const Vulkan::VKDevice& device, Vulkan::VKScheduler& scheduler,
                                      Vulkan::VKDescriptorPool& descriptor_pool,
                                      Vulkan::VKUpdateDescriptorQueue& update_descriptor_queue,
-                                     Vulkan::VKRenderPassCache& renderpass_cache,
                                      std::vector<VkDescriptorSetLayoutBinding> bindings,
                                      Vulkan::SPIRVProgram program,
                                      Vulkan::GraphicsPipelineCacheKey key) {
@@ -149,7 +148,6 @@ void AsyncShaders::QueueVulkanShader(Vulkan::VKPipelineCache* pp_cache,
         .scheduler = &scheduler,
         .descriptor_pool = &descriptor_pool,
         .update_descriptor_queue = &update_descriptor_queue,
-        .renderpass_cache = &renderpass_cache,
         .bindings = std::move(bindings),
         .program = std::move(program),
         .key = key,
@@ -205,8 +203,7 @@ void AsyncShaders::ShaderCompilerThread(Core::Frontend::GraphicsContext* context
         } else if (work.backend == Backend::Vulkan) {
             auto pipeline = std::make_unique<Vulkan::VKGraphicsPipeline>(
                 *work.vk_device, *work.scheduler, *work.descriptor_pool,
-                *work.update_descriptor_queue, *work.renderpass_cache, work.key, work.bindings,
-                work.program);
+                *work.update_descriptor_queue, work.key, work.bindings, work.program);
 
             work.pp_cache->EmplacePipeline(std::move(pipeline));
         }

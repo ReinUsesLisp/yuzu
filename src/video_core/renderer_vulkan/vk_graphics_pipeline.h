@@ -11,7 +11,6 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
-#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 #include "video_core/renderer_vulkan/wrapper.h"
 
@@ -20,8 +19,7 @@ namespace Vulkan {
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 struct GraphicsPipelineCacheKey {
-    RenderPassParams renderpass_params;
-    u32 padding;
+    VkRenderPass renderpass;
     std::array<GPUVAddr, Maxwell::MaxShaderProgram> shaders;
     FixedPipelineState fixed_state;
 
@@ -34,7 +32,7 @@ struct GraphicsPipelineCacheKey {
     }
 
     std::size_t Size() const noexcept {
-        return sizeof(renderpass_params) + sizeof(padding) + sizeof(shaders) + fixed_state.Size();
+        return sizeof(renderpass) + sizeof(shaders) + fixed_state.Size();
     }
 };
 static_assert(std::has_unique_object_representations_v<GraphicsPipelineCacheKey>);
@@ -43,7 +41,6 @@ static_assert(std::is_trivially_constructible_v<GraphicsPipelineCacheKey>);
 
 class VKDescriptorPool;
 class VKDevice;
-class VKRenderPassCache;
 class VKScheduler;
 class VKUpdateDescriptorQueue;
 
@@ -54,7 +51,6 @@ public:
     explicit VKGraphicsPipeline(const VKDevice& device, VKScheduler& scheduler,
                                 VKDescriptorPool& descriptor_pool,
                                 VKUpdateDescriptorQueue& update_descriptor_queue,
-                                VKRenderPassCache& renderpass_cache,
                                 const GraphicsPipelineCacheKey& key,
                                 vk::Span<VkDescriptorSetLayoutBinding> bindings,
                                 const SPIRVProgram& program);
@@ -68,10 +64,6 @@ public:
 
     VkPipelineLayout GetLayout() const {
         return *layout;
-    }
-
-    VkRenderPass GetRenderPass() const {
-        return renderpass;
     }
 
     GraphicsPipelineCacheKey GetCacheKey() const {
@@ -89,8 +81,7 @@ private:
 
     std::vector<vk::ShaderModule> CreateShaderModules(const SPIRVProgram& program) const;
 
-    vk::Pipeline CreatePipeline(const RenderPassParams& renderpass_params,
-                                const SPIRVProgram& program) const;
+    vk::Pipeline CreatePipeline(const SPIRVProgram& program, VkRenderPass renderpass) const;
 
     const VKDevice& device;
     VKScheduler& scheduler;
@@ -104,7 +95,6 @@ private:
     vk::DescriptorUpdateTemplateKHR descriptor_template;
     std::vector<vk::ShaderModule> modules;
 
-    VkRenderPass renderpass;
     vk::Pipeline pipeline;
 };
 

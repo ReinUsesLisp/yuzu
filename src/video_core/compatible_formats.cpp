@@ -3,15 +3,17 @@
 // Refer to the license.txt file included.
 
 #include <array>
-#include <bitset>
 #include <cstddef>
 
+#include "common/common_types.h"
 #include "video_core/compatible_formats.h"
 #include "video_core/surface.h"
 
 namespace VideoCore::Surface {
 
 namespace {
+
+using Table = std::array<std::array<u64, 2>, MaxPixelFormat>;
 
 // Compatibility table taken from Table 3.X.2 in:
 // https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_texture_view.txt
@@ -110,32 +112,36 @@ constexpr std::array COPY_CLASS_64_BITS = {
 // COMPRESSED_RGBA_S3TC_DXT1_EXT
 // COMPRESSED_SIGNED_RED_RGTC1
 
-void Enable(FormatCompatibility::Table& compatiblity, size_t format_a, size_t format_b) {
-    compatiblity[format_a][format_b] = true;
-    compatiblity[format_b][format_a] = true;
+constexpr void Enable(Table& table, size_t format_a, size_t format_b) {
+    table[format_a][format_b / 64] |= u64(1) << (format_b % 64);
+    table[format_b][format_a / 64] |= u64(1) << (format_a % 64);
 }
 
-void Enable(FormatCompatibility::Table& compatibility, PixelFormat format_a, PixelFormat format_b) {
-    Enable(compatibility, static_cast<size_t>(format_a), static_cast<size_t>(format_b));
+constexpr void Enable(Table& table, PixelFormat format_a, PixelFormat format_b) {
+    Enable(table, static_cast<size_t>(format_a), static_cast<size_t>(format_b));
 }
 
 template <typename Range>
-void EnableRange(FormatCompatibility::Table& compatibility, const Range& range) {
+constexpr void EnableRange(Table& table, const Range& range) {
     for (auto it_a = range.begin(); it_a != range.end(); ++it_a) {
         for (auto it_b = it_a; it_b != range.end(); ++it_b) {
-            Enable(compatibility, *it_a, *it_b);
+            Enable(table, *it_a, *it_b);
         }
     }
 }
 
-} // Anonymous namespace
+constexpr bool IsSupported(const Table& table, PixelFormat format_a, PixelFormat format_b) {
+    const size_t a = static_cast<size_t>(format_a);
+    const size_t b = static_cast<size_t>(format_b);
+    return ((table[a][b / 64] >> (b % 64)) & 1) != 0;
+}
 
-FormatCompatibility::FormatCompatibility() {
+constexpr Table MakeViewTable() {
+    Table view{};
     for (size_t i = 0; i < MaxPixelFormat; ++i) {
         // Identity is allowed
         Enable(view, i, i);
     }
-
     EnableRange(view, VIEW_CLASS_128_BITS);
     EnableRange(view, VIEW_CLASS_96_BITS);
     EnableRange(view, VIEW_CLASS_64_BITS);
@@ -146,10 +152,26 @@ FormatCompatibility::FormatCompatibility() {
     EnableRange(view, VIEW_CLASS_RGTC2_RG);
     EnableRange(view, VIEW_CLASS_BPTC_UNORM);
     EnableRange(view, VIEW_CLASS_BPTC_FLOAT);
+    return view;
+}
 
-    copy = view;
+constexpr Table MakeCopyTable() {
+    Table copy = MakeViewTable();
     EnableRange(copy, COPY_CLASS_128_BITS);
     EnableRange(copy, COPY_CLASS_64_BITS);
+    return copy;
+}
+
+} // Anonymous namespace
+
+bool IsViewCompatible(PixelFormat format_a, PixelFormat format_b) {
+    static constexpr Table TABLE = MakeViewTable();
+    return IsSupported(TABLE, format_a, format_b);
+}
+
+bool IsCopyCompatible(PixelFormat format_a, PixelFormat format_b) {
+    static constexpr Table TABLE = MakeCopyTable();
+    return IsSupported(TABLE, format_a, format_b);
 }
 
 } // namespace VideoCore::Surface

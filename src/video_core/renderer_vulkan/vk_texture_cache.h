@@ -4,216 +4,191 @@
 
 #pragma once
 
-#include <memory>
-#include <unordered_map>
+#include <compare>
+#include <span>
 
-#include "common/common_types.h"
-#include "video_core/renderer_vulkan/vk_image.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
-#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/wrapper.h"
-#include "video_core/texture_cache/surface_base.h"
 #include "video_core/texture_cache/texture_cache.h"
-
-namespace VideoCore {
-class RasterizerInterface;
-}
 
 namespace Vulkan {
 
-class RasterizerVulkan;
+using Tegra::Texture::MsaaMode;
+using VideoCommon::ImageId;
+using VideoCommon::NUM_RT;
+using VideoCommon::RenderTargets;
+using VideoCore::Surface::PixelFormat;
+
 class VKDevice;
 class VKScheduler;
 class VKStagingBufferPool;
 
-class CachedSurfaceView;
-class CachedSurface;
+class Image;
+class ImageView;
 
-using Surface = std::shared_ptr<CachedSurface>;
-using View = std::shared_ptr<CachedSurfaceView>;
-using TextureCacheBase = VideoCommon::TextureCache<Surface, View>;
+struct RenderPassKey {
+    constexpr auto operator<=>(const RenderPassKey&) const noexcept = default;
 
-using VideoCommon::SurfaceParams;
-using VideoCommon::ViewParams;
+    std::array<PixelFormat, NUM_RT> color_formats;
+    PixelFormat depth_format;
+    MsaaMode samples;
+};
 
-class CachedSurface final : public VideoCommon::SurfaceBase<View> {
-    friend CachedSurfaceView;
+} // namespace Vulkan
 
+namespace std {
+template <>
+struct hash<Vulkan::RenderPassKey> {
+    constexpr size_t operator()(const Vulkan::RenderPassKey& key) const noexcept {
+        size_t hash = static_cast<size_t>(key.depth_format) << 48;
+        hash ^= static_cast<size_t>(key.samples) << 52;
+        for (size_t i = 0; i < key.color_formats.size(); ++i) {
+            hash ^= static_cast<size_t>(key.color_formats[i]) << (i * 6);
+        }
+        return hash;
+    }
+};
+} // namespace std
+
+namespace Vulkan {
+
+struct ImageBufferMap {
+    VkBuffer Handle() const noexcept {
+        return handle;
+    }
+
+    std::span<u8> Span() const noexcept {
+        return map.Span();
+    }
+
+    VkBuffer handle;
+    MemoryMap map;
+};
+
+struct TextureCacheRuntime {
+    const VKDevice& device;
+    VKScheduler& scheduler;
+    VKMemoryManager& memory_manager;
+    VKStagingBufferPool& staging_buffer_pool;
+    std::unordered_map<RenderPassKey, vk::RenderPass> renderpass_cache;
+
+    ImageBufferMap MapUploadBuffer(size_t size);
+
+    ImageBufferMap MapDownloadBuffer(size_t size) {
+        // TODO: Have a special function for this
+        return MapUploadBuffer(size);
+    }
+
+    void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
+
+    bool CanAccelerateImageUpload(Image&) const noexcept {
+        return false;
+    }
+
+    void AccelerateImageUpload(Image&, const ImageBufferMap&, size_t,
+                               std::span<const VideoCommon::SwizzleParameters>) {
+        UNREACHABLE();
+    }
+
+    void InsertUploadMemoryBarrier();
+};
+
+class Image : public VideoCommon::ImageBase {
 public:
-    explicit CachedSurface(const VKDevice& device, VKMemoryManager& memory_manager,
-                           VKScheduler& scheduler, VKStagingBufferPool& staging_pool,
-                           GPUVAddr gpu_addr, const SurfaceParams& params);
-    ~CachedSurface();
+    explicit Image(TextureCacheRuntime&, const VideoCommon::ImageInfo& info, GPUVAddr gpu_addr,
+                   VAddr cpu_addr);
 
-    void UploadTexture(const std::vector<u8>& staging_buffer) override;
-    void DownloadTexture(std::vector<u8>& staging_buffer) override;
+    void UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                      std::span<const VideoCommon::BufferImageCopy> copies);
 
-    void FullTransition(VkPipelineStageFlags new_stage_mask, VkAccessFlags new_access,
-                        VkImageLayout new_layout) {
-        image->Transition(0, static_cast<u32>(params.GetNumLayers()), 0, params.num_levels,
-                          new_stage_mask, new_access, new_layout);
+    void DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                        std::span<const VideoCommon::BufferImageCopy> copies) {
+        UNIMPLEMENTED();
     }
 
-    void Transition(u32 base_layer, u32 num_layers, u32 base_level, u32 num_levels,
-                    VkPipelineStageFlags new_stage_mask, VkAccessFlags new_access,
-                    VkImageLayout new_layout) {
-        image->Transition(base_layer, num_layers, base_level, num_levels, new_stage_mask,
-                          new_access, new_layout);
-    }
-
-    VKImage& GetImage() {
+    [[nodiscard]] VkImage Handle() const noexcept {
         return *image;
     }
 
-    const VKImage& GetImage() const {
-        return *image;
+    [[nodiscard]] VkImageCreateFlags AspectMask() const noexcept {
+        return aspect_mask;
     }
-
-    VkImage GetImageHandle() const {
-        return *image->GetHandle();
-    }
-
-    VkImageAspectFlags GetAspectMask() const {
-        return image->GetAspectMask();
-    }
-
-    VkBufferView GetBufferViewHandle() const {
-        return *buffer_view;
-    }
-
-protected:
-    void DecorateSurfaceName();
-
-    View CreateView(const ViewParams& params) override;
 
 private:
-    void UploadBuffer(const std::vector<u8>& staging_buffer);
-
-    void UploadImage(const std::vector<u8>& staging_buffer);
-
-    VkBufferImageCopy GetBufferImageCopy(u32 level) const;
-
-    VkImageSubresourceRange GetImageSubresourceRange() const;
-
-    const VKDevice& device;
-    VKMemoryManager& memory_manager;
-    VKScheduler& scheduler;
-    VKStagingBufferPool& staging_pool;
-
-    std::optional<VKImage> image;
-    vk::Buffer buffer;
-    vk::BufferView buffer_view;
+    VKScheduler* scheduler;
+    vk::Image image;
     VKMemoryCommit commit;
-
-    VkFormat format = VK_FORMAT_UNDEFINED;
+    VkImageAspectFlags aspect_mask = 0;
+    bool initialized = false;
 };
 
-class CachedSurfaceView final : public VideoCommon::ViewBase {
+class ImageView : public VideoCommon::ImageViewBase {
 public:
-    explicit CachedSurfaceView(const VKDevice& device, CachedSurface& surface,
-                               const ViewParams& params);
-    ~CachedSurfaceView();
+    explicit ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo&, ImageId, Image&);
+    explicit ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams&);
 
-    VkImageView GetImageView(Tegra::Texture::SwizzleSource x_source,
-                             Tegra::Texture::SwizzleSource y_source,
-                             Tegra::Texture::SwizzleSource z_source,
-                             Tegra::Texture::SwizzleSource w_source);
-
-    VkImageView GetAttachment();
-
-    bool IsSameSurface(const CachedSurfaceView& rhs) const {
-        return &surface == &rhs.surface;
+    VkImageView Handle() const noexcept {
+        return *image_view;
     }
 
-    u32 GetWidth() const {
-        return params.GetMipWidth(base_level);
-    }
-
-    u32 GetHeight() const {
-        return params.GetMipHeight(base_level);
-    }
-
-    u32 GetNumLayers() const {
-        return num_layers;
-    }
-
-    bool IsBufferView() const {
-        return buffer_view;
-    }
-
-    VkImage GetImage() const {
-        return image;
-    }
-
-    VkBufferView GetBufferView() const {
-        return buffer_view;
-    }
-
-    VkImageSubresourceRange GetImageSubresourceRange() const {
-        return {aspect_mask, base_level, num_levels, base_layer, num_layers};
-    }
-
-    VkImageSubresourceLayers GetImageSubresourceLayers() const {
-        return {surface.GetAspectMask(), base_level, base_layer, num_layers};
-    }
-
-    void Transition(VkImageLayout new_layout, VkPipelineStageFlags new_stage_mask,
-                    VkAccessFlags new_access) const {
-        surface.Transition(base_layer, num_layers, base_level, num_levels, new_stage_mask,
-                           new_access, new_layout);
-    }
-
-    void MarkAsModified(u64 tick) {
-        surface.MarkAsModified(true, tick);
+    VkBufferView BufferView() const noexcept {
+        UNIMPLEMENTED();
     }
 
 private:
-    // Store a copy of these values to avoid double dereference when reading them
-    const SurfaceParams params;
-    const VkImage image;
-    const VkBufferView buffer_view;
-    const VkImageAspectFlags aspect_mask;
-
-    const VKDevice& device;
-    CachedSurface& surface;
-    const u32 base_level;
-    const u32 num_levels;
-    const VkImageViewType image_view_type;
-    u32 base_layer = 0;
-    u32 num_layers = 0;
-    u32 base_slice = 0;
-    u32 num_slices = 0;
-
-    VkImageView last_image_view = nullptr;
-    u32 last_swizzle = 0;
-
-    vk::ImageView render_target;
-    std::unordered_map<u32, vk::ImageView> view_cache;
+    vk::ImageView image_view;
 };
 
-class VKTextureCache final : public TextureCacheBase {
+class ImageAlloc : public VideoCommon::ImageAllocBase {};
+
+class Sampler {
 public:
-    explicit VKTextureCache(VideoCore::RasterizerInterface& rasterizer,
-                            Tegra::Engines::Maxwell3D& maxwell3d, Tegra::MemoryManager& gpu_memory,
-                            const VKDevice& device, VKMemoryManager& memory_manager,
-                            VKScheduler& scheduler, VKStagingBufferPool& staging_pool);
-    ~VKTextureCache();
+    explicit Sampler(TextureCacheRuntime&, const Tegra::Texture::TSCEntry&);
+
+    VkSampler Handle() const noexcept {
+        return *sampler;
+    }
 
 private:
-    Surface CreateSurface(GPUVAddr gpu_addr, const SurfaceParams& params) override;
-
-    void ImageCopy(Surface& src_surface, Surface& dst_surface,
-                   const VideoCommon::CopyParams& copy_params) override;
-
-    void ImageBlit(View& src_view, View& dst_view,
-                   const Tegra::Engines::Fermi2D::Config& copy_config) override;
-
-    void BufferCopy(Surface& src_surface, Surface& dst_surface) override;
-
-    const VKDevice& device;
-    VKMemoryManager& memory_manager;
-    VKScheduler& scheduler;
-    VKStagingBufferPool& staging_pool;
+    vk::Sampler sampler;
 };
+
+class Framebuffer {
+public:
+    explicit Framebuffer(TextureCacheRuntime&, std::span<ImageView*, NUM_RT> color_buffers,
+                         ImageView* depth_buffer, std::array<u8, NUM_RT> draw_buffers,
+                         VideoCommon::Extent2D size);
+
+    [[nodiscard]] VkFramebuffer Handle() const noexcept {
+        return *framebuffer;
+    }
+
+    [[nodiscard]] VkRenderPass RenderPass() const noexcept {
+        return renderpass;
+    }
+
+    [[nodiscard]] VkExtent2D RenderArea() const noexcept {
+        return render_area;
+    }
+
+private:
+    vk::Framebuffer framebuffer;
+    VkRenderPass renderpass;
+    VkExtent2D render_area;
+};
+
+struct TextureCacheParams {
+    static constexpr bool ENABLE_VALIDATION = true;
+    static constexpr bool FRAMEBUFFER_BLITS = false;
+
+    using Runtime = Vulkan::TextureCacheRuntime;
+    using Image = Vulkan::Image;
+    using ImageAlloc = Vulkan::ImageAlloc;
+    using ImageView = Vulkan::ImageView;
+    using Sampler = Vulkan::Sampler;
+    using Framebuffer = Vulkan::Framebuffer;
+};
+
+using TextureCache = VideoCommon::TextureCache<TextureCacheParams>;
 
 } // namespace Vulkan

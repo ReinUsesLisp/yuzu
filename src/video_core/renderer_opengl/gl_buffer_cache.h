@@ -22,6 +22,7 @@ namespace OpenGL {
 class Device;
 class OGLStreamBuffer;
 class RasterizerOpenGL;
+class StateTracker;
 
 class Buffer : public VideoCommon::BufferBlock {
 public:
@@ -54,7 +55,8 @@ class OGLBufferCache final : public GenericBufferCache {
 public:
     explicit OGLBufferCache(VideoCore::RasterizerInterface& rasterizer,
                             Tegra::MemoryManager& gpu_memory, Core::Memory::Memory& cpu_memory,
-                            const Device& device, std::size_t stream_size);
+                            const Device& device, OGLStreamBuffer& stream_buffer,
+                            StateTracker& state_tracker);
     ~OGLBufferCache();
 
     BufferInfo GetEmptyBuffer(std::size_t) override;

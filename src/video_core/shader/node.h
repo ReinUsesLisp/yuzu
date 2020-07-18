@@ -282,24 +282,25 @@ struct SeparateSamplerNode;
 using TrackSamplerData = std::variant<BindlessSamplerNode, SeparateSamplerNode, ArraySamplerNode>;
 using TrackSampler = std::shared_ptr<TrackSamplerData>;
 
-struct Sampler {
+struct SamplerEntry {
     /// Bound samplers constructor
-    constexpr explicit Sampler(u32 index, u32 offset, Tegra::Shader::TextureType type,
-                               bool is_array, bool is_shadow, bool is_buffer, bool is_indexed)
+    constexpr explicit SamplerEntry(u32 index, u32 offset, Tegra::Shader::TextureType type,
+                                    bool is_array, bool is_shadow, bool is_buffer, bool is_indexed)
         : index{index}, offset{offset}, type{type}, is_array{is_array}, is_shadow{is_shadow},
           is_buffer{is_buffer}, is_indexed{is_indexed} {}
 
     /// Separate sampler constructor
-    constexpr explicit Sampler(u32 index, std::pair<u32, u32> offsets, std::pair<u32, u32> buffers,
-                               Tegra::Shader::TextureType type, bool is_array, bool is_shadow,
-                               bool is_buffer)
+    constexpr explicit SamplerEntry(u32 index, std::pair<u32, u32> offsets,
+                                    std::pair<u32, u32> buffers, Tegra::Shader::TextureType type,
+                                    bool is_array, bool is_shadow, bool is_buffer)
         : index{index}, offset{offsets.first}, secondary_offset{offsets.second},
           buffer{buffers.first}, secondary_buffer{buffers.second}, type{type}, is_array{is_array},
           is_shadow{is_shadow}, is_buffer{is_buffer}, is_separated{true} {}
 
     /// Bindless samplers constructor
-    constexpr explicit Sampler(u32 index, u32 offset, u32 buffer, Tegra::Shader::TextureType type,
-                               bool is_array, bool is_shadow, bool is_buffer, bool is_indexed)
+    constexpr explicit SamplerEntry(u32 index, u32 offset, u32 buffer,
+                                    Tegra::Shader::TextureType type, bool is_array, bool is_shadow,
+                                    bool is_buffer, bool is_indexed)
         : index{index}, offset{offset}, buffer{buffer}, type{type}, is_array{is_array},
           is_shadow{is_shadow}, is_buffer{is_buffer}, is_bindless{true}, is_indexed{is_indexed} {}
 
@@ -338,14 +339,14 @@ struct BindlessSamplerNode {
     u32 offset;
 };
 
-struct Image {
+struct ImageEntry {
 public:
     /// Bound images constructor
-    constexpr explicit Image(u32 index, u32 offset, Tegra::Shader::ImageType type)
+    constexpr explicit ImageEntry(u32 index, u32 offset, Tegra::Shader::ImageType type)
         : index{index}, offset{offset}, type{type} {}
 
     /// Bindless samplers constructor
-    constexpr explicit Image(u32 index, u32 offset, u32 buffer, Tegra::Shader::ImageType type)
+    constexpr explicit ImageEntry(u32 index, u32 offset, u32 buffer, Tegra::Shader::ImageType type)
         : index{index}, offset{offset}, buffer{buffer}, type{type}, is_bindless{true} {}
 
     void MarkWrite() {
@@ -389,7 +390,7 @@ struct MetaArithmetic {
 
 /// Parameters describing a texture sampler
 struct MetaTexture {
-    Sampler sampler;
+    SamplerEntry sampler;
     Node array;
     Node depth_compare;
     std::vector<Node> aoffi;
@@ -403,7 +404,7 @@ struct MetaTexture {
 };
 
 struct MetaImage {
-    const Image& image;
+    const ImageEntry& image;
     std::vector<Node> values;
     u32 element{};
 };

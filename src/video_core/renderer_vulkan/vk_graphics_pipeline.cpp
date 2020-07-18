@@ -15,7 +15,6 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
-#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/renderer_vulkan/wrapper.h"
@@ -74,7 +73,6 @@ VkViewportSwizzleNV UnpackViewportSwizzle(u16 swizzle) {
 VKGraphicsPipeline::VKGraphicsPipeline(const VKDevice& device, VKScheduler& scheduler,
                                        VKDescriptorPool& descriptor_pool,
                                        VKUpdateDescriptorQueue& update_descriptor_queue,
-                                       VKRenderPassCache& renderpass_cache,
                                        const GraphicsPipelineCacheKey& key,
                                        vk::Span<VkDescriptorSetLayoutBinding> bindings,
                                        const SPIRVProgram& program)
@@ -82,10 +80,8 @@ VKGraphicsPipeline::VKGraphicsPipeline(const VKDevice& device, VKScheduler& sche
       descriptor_set_layout{CreateDescriptorSetLayout(bindings)},
       descriptor_allocator{descriptor_pool, *descriptor_set_layout},
       update_descriptor_queue{update_descriptor_queue}, layout{CreatePipelineLayout()},
-      descriptor_template{CreateDescriptorUpdateTemplate(program)}, modules{CreateShaderModules(
-                                                                        program)},
-      renderpass{renderpass_cache.GetRenderPass(cache_key.renderpass_params)},
-      pipeline{CreatePipeline(cache_key.renderpass_params, program)} {}
+      descriptor_template{CreateDescriptorUpdateTemplate(program)},
+      modules{CreateShaderModules(program)}, pipeline{CreatePipeline(program, key.renderpass)} {}
 
 VKGraphicsPipeline::~VKGraphicsPipeline() = default;
 
@@ -179,8 +175,8 @@ std::vector<vk::ShaderModule> VKGraphicsPipeline::CreateShaderModules(
     return modules;
 }
 
-vk::Pipeline VKGraphicsPipeline::CreatePipeline(const RenderPassParams& renderpass_params,
-                                                const SPIRVProgram& program) const {
+vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
+                                                VkRenderPass renderpass) const {
     const auto& state = cache_key.fixed_state;
     const auto& viewport_swizzles = state.viewport_swizzles;
 
@@ -290,8 +286,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const RenderPassParams& renderpa
     };
 
     std::array<VkViewportSwizzleNV, Maxwell::NumViewports> swizzles;
-    std::transform(viewport_swizzles.begin(), viewport_swizzles.end(), swizzles.begin(),
-                   UnpackViewportSwizzle);
+    std::ranges::transform(viewport_swizzles, swizzles.begin(), UnpackViewportSwizzle);
     VkPipelineViewportSwizzleStateCreateInfoNV swizzle_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_SWIZZLE_STATE_CREATE_INFO_NV,
         .pNext = nullptr,
@@ -352,7 +347,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const RenderPassParams& renderpa
     };
 
     std::array<VkPipelineColorBlendAttachmentState, Maxwell::NumRenderTargets> cb_attachments;
-    const auto num_attachments = static_cast<std::size_t>(renderpass_params.num_color_attachments);
+    const size_t num_attachments = 1; // FIXME
     for (std::size_t index = 0; index < num_attachments; ++index) {
         static constexpr std::array COMPONENT_TABLE{
             VK_COLOR_COMPONENT_R_BIT,
