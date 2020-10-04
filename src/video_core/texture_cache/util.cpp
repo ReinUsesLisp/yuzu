@@ -486,16 +486,10 @@ ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept {
     }
 }
 
-bool IsAliasCompatible(const ImageInfo& base, const ImageInfo& candidate) noexcept {
-    return IsViewCompatible(base.format, candidate.format) && base.type == candidate.type &&
-           base.size == candidate.size && base.resources.mipmaps >= candidate.resources.mipmaps &&
-           base.resources.layers >= candidate.resources.layers &&
-           base.num_samples == candidate.num_samples && base.block == candidate.block;
-}
-
-bool IsFullyCompatible(const ImageInfo& lhs, const ImageInfo& rhs) noexcept {
-    if (IsViewCompatible(lhs.format, rhs.format) && lhs.type == rhs.type && lhs.size == rhs.size &&
-        lhs.resources == rhs.resources && lhs.num_samples == rhs.num_samples) {
+bool IsFullyCompatible(const ImageInfo& lhs, const ImageInfo& rhs, bool strict_size) noexcept {
+    if (IsViewCompatible(lhs.format, rhs.format) && lhs.type == rhs.type &&
+        IsSameSize(lhs, rhs, 0, 0, strict_size) && lhs.resources == rhs.resources &&
+        lhs.num_samples == rhs.num_samples) {
         if (lhs.type == ImageType::Linear) {
             return lhs.pitch == rhs.pitch;
         } else {

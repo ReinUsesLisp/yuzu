@@ -221,16 +221,6 @@ private:
         }
     }
 
-    ImageId FindImage(std::span<const ImageId> image_ids, const ImageInfo& info) {
-        for (const ImageId image_id : image_ids) {
-            Image& image = slot_images[image_id];
-            if (IsFullyCompatible(info, image.info)) {
-                return image_id;
-            }
-        }
-        return ImageId{};
-    }
-
     /**
      * Update an image descriptor table
      *

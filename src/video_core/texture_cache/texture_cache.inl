@@ -398,8 +398,11 @@ ImageId TextureCache<P>::CreateImageIfNecessary(const ImageInfo& info, GPUVAddr 
                                                 bool strict_size) {
     if (const ImageAllocId alloc_id = image_alloc_page_table.Find(gpu_addr); alloc_id) {
         std::vector<ImageId>& alloc_images = slot_image_allocs[alloc_id].images;
-        if (const ImageId image_id = FindImage(alloc_images, info); image_id) {
-            return image_id;
+        for (const ImageId image_id : alloc_images) {
+            // TODO: Also search for mipmaps
+            if (IsFullyCompatible(info, slot_images[image_id].info, strict_size)) {
+                return image_id;
+            }
         }
     }
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
@@ -536,7 +539,6 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
-
     Image& image = slot_images[image_id];
     const ImageViewType view_type = RenderTargetImageViewType(info);
     const SubresourceRange range{

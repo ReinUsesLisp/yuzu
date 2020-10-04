@@ -41,7 +41,7 @@ VideoCore::Surface::PixelFormat PixelFormatFromTIC(const Tegra::Texture::TICEntr
 
 ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept;
 
-bool IsFullyCompatible(const ImageInfo& lhs, const ImageInfo& rhs) noexcept;
+bool IsFullyCompatible(const ImageInfo& lhs, const ImageInfo& rhs, bool strict_size) noexcept;
 
 /// @note This doesn't check for format compatibilities
 bool IsRenderTargetShrinkCompatible(const ImageInfo& dst, const ImageInfo& src, u32 level) noexcept;
