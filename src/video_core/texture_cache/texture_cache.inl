@@ -394,29 +394,22 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
 }
 
 template <class P>
-typename P::ImageAlloc& TextureCache<P>::GetImageAlloc(GPUVAddr gpu_addr) {
-    if (const ImageAllocId id = image_alloc_page_table.Find(gpu_addr); id) {
-        return slot_image_allocs[id];
-    }
-    const ImageAllocId id = slot_image_allocs.insert();
-    image_alloc_page_table.PushFront(gpu_addr, id);
-    return slot_image_allocs[id];
-}
-
-template <class P>
 ImageId TextureCache<P>::CreateImageIfNecessary(const ImageInfo& info, GPUVAddr gpu_addr,
                                                 bool strict_size) {
-    ImageAlloc& alloc = GetImageAlloc(gpu_addr);
-    std::vector<ImageId>& images = alloc.images;
-    if (const ImageId image_id = FindImage(images, info); image_id) {
-        return image_id;
+    if (const ImageAllocId alloc_id = image_alloc_page_table.Find(gpu_addr); alloc_id) {
+        std::vector<ImageId>& alloc_images = slot_image_allocs[alloc_id].images;
+        if (const ImageId image_id = FindImage(alloc_images, info); image_id) {
+            return image_id;
+        }
     }
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
     if (!cpu_addr) {
         return ImageId{};
     }
     const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, strict_size);
-    images.push_back(image_id);
+    const ImageAllocId alloc_id = slot_image_allocs.insert();
+    slot_image_allocs[alloc_id].images.push_back(image_id);
+    image_alloc_page_table.PushFront(gpu_addr, alloc_id);
     return image_id;
 }
 
@@ -558,17 +551,6 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     if (const ImageViewId image_view_id = image.FindView(view_info); image_view_id) {
         return image_view_id;
     }
-    return EmplaceImageView(image_id, view_info);
-}
-
-template <class P>
-ImageViewId TextureCache<P>::CreateRenderTargetFromScratch(const ImageInfo& info, GPUVAddr gpu_addr,
-                                                           VAddr cpu_addr) {
-    ImageAlloc& alloc = GetImageAlloc(gpu_addr);
-    const ImageId image_id = alloc.images.emplace_back(CreateNewImage(info, gpu_addr, cpu_addr));
-    UNIMPLEMENTED_IF(info.resources.layers != 1);
-
-    const ImageViewInfo view_info(RenderTargetImageViewType(info), info.format);
     return EmplaceImageView(image_id, view_info);
 }
 

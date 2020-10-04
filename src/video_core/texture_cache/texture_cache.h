@@ -275,8 +275,6 @@ private:
 
     ImageId ResolveImageOverlaps(ImageInfo info, GPUVAddr gpu_addr, VAddr cpu_addr, bool strict_size);
 
-    ImageAlloc& GetImageAlloc(GPUVAddr gpu_addr);
-
     /**
      * Find or create if necessary the underlying image of the given image view properties
      *
@@ -311,9 +309,6 @@ private:
     ImageViewId FindDepthBuffer();
 
     ImageViewId FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr);
-
-    ImageViewId CreateRenderTargetFromScratch(const ImageInfo& info, GPUVAddr gpu_addr,
-                                              VAddr cpu_addr);
 
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func);
