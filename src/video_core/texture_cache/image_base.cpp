@@ -26,18 +26,19 @@ bool ImageBase::Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noex
 }
 
 std::optional<SubresourceBase> ImageBase::FindSubresource(GPUVAddr other_gpu_addr) const noexcept {
-    ASSERT(other_gpu_addr - gpu_addr < guest_size_in_bytes);
-
+    ASSERT(gpu_addr <= other_gpu_addr);
     const u32 diff = static_cast<u32>(other_gpu_addr - gpu_addr);
+    if (diff > guest_size_in_bytes) {
+        // This can happen when two CPU addresses are used for different GPU addresses
+        return std::nullopt;
+    }
     const u32 layer = diff / layer_stride;
     const u32 mip_offset = diff % layer_stride;
-
     const auto end = mipmap_offsets.begin() + info.resources.mipmaps;
     const auto it = std::find(mipmap_offsets.begin(), end, mip_offset);
     if (it == end) {
         return std::nullopt;
     }
-
     return SubresourceBase{
         .mipmap = static_cast<u32>(std::distance(mipmap_offsets.begin(), it)),
         .layer = layer,
