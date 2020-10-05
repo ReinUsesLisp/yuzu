@@ -25,9 +25,13 @@ bool ImageBase::Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noex
     return cpu_addr < overlap_end && overlap_cpu_addr < cpu_addr_end;
 }
 
-std::optional<SubresourceBase> ImageBase::FindSubresource(GPUVAddr other_gpu_addr) const noexcept {
-    ASSERT(gpu_addr <= other_gpu_addr);
-    const u32 diff = static_cast<u32>(other_gpu_addr - gpu_addr);
+std::optional<SubresourceBase> ImageBase::FindSubresourceFromAddress(
+    GPUVAddr rhs_addr) const noexcept {
+    if (rhs_addr < gpu_addr) {
+        // Subresource address can't be lower than the base
+        return std::nullopt;
+    }
+    const u32 diff = static_cast<u32>(rhs_addr - gpu_addr);
     if (diff > guest_size_in_bytes) {
         // This can happen when two CPU addresses are used for different GPU addresses
         return std::nullopt;

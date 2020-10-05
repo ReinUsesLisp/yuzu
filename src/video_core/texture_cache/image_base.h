@@ -32,7 +32,7 @@ struct ImageBase {
 
     bool Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noexcept;
 
-    std::optional<SubresourceBase> FindSubresource(GPUVAddr other_gpu_addr) const noexcept;
+    std::optional<SubresourceBase> FindSubresourceFromAddress(GPUVAddr rhs_addr) const noexcept;
 
     ImageViewId FindView(const ImageViewInfo& info) const noexcept;
 

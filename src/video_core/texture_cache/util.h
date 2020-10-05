@@ -25,55 +25,64 @@ struct OverlapResult {
     SubresourceExtent resources;
 };
 
-u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept;
+[[nodiscard]] u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept;
 
-u32 CalculateHostSizeInBytes(const ImageInfo& info) noexcept;
+[[nodiscard]] u32 CalculateHostSizeInBytes(const ImageInfo& info) noexcept;
 
-u32 CalculateLayerStride(const ImageInfo& info) noexcept;
+[[nodiscard]] u32 CalculateLayerStride(const ImageInfo& info) noexcept;
 
-u32 CalculateLayerSize(const ImageInfo& info) noexcept;
+[[nodiscard]] u32 CalculateLayerSize(const ImageInfo& info) noexcept;
 
-std::array<u32, MAX_MIPMAP> CalculateMipmapOffsets(const ImageInfo& info) noexcept;
+[[nodiscard]] std::array<u32, MAX_MIPMAP> CalculateMipmapOffsets(const ImageInfo& info) noexcept;
 
-GPUVAddr CalculateBaseAddress(const TICEntry& config);
+[[nodiscard]] GPUVAddr CalculateBaseAddress(const TICEntry& config);
 
-VideoCore::Surface::PixelFormat PixelFormatFromTIC(const Tegra::Texture::TICEntry& config) noexcept;
+[[nodiscard]] VideoCore::Surface::PixelFormat PixelFormatFromTIC(
+    const Tegra::Texture::TICEntry& config) noexcept;
 
-ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept;
-
-bool IsFullyCompatible(const ImageInfo& lhs, const ImageInfo& rhs, bool strict_size) noexcept;
+[[nodiscard]] ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept;
 
 /// @note This doesn't check for format compatibilities
-bool IsRenderTargetShrinkCompatible(const ImageInfo& dst, const ImageInfo& src, u32 level) noexcept;
+[[nodiscard]] bool IsRenderTargetShrinkCompatible(const ImageInfo& dst, const ImageInfo& src,
+                                                  u32 level) noexcept;
 
-std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst, const ImageInfo& src,
-                                             SubresourceBase base);
+[[nodiscard]] std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst,
+                                                           const ImageInfo& src,
+                                                           SubresourceBase base);
 
-bool IsValid(const Tegra::MemoryManager& gpu_memory, const TICEntry& config);
+[[nodiscard]] bool IsValid(const Tegra::MemoryManager& gpu_memory, const TICEntry& config);
 
-std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
-                                            const ImageInfo& info, std::span<u8> memory);
+[[nodiscard]] std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory,
+                                                          GPUVAddr gpu_addr, const ImageInfo& info,
+                                                          std::span<u8> memory);
 
-std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info);
+[[nodiscard]] std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info);
 
-Extent3D MipmapSize(const ImageInfo& info, u32 mipmap);
+[[nodiscard]] Extent3D MipmapSize(const ImageInfo& info, u32 mipmap);
 
-Extent3D MipmapBlockSize(const ImageInfo& info, u32 mipmap);
+[[nodiscard]] Extent3D MipmapBlockSize(const ImageInfo& info, u32 mipmap);
 
-Extent3D AlignedSize(const ImageInfo& info, u32 mipmap);
-
-bool SizeMatches(const ImageInfo& aligned, const ImageInfo& unaligned, u32 unaligned_mipmap,
-                 bool strict_size);
-
-std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info);
+[[nodiscard]] std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info);
 
 void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const ImageInfo& info,
                   std::span<const BufferImageCopy> copies, std::span<const u8> memory);
 
-std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs);
+[[nodiscard]] std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs);
 
-std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr gpu_addr,
-                                            VAddr cpu_addr, const ImageBase& overlap,
-                                            bool strict_size);
+[[nodiscard]] bool IsSameSize(const ImageInfo& new_info, const ImageInfo& overlap_info,
+                              u32 new_mipmap, u32 overlap_mipmap, bool strict_size) noexcept;
+
+[[nodiscard]] std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info,
+                                                          GPUVAddr gpu_addr, VAddr cpu_addr,
+                                                          const ImageBase& overlap,
+                                                          bool strict_size);
+
+[[nodiscard]] std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate,
+                                                             const ImageBase& image,
+                                                             GPUVAddr candidate_addr,
+                                                             bool strict_size);
+
+[[nodiscard]] bool IsSubresource(const ImageInfo& candidate, const ImageBase& image,
+                                 GPUVAddr candidate_addr, bool strict_size);
 
 } // namespace VideoCommon

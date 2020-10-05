@@ -307,16 +307,6 @@ constexpr u32 AlignLayerSize(u32 size_bytes, Extent3D size, Extent3D block, u32 
     return size_bytes;
 }
 
-bool IsSameSize(const ImageInfo& new_info, const ImageInfo& overlap_info, u32 new_mipmap,
-                u32 overlap_mipmap, bool strict_size) {
-    if (strict_size) {
-        return AdjustMipSize(new_info.size, new_mipmap) ==
-               AdjustMipSize(overlap_info.size, overlap_mipmap);
-    } else {
-        return AlignedSize(new_info, new_mipmap) == AlignedSize(overlap_info, overlap_mipmap);
-    }
-}
-
 std::optional<SubresourceExtent> ResolveOverlapEqualAddress(const ImageInfo& new_info,
                                                             const ImageBase& overlap,
                                                             bool strict_size) {
@@ -341,19 +331,25 @@ std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_inf
     const std::array offsets = CalculateMipmapOffsets(new_info);
     const u32 layer_stride = CalculateLayerStride(new_info);
     const u32 diff = static_cast<u32>(overlap.gpu_addr - gpu_addr);
+    const u32 new_size = layer_stride * new_info.resources.layers;
+    if (diff > new_size) {
+        return std::nullopt;
+    }
     const u32 base_layer = diff / layer_stride;
     const u32 mip_offset = diff % layer_stride;
     const SubresourceExtent resources = new_info.resources;
     const auto end = offsets.begin() + resources.mipmaps;
-    const auto mipmap = std::find(offsets.begin(), end, mip_offset);
-    if (mipmap == end) {
+    const auto it = std::find(offsets.begin(), end, mip_offset);
+    if (it == end) {
+        // Mipmap is not aligned to any valid size
         return std::nullopt;
     }
+    const u32 mipmap = static_cast<u32>(std::distance(offsets.begin(), it));
     const ImageInfo& info = overlap.info;
-    if (!IsSameSize(new_info, info, 0, *mipmap, strict_size)) {
+    if (!IsSameSize(new_info, info, mipmap, 0, strict_size)) {
         return std::nullopt;
     }
-    if (new_info.type != ImageType::Linear && new_info.block != MipmapBlockSize(info, *mipmap)) {
+    if (new_info.type != ImageType::Linear && new_info.block != MipmapBlockSize(info, mipmap)) {
         return std::nullopt;
     }
     return OverlapResult{
@@ -361,7 +357,7 @@ std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_inf
         .cpu_addr = cpu_addr,
         .resources =
             {
-                .mipmaps = std::max(resources.mipmaps, info.resources.mipmaps + *mipmap),
+                .mipmaps = std::max(resources.mipmaps, info.resources.mipmaps + mipmap),
                 .layers = std::max(resources.layers, info.resources.layers + base_layer),
             },
     };
@@ -370,7 +366,7 @@ std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_inf
 std::optional<OverlapResult> ResolveOverlapLeftAddress(const ImageInfo& new_info, GPUVAddr gpu_addr,
                                                        VAddr cpu_addr, const ImageBase& overlap,
                                                        bool strict_size) {
-    const std::optional<SubresourceBase> base = overlap.FindSubresource(gpu_addr);
+    const std::optional<SubresourceBase> base = overlap.FindSubresourceFromAddress(gpu_addr);
     if (!base) {
         return std::nullopt;
     }
@@ -391,6 +387,37 @@ std::optional<OverlapResult> ResolveOverlapLeftAddress(const ImageInfo& new_info
                 .mipmaps = std::max(resources.mipmaps + base->mipmap, info.resources.mipmaps),
                 .layers = std::max(resources.layers + base->layer, info.resources.layers),
             },
+    };
+}
+
+template <typename T>
+constexpr T DivCeil(T number, T divisor) {
+    return (number + divisor - 1) / divisor;
+}
+
+Extent3D AlignedSize(const ImageInfo& info, u32 mipmap) {
+    // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L176
+    const Extent3D size = AdjustMipSize(info.size, mipmap);
+    const Extent3D num_tiles{
+        .width = DivCeil(size.width, DefaultBlockWidth(info.format)),
+        .height = DivCeil(size.height, DefaultBlockHeight(info.format)),
+        .depth = size.depth,
+    };
+    const u32 bytes_per_block = BytesPerBlock(info.format);
+    const u32 gob_width = (GOB_SIZE_X / bytes_per_block) * info.tile_width_spacing;
+    const u32 gob_height = 1u << (info.block.height + GOB_SIZE_Y);
+    u32 alignment = gob_width;
+    if (num_tiles.depth < (1u << info.block.depth) || num_tiles.width <= gob_width ||
+        num_tiles.height <= gob_height) {
+        alignment = GOB_SIZE_X / bytes_per_block;
+    }
+    const Extent3D mipmap_block = AdjustMipBlockSize(num_tiles, info.block, 0);
+    const u32 block_of_gobs_height = 1u << (mipmap_block.height + GOB_SIZE_Y_SHIFT);
+    const u32 block_of_gobs_depth = 1u << (mipmap_block.depth + GOB_SIZE_Z_SHIFT);
+    return Extent3D{
+        .width = Common::AlignUp(num_tiles.width, alignment),
+        .height = Common::AlignUp(num_tiles.height, block_of_gobs_height),
+        .depth = Common::AlignUp(num_tiles.depth, block_of_gobs_depth),
     };
 }
 
@@ -484,55 +511,6 @@ ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept {
     default:
         UNIMPLEMENTED_MSG("Unimplemented image type={}", static_cast<int>(info.type));
     }
-}
-
-bool IsFullyCompatible(const ImageInfo& lhs, const ImageInfo& rhs, bool strict_size) noexcept {
-    if (IsViewCompatible(lhs.format, rhs.format) && lhs.type == rhs.type &&
-        IsSameSize(lhs, rhs, 0, 0, strict_size) && lhs.resources == rhs.resources &&
-        lhs.num_samples == rhs.num_samples) {
-        if (lhs.type == ImageType::Linear) {
-            return lhs.pitch == rhs.pitch;
-        } else {
-            return lhs.block == rhs.block;
-        }
-    }
-    return false;
-}
-
-template <typename T>
-constexpr T DivCeil(T number, T divisor) {
-    return (number + divisor - 1) / divisor;
-}
-
-Extent3D AlignedSize(const ImageInfo& info, u32 mipmap) {
-    // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L176
-    const Extent3D num_tiles{
-        .width = DivCeil(info.size.width, DefaultBlockWidth(info.format)),
-        .height = DivCeil(info.size.height, DefaultBlockHeight(info.format)),
-        .depth = info.size.depth,
-    };
-    const u32 bytes_per_block = BytesPerBlock(info.format);
-    const u32 gob_width = (GOB_SIZE_X / bytes_per_block) * info.tile_width_spacing;
-    const u32 gob_height = 1u << (info.block.height + GOB_SIZE_Y);
-    u32 alignment = gob_width;
-    if (num_tiles.depth < (1u << info.block.depth) || num_tiles.width <= gob_width ||
-        num_tiles.height <= gob_height) {
-        alignment = GOB_SIZE_X / bytes_per_block;
-    }
-    const Extent3D mipmap_block = AdjustMipBlockSize(num_tiles, info.block, mipmap);
-    const u32 block_of_gobs_height = 1u << (mipmap_block.height + GOB_SIZE_Y_SHIFT);
-    const u32 block_of_gobs_depth = 1u << (mipmap_block.depth + GOB_SIZE_Z_SHIFT);
-    return Extent3D{
-        .width = Common::AlignUp(num_tiles.width, alignment),
-        .height = Common::AlignUp(num_tiles.height, block_of_gobs_height),
-        .depth = Common::AlignUp(num_tiles.depth, block_of_gobs_depth),
-    };
-}
-
-bool SizeMatches(const ImageInfo& aligned, const ImageInfo& unaligned, u32 unaligned_mipmap,
-                 bool strict_size) {
-    // return aligned.size == unaligned;
-    return false;
 }
 
 bool IsRenderTargetShrinkCompatible(const ImageInfo& dst, const ImageInfo& src,
@@ -638,8 +616,8 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
         copies[mipmap] = BufferImageCopy{
             .buffer_offset = host_offset,
             .buffer_size = static_cast<size_t>(host_bytes_per_layer) * num_layers,
-            .buffer_row_length = level_size.width,
-            .buffer_image_height = level_size.height,
+            .buffer_row_length = Common::AlignUp(level_size.width, tile_size.width),
+            .buffer_image_height = Common::AlignUp(level_size.height, tile_size.height),
             .image_subresource =
                 {
                     .base_mipmap = mipmap,
@@ -890,6 +868,19 @@ std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs) {
     }
 }
 
+bool IsSameSize(const ImageInfo& lhs, const ImageInfo& rhs, u32 lhs_mipmap, u32 rhs_mipmap,
+                bool strict_size) noexcept {
+    if (strict_size) {
+        const Extent3D lhs_size = AdjustMipSize(lhs.size, lhs_mipmap);
+        const Extent3D rhs_size = AdjustMipSize(rhs.size, rhs_mipmap);
+        return lhs_size == rhs_size;
+    } else {
+        const Extent3D lhs_size = AlignedSize(lhs, lhs_mipmap);
+        const Extent3D rhs_size = AlignedSize(rhs, rhs_mipmap);
+        return lhs_size == rhs_size;
+    }
+}
+
 std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr gpu_addr,
                                             VAddr cpu_addr, const ImageBase& overlap,
                                             bool strict_size) {
@@ -909,6 +900,41 @@ std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr 
     } else { // overlap.gpu_addr < gpu_addr
         return ResolveOverlapLeftAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
     }
+}
+
+std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const ImageBase& image,
+                                               GPUVAddr candidate_addr, bool strict_size) {
+    const std::optional<SubresourceBase> subresource =
+        image.FindSubresourceFromAddress(candidate_addr);
+    if (!subresource) {
+        return std::nullopt;
+    }
+    const ImageInfo& existing = image.info;
+    if (!IsViewCompatible(existing.format, candidate.format)) {
+        return std::nullopt;
+    }
+    if (existing.type != candidate.type) {
+        return std::nullopt;
+    }
+    if (existing.num_samples != candidate.num_samples) {
+        return std::nullopt;
+    }
+    if (existing.resources.layers < candidate.resources.layers + subresource->layer) {
+        return std::nullopt;
+    }
+    if (existing.resources.mipmaps < candidate.resources.mipmaps + subresource->mipmap) {
+        return std::nullopt;
+    }
+    if (!IsSameSize(existing, candidate, subresource->mipmap, 0, strict_size)) {
+        return std::nullopt;
+    }
+    // TODO: compare block sizes
+    return subresource;
+}
+
+bool IsSubresource(const ImageInfo& candidate, const ImageBase& image, GPUVAddr candidate_addr,
+                   bool strict_size) {
+    return FindSubresource(candidate, image, candidate_addr, strict_size).has_value();
 }
 
 #ifdef __cpp_using_enum

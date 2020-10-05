@@ -102,9 +102,7 @@ public:
                       std::span<const VideoCommon::BufferImageCopy> copies);
 
     void DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
-                        std::span<const VideoCommon::BufferImageCopy> copies) {
-        UNIMPLEMENTED();
-    }
+                        std::span<const VideoCommon::BufferImageCopy> copies);
 
     [[nodiscard]] VkImage Handle() const noexcept {
         return *image;
@@ -171,10 +169,15 @@ public:
         return render_area;
     }
 
+    [[nodiscard]] u32 NumColorBuffers() const noexcept {
+        return num_color_buffers;
+    }
+
 private:
     vk::Framebuffer framebuffer;
     VkRenderPass renderpass;
     VkExtent2D render_area;
+    u32 num_color_buffers;
 };
 
 struct TextureCacheParams {

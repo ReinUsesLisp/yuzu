@@ -178,7 +178,8 @@ private:
 class Framebuffer {
 public:
     explicit Framebuffer(TextureCacheRuntime&, std::span<ImageView*, NUM_RT> color_buffers,
-                         ImageView* depth_buffer, std::array<u8, NUM_RT> draw_buffers, VideoCommon::Extent2D size);
+                         ImageView* depth_buffer, std::array<u8, NUM_RT> draw_buffers,
+                         VideoCommon::Extent2D size);
 
     GLuint Handle() const noexcept {
         return framebuffer.handle;

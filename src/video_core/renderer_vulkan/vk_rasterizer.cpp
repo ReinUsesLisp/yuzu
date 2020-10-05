@@ -423,11 +423,12 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
     buffer_cache.Unmap();
 
     texture_cache.UpdateRenderTargets();
-    Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
+    const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
     key.renderpass = framebuffer->RenderPass();
 
-    auto* pipeline = pipeline_cache.GetGraphicsPipeline(key, async_shaders);
+    auto* const pipeline =
+        pipeline_cache.GetGraphicsPipeline(key, framebuffer->NumColorBuffers(), async_shaders);
     if (pipeline == nullptr || pipeline->GetHandle() == VK_NULL_HANDLE) {
         // Async graphics pipeline was not ready.
         return;

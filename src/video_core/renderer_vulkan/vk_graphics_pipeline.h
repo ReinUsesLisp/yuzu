@@ -8,6 +8,7 @@
 #include <optional>
 #include <vector>
 
+#include "common/common_types.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
@@ -53,7 +54,7 @@ public:
                                 VKUpdateDescriptorQueue& update_descriptor_queue,
                                 const GraphicsPipelineCacheKey& key,
                                 vk::Span<VkDescriptorSetLayoutBinding> bindings,
-                                const SPIRVProgram& program);
+                                const SPIRVProgram& program, u32 num_color_buffers);
     ~VKGraphicsPipeline();
 
     VkDescriptorSet CommitDescriptorSet();
@@ -81,7 +82,8 @@ private:
 
     std::vector<vk::ShaderModule> CreateShaderModules(const SPIRVProgram& program) const;
 
-    vk::Pipeline CreatePipeline(const SPIRVProgram& program, VkRenderPass renderpass) const;
+    vk::Pipeline CreatePipeline(const SPIRVProgram& program, VkRenderPass renderpass,
+                                u32 num_color_buffers) const;
 
     const VKDevice& device;
     VKScheduler& scheduler;

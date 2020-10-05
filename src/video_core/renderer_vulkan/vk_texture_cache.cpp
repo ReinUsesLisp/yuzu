@@ -62,10 +62,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
 
 [[nodiscard]] VkImageCreateInfo MakeImageCreateInfo(const VKDevice& device,
                                                     const VideoCommon::ImageInfo& info) {
-    const bool is_linear = info.type == VideoCommon::ImageType::Linear;
-    const FormatType format_type = is_linear ? FormatType::Linear : FormatType::Optimal;
-    const auto format_info = MaxwellToVK::SurfaceFormat(device, format_type, info.format);
-
+    const auto format_info = MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, info.format);
     VkImageCreateFlags flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     if (info.type == VideoCommon::ImageType::e2D && info.resources.layers >= 6) {
         flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
@@ -75,7 +72,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     }
     VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                               VK_IMAGE_USAGE_SAMPLED_BIT;
-    if (format_info.attachable && !is_linear) {
+    if (format_info.attachable) {
         switch (VideoCore::Surface::GetFormatType(info.format)) {
         case VideoCore::Surface::SurfaceType::ColorTexture:
             usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -88,10 +85,9 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
             UNREACHABLE_MSG("Invalid surface type");
         }
     }
-    if (format_info.storage && !is_linear) {
+    if (format_info.storage) {
         usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
-
     return VkImageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .pNext = nullptr,
@@ -107,7 +103,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         .mipLevels = info.resources.mipmaps,
         .arrayLayers = info.resources.layers,
         .samples = VK_SAMPLE_COUNT_1_BIT, // TODO
-        .tiling = is_linear ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
@@ -381,8 +377,8 @@ struct BufferImageCopyMaker {
     }
 };
 
-void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
-                         std::span<const VideoCommon::BufferImageCopy> copies) {
+std::vector<VkBufferImageCopy> TransformBufferImageCopies(
+    std::span<const VideoCommon::BufferImageCopy> copies, VkImageAspectFlags aspect_mask) {
     std::vector<VkBufferImageCopy> vk_copies;
     if (aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
         vk_copies.resize(copies.size() * 2);
@@ -394,6 +390,12 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
         vk_copies.resize(copies.size());
         std::ranges::transform(copies, vk_copies.begin(), BufferImageCopyMaker{aspect_mask});
     }
+    return vk_copies;
+}
+
+void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                         std::span<const VideoCommon::BufferImageCopy> copies) {
+    std::vector<VkBufferImageCopy> vk_copies = TransformBufferImageCopies(copies, aspect_mask);
 
     // TODO: Move this to another API
     scheduler->RequestOutsideRenderPassOperationContext();
@@ -439,12 +441,22 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
     });
 }
 
+void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                           std::span<const VideoCommon::BufferImageCopy> copies) {
+    std::vector<VkBufferImageCopy> vk_copies = TransformBufferImageCopies(copies, aspect_mask);
+    scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
+                       vk_copies](vk::CommandBuffer cmdbuf) {
+        cmdbuf.CopyImageToBuffer(image, VK_IMAGE_LAYOUT_GENERAL, buffer, vk_copies);
+    });
+    scheduler->Finish();
+}
+
 ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,
                      ImageId image_id, Image& image)
     : VideoCommon::ImageViewBase{info, image.info, image_id} {
     const bool is_linear = image.info.type == VideoCommon::ImageType::Linear;
-    const FormatType format_type = is_linear ? FormatType::Linear : FormatType::Optimal;
-    const auto format_info = MaxwellToVK::SurfaceFormat(runtime.device, format_type, info.format);
+    const auto format_info =
+        MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format);
     image_view = runtime.device.GetLogical().CreateImageView(VkImageViewCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = nullptr,
@@ -576,6 +588,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime, std::span<ImageView*, NUM
         .width = size.width,
         .height = size.height,
     };
+    num_color_buffers = static_cast<u32>(num_colors);
     framebuffer = device.CreateFramebuffer(VkFramebufferCreateInfo{
         .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         .pNext = nullptr,

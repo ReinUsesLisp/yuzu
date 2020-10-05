@@ -380,7 +380,10 @@ ImageViewId TextureCache<P>::FindImageView(const TICEntry& config) {
 
 template <class P>
 ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
-    const ImageId image_id = CreateImageIfNecessary(ImageInfo(config), config.Address(), true);
+    const ImageId image_id = FindOrInsertImage(ImageInfo(config), config.Address(), true);
+    if (!image_id) {
+        return NULL_IMAGE_VIEW_ID;
+    }
     const ImageViewInfo view_info(config);
     Image& image = slot_images[image_id];
     ImageViewId image_view_id = image.FindView(view_info);
@@ -394,25 +397,46 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
 }
 
 template <class P>
-ImageId TextureCache<P>::CreateImageIfNecessary(const ImageInfo& info, GPUVAddr gpu_addr,
-                                                bool strict_size) {
-    if (const ImageAllocId alloc_id = image_alloc_page_table.Find(gpu_addr); alloc_id) {
-        std::vector<ImageId>& alloc_images = slot_image_allocs[alloc_id].images;
-        for (const ImageId image_id : alloc_images) {
-            // TODO: Also search for mipmaps
-            if (IsFullyCompatible(info, slot_images[image_id].info, strict_size)) {
-                return image_id;
-            }
-        }
-    }
+ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                           bool strict_size) {
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
     if (!cpu_addr) {
         return ImageId{};
     }
+    ImageId image_id;
+    const size_t size = CalculateGuestSizeInBytes(info);
+    ForEachImageInRegion(*cpu_addr, size, [&](ImageId existing_image_id, Image& existing_image) {
+        if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear) {
+            const ImageInfo& existing = existing_image.info;
+            if (existing.type == info.type && existing.pitch == info.pitch &&
+                existing.size == info.size && IsViewCompatible(existing.format, info.format)) {
+                image_id = existing_image_id;
+                return true;
+            }
+        } else {
+            if (IsSubresource(info, existing_image, gpu_addr, strict_size)) {
+                image_id = existing_image_id;
+                return true;
+            }
+        }
+        return false;
+    });
+    if (image_id) {
+        return image_id;
+    }
+    return InsertImage(info, gpu_addr, true);
+}
+
+template <class P>
+ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size) {
+    const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
+    ASSERT(cpu_addr);
     const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, strict_size);
-    const ImageAllocId alloc_id = slot_image_allocs.insert();
-    slot_image_allocs[alloc_id].images.push_back(image_id);
-    image_alloc_page_table.PushFront(gpu_addr, alloc_id);
+    const auto [it, is_new] = image_allocs_table.try_emplace(gpu_addr);
+    if (is_new) {
+        it->second = slot_image_allocs.insert();
+    }
+    slot_image_allocs[it->second].images.push_back(image_id);
     return image_id;
 }
 
@@ -423,6 +447,9 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
     std::vector<ImageId> overlap_ids;
     if (new_info.type != ImageType::Linear) {
         ForEachImageInRegion(cpu_addr, size_bytes, [&](ImageId overlap_id, Image& overlap) {
+            if (overlap.info.type == ImageType::Linear) {
+                return;
+            }
             const bool created_from_table = True(overlap.flags & ImageFlagBits::Strong);
             const std::optional solution = ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap,
                                                           strict_size && created_from_table);
@@ -444,7 +471,7 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
 
     for (const ImageId overlap_id : overlap_ids) {
         Image& overlap = slot_images[overlap_id];
-        const SubresourceBase base = new_image.FindSubresource(overlap.gpu_addr).value();
+        const SubresourceBase base = new_image.FindSubresourceFromAddress(overlap.gpu_addr).value();
         runtime.CopyImage(new_image, overlap, MakeShrinkImageCopies(new_info, overlap.info, base));
 
         UntrackImage(overlap);
@@ -454,38 +481,6 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
 
     RegisterImage(new_image_id);
     return new_image_id;
-}
-
-template <class P>
-ImageId TextureCache<P>::FindUnderlyingImage(const TICEntry& config) const {
-    const GPUVAddr gpu_addr = CalculateBaseAddress(config);
-    const ImageAllocId alloc_id = image_alloc_page_table.Find(gpu_addr);
-    ASSERT_MSG(alloc_id, "Image does not exist");
-    const std::vector<ImageId>& images = slot_image_allocs[alloc_id].images;
-
-    const ImageInfo new_info(config);
-    for (const ImageId image_id : images) {
-        const ImageInfo& info = slot_images[image_id].info;
-        if (!IsViewCompatible(info.format, new_info.format) || info.type != new_info.type ||
-            info.size != new_info.size || info.num_samples != new_info.num_samples ||
-            info.resources.mipmaps < new_info.resources.mipmaps ||
-            info.resources.layers < new_info.resources.layers) {
-            continue;
-        }
-        if (info.type == ImageType::Linear) {
-            if (info.pitch != new_info.pitch) {
-                continue;
-            }
-        } else {
-            if (info.block != new_info.block) {
-                continue;
-            }
-        }
-        return image_id;
-    }
-
-    UNREACHABLE();
-    return ImageId{};
 }
 
 template <class P>
@@ -535,19 +530,21 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
 
 template <class P>
 ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr) {
-    const ImageId image_id = CreateImageIfNecessary(info, gpu_addr, false);
+    const ImageId image_id = FindOrInsertImage(info, gpu_addr, false);
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
     Image& image = slot_images[image_id];
     const ImageViewType view_type = RenderTargetImageViewType(info);
+    SubresourceBase base;
+    if (image.info.type == ImageType::Linear) {
+        base = SubresourceBase{.mipmap = 0, .layer = 0};
+    } else {
+        base = image.FindSubresourceFromAddress(gpu_addr).value();
+    }
     const SubresourceRange range{
-        .base = image.FindSubresource(gpu_addr).value(),
-        .extent =
-            {
-                .mipmaps = 1,
-                .layers = info.resources.layers,
-            },
+        .base = base,
+        .extent = {.mipmaps = 1, .layers = info.resources.layers},
     };
     const ImageViewInfo view_info(view_type, info.format, range);
     if (const ImageViewId image_view_id = image.FindView(view_info); image_view_id) {
@@ -674,11 +671,12 @@ template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     const GPUVAddr gpu_addr = image.gpu_addr;
-    const ImageAllocId alloc_id = image_alloc_page_table.Find(gpu_addr);
-    if (!alloc_id) {
+    const auto alloc_it = image_allocs_table.find(gpu_addr);
+    if (alloc_it == image_allocs_table.end()) {
         UNREACHABLE_MSG("Trying to delete an image that does not exist");
         return;
     }
+    const ImageAllocId alloc_id = alloc_it->second;
     std::vector<ImageId>& alloc_images = slot_image_allocs[alloc_id].images;
     const auto alloc_image_it = std::ranges::find(alloc_images, image_id);
     if (alloc_image_it == alloc_images.end()) {
@@ -698,13 +696,16 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     RemoveFramebuffers(image_view_ids);
 
     for (const ImageViewId image_view_id : image_view_ids) {
+        sentenced_image_view.push_back(std::move(slot_image_views[image_view_id]));
         slot_image_views.erase(image_view_id);
     }
 
+    sentenced_images.push_back(std::move(slot_images[image_id]));
     slot_images.erase(image_id);
+
     alloc_images.erase(alloc_image_it);
     if (alloc_images.empty()) {
-        image_alloc_page_table.Erase(gpu_addr);
+        image_allocs_table.erase(alloc_it);
     }
 
     has_deleted_images = true;

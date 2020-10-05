@@ -470,7 +470,7 @@ void VKDevice::ReportLoss() const {
     LOG_CRITICAL(Render_Vulkan, "Device loss occured!");
 
     // Wait for the log to flush and for Nsight Aftermath to dump the results
-    std::this_thread::sleep_for(std::chrono::seconds{3});
+    std::this_thread::sleep_for(std::chrono::seconds{15});
 }
 
 void VKDevice::SaveShader(const std::vector<u32>& spirv) const {

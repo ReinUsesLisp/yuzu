@@ -75,13 +75,14 @@ VKGraphicsPipeline::VKGraphicsPipeline(const VKDevice& device, VKScheduler& sche
                                        VKUpdateDescriptorQueue& update_descriptor_queue,
                                        const GraphicsPipelineCacheKey& key,
                                        vk::Span<VkDescriptorSetLayoutBinding> bindings,
-                                       const SPIRVProgram& program)
+                                       const SPIRVProgram& program, u32 num_color_buffers)
     : device{device}, scheduler{scheduler}, cache_key{key}, hash{cache_key.Hash()},
       descriptor_set_layout{CreateDescriptorSetLayout(bindings)},
       descriptor_allocator{descriptor_pool, *descriptor_set_layout},
       update_descriptor_queue{update_descriptor_queue}, layout{CreatePipelineLayout()},
       descriptor_template{CreateDescriptorUpdateTemplate(program)},
-      modules{CreateShaderModules(program)}, pipeline{CreatePipeline(program, key.renderpass)} {}
+      modules(CreateShaderModules(program)),
+      pipeline(CreatePipeline(program, key.renderpass, num_color_buffers)) {}
 
 VKGraphicsPipeline::~VKGraphicsPipeline() = default;
 
@@ -176,7 +177,8 @@ std::vector<vk::ShaderModule> VKGraphicsPipeline::CreateShaderModules(
 }
 
 vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
-                                                VkRenderPass renderpass) const {
+                                                VkRenderPass renderpass,
+                                                u32 num_color_buffers) const {
     const auto& state = cache_key.fixed_state;
     const auto& viewport_swizzles = state.viewport_swizzles;
 
@@ -347,8 +349,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
     };
 
     std::array<VkPipelineColorBlendAttachmentState, Maxwell::NumRenderTargets> cb_attachments;
-    const size_t num_attachments = 1; // FIXME
-    for (std::size_t index = 0; index < num_attachments; ++index) {
+    for (std::size_t index = 0; index < num_color_buffers; ++index) {
         static constexpr std::array COMPONENT_TABLE{
             VK_COLOR_COMPONENT_R_BIT,
             VK_COLOR_COMPONENT_G_BIT,
@@ -382,7 +383,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
         .flags = 0,
         .logicOpEnable = VK_FALSE,
         .logicOp = VK_LOGIC_OP_COPY,
-        .attachmentCount = static_cast<u32>(num_attachments),
+        .attachmentCount = num_color_buffers,
         .pAttachments = cb_attachments.data(),
         .blendConstants = {},
     };
@@ -442,8 +443,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
             stage_ci.pNext = &subgroup_size_ci;
         }
     }
-
-    const VkGraphicsPipelineCreateInfo ci{
+    return device.GetLogical().CreateGraphicsPipeline(VkGraphicsPipelineCreateInfo{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
@@ -463,8 +463,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
         .subpass = 0,
         .basePipelineHandle = nullptr,
         .basePipelineIndex = 0,
-    };
-    return device.GetLogical().CreateGraphicsPipeline(ci);
+    });
 }
 
 } // namespace Vulkan

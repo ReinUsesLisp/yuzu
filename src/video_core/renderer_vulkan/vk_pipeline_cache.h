@@ -129,6 +129,7 @@ public:
     std::array<Shader*, Maxwell::MaxShaderProgram> GetShaders();
 
     VKGraphicsPipeline* GetGraphicsPipeline(const GraphicsPipelineCacheKey& key,
+                                            u32 num_color_buffers,
                                             VideoCommon::Shader::AsyncShaders& async_shaders);
 
     VKComputePipeline& GetComputePipeline(const ComputePipelineCacheKey& key);

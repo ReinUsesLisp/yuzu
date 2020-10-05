@@ -198,7 +198,8 @@ std::array<Shader*, Maxwell::MaxShaderProgram> VKPipelineCache::GetShaders() {
 }
 
 VKGraphicsPipeline* VKPipelineCache::GetGraphicsPipeline(
-    const GraphicsPipelineCacheKey& key, VideoCommon::Shader::AsyncShaders& async_shaders) {
+    const GraphicsPipelineCacheKey& key, u32 num_color_buffers,
+    VideoCommon::Shader::AsyncShaders& async_shaders) {
     MICROPROFILE_SCOPE(Vulkan_PipelineCache);
 
     if (last_graphics_pipeline && last_graphics_key == key) {
@@ -214,7 +215,8 @@ VKGraphicsPipeline* VKPipelineCache::GetGraphicsPipeline(
             LOG_INFO(Render_Vulkan, "Compile 0x{:016X}", key.Hash());
             const auto [program, bindings] = DecompileShaders(key.fixed_state);
             async_shaders.QueueVulkanShader(this, device, scheduler, descriptor_pool,
-                                            update_descriptor_queue, bindings, program, key);
+                                            update_descriptor_queue, bindings, program, key,
+                                            num_color_buffers);
         }
         last_graphics_pipeline = pair->second.get();
         return last_graphics_pipeline;
@@ -226,8 +228,9 @@ VKGraphicsPipeline* VKPipelineCache::GetGraphicsPipeline(
         gpu.ShaderNotify().MarkSharderBuilding();
         LOG_INFO(Render_Vulkan, "Compile 0x{:016X}", key.Hash());
         const auto [program, bindings] = DecompileShaders(key.fixed_state);
-        entry = std::make_unique<VKGraphicsPipeline>(
-            device, scheduler, descriptor_pool, update_descriptor_queue, key, bindings, program);
+        entry = std::make_unique<VKGraphicsPipeline>(device, scheduler, descriptor_pool,
+                                                     update_descriptor_queue, key, bindings,
+                                                     program, num_color_buffers);
         gpu.ShaderNotify().MarkShaderComplete();
     }
     last_graphics_pipeline = entry.get();

@@ -123,7 +123,7 @@ struct FormatTuple {
     {VK_FORMAT_A8B8G8R8_SINT_PACK32, Attachable | Storage},     // A8B8G8R8_SINT
     {VK_FORMAT_A8B8G8R8_UINT_PACK32, Attachable | Storage},     // A8B8G8R8_UINT
     {VK_FORMAT_R5G6B5_UNORM_PACK16, Attachable},                // R5G6B5_UNORM
-    {VK_FORMAT_B5G6R5_UNORM_PACK16, Attachable},                // B5G6R5_UNORM
+    {VK_FORMAT_B5G6R5_UNORM_PACK16},                            // B5G6R5_UNORM
     {VK_FORMAT_A1R5G5B5_UNORM_PACK16, Attachable},              // A1R5G5B5_UNORM
     {VK_FORMAT_A2B10G10R10_UNORM_PACK32, Attachable | Storage}, // A2B10G10R10_UNORM
     {VK_FORMAT_A2B10G10R10_UINT_PACK32, Attachable | Storage},  // A2B10G10R10_UINT
@@ -249,9 +249,6 @@ FormatInfo SurfaceFormat(const VKDevice& device, FormatType format_type, PixelFo
             VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT;
         break;
     case FormatType::Linear:
-        usage = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
-                VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
-        break;
     case FormatType::Optimal:
         usage = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
                 VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;

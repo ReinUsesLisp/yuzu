@@ -168,8 +168,6 @@ add_library(video_core STATIC
     surface.cpp
     surface.h
     texture_cache/formatter.h
-    texture_cache/image_alloc_page_table.cpp
-    texture_cache/image_alloc_page_table.h
     texture_cache/format_lookup_table.cpp
     texture_cache/format_lookup_table.h
     texture_cache/image_base.cpp

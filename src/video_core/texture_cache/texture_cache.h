@@ -26,7 +26,6 @@
 #include "video_core/rasterizer_interface.h"
 #include "video_core/surface.h"
 #include "video_core/texture_cache/format_lookup_table.h"
-#include "video_core/texture_cache/image_alloc_page_table.h"
 #include "video_core/texture_cache/image_base.h"
 #include "video_core/texture_cache/image_info.h"
 #include "video_core/texture_cache/image_info_page_table.h"
@@ -261,17 +260,12 @@ private:
 
     ImageViewId CreateImageView(const TICEntry& config);
 
-    ImageId CreateImageIfNecessary(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size);
+    ImageId FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size);
 
-    ImageId ResolveImageOverlaps(ImageInfo info, GPUVAddr gpu_addr, VAddr cpu_addr, bool strict_size);
+    ImageId InsertImage(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size);
 
-    /**
-     * Find or create if necessary the underlying image of the given image view properties
-     *
-     * @param config Image view properties
-     * @returns     Underlying image of the given image view properties
-     */
-    ImageId FindUnderlyingImage(const TICEntry& config) const;
+    ImageId ResolveImageOverlaps(ImageInfo info, GPUVAddr gpu_addr, VAddr cpu_addr,
+                                 bool strict_size);
 
     /**
      * Find or create if necessary a sampler with the given properties
@@ -367,7 +361,11 @@ private:
     SlotVector<Sampler> slot_samplers;
     SlotVector<Framebuffer> slot_framebuffers;
 
-    ImageAllocPageTable image_alloc_page_table;
+    std::vector<Image> sentenced_images;
+    std::vector<ImageView> sentenced_image_view;
+    std::vector<Framebuffer> sentenced_framebuffers;
+
+    std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
 };
 
 } // namespace VideoCommon

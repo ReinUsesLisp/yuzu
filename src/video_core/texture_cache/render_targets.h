@@ -4,9 +4,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <bit>
 #include <span>
-#include <algorithm>
 #include <utility>
 
 #include "video_core/texture_cache/types.h"
