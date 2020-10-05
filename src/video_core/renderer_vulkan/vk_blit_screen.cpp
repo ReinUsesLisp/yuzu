@@ -16,7 +16,6 @@
 #include "core/frontend/emu_window.h"
 #include "core/memory.h"
 #include "video_core/gpu.h"
-#include "video_core/morton.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_blit_screen.h"
@@ -28,6 +27,7 @@
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/renderer_vulkan/wrapper.h"
 #include "video_core/surface.h"
+#include "video_core/textures/decoders.h"
 
 namespace Vulkan {
 
@@ -172,7 +172,7 @@ constexpr std::array<f32, 4 * 4> MakeOrthographicMatrix(f32 width, f32 height) {
     // clang-format on
 }
 
-std::size_t GetBytesPerPixel(const Tegra::FramebufferConfig& framebuffer) {
+u32 GetBytesPerPixel(const Tegra::FramebufferConfig& framebuffer) {
     using namespace VideoCore::Surface;
     return BytesPerBlock(PixelFormatFromGPUPixelFormat(framebuffer.pixel_format));
 }
@@ -254,17 +254,16 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
         const auto pixel_format =
             VideoCore::Surface::PixelFormatFromGPUPixelFormat(framebuffer.pixel_format);
         const VAddr framebuffer_addr = framebuffer.address + framebuffer.offset;
-        const auto host_ptr = cpu_memory.GetPointer(framebuffer_addr);
-        rasterizer.FlushRegion(ToCacheAddr(host_ptr), GetSizeInBytes(framebuffer));
+        const u8* const host_ptr = cpu_memory.GetPointer(framebuffer_addr);
+        const size_t size_bytes = GetSizeInBytes(framebuffer);
+        rasterizer.FlushRegion(ToCacheAddr(host_ptr), size_bytes);
 
         // TODO(Rodrigo): Read this from HLE
         constexpr u32 block_height_log2 = 4;
-        UNREACHABLE();
-        /*
-        VideoCore::MortonSwizzle(VideoCore::MortonSwizzleMode::MortonToLinear, pixel_format,
-                                 framebuffer.stride, block_height_log2, framebuffer.height, 0, 1, 1,
-                                 map.GetAddress() + image_offset, host_ptr);
-        */
+        const u32 bytes_per_pixel = GetBytesPerPixel(framebuffer);
+        Tegra::Texture::UnswizzleTexture(
+            std::span(map.Address() + image_offset, size_bytes), std::span(host_ptr, size_bytes),
+            bytes_per_pixel, framebuffer.width, framebuffer.height, 1, block_height_log2, 0);
 
         const VkBufferImageCopy copy{
             .bufferOffset = image_offset,
@@ -287,7 +286,39 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
         };
         scheduler.Record(
             [buffer = *buffer, image = *raw_images[image_index], copy](vk::CommandBuffer cmdbuf) {
+                const VkImageMemoryBarrier base_barrier{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    .pNext = nullptr,
+                    .srcAccessMask = 0,
+                    .dstAccessMask = 0,
+                    .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = image,
+                    .subresourceRange =
+                        {
+                            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                            .baseMipLevel = 0,
+                            .levelCount = 1,
+                            .baseArrayLayer = 0,
+                            .layerCount = 1,
+                        },
+                };
+                VkImageMemoryBarrier read_barrier = base_barrier;
+                read_barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+                read_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                read_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                VkImageMemoryBarrier write_barrier = base_barrier;
+                write_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                write_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                       0, read_barrier);
                 cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_GENERAL, copy);
+                cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, write_barrier);
             });
     }
     map.Release();
@@ -730,34 +761,56 @@ void VKBlitScreen::CreateStagingBuffer(const Tegra::FramebufferConfig& framebuff
 
 void VKBlitScreen::CreateRawImages(const Tegra::FramebufferConfig& framebuffer) {
     raw_images.resize(image_count);
+    raw_image_views.resize(image_count);
     raw_buffer_commits.resize(image_count);
 
-    const VkImageCreateInfo ci{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .imageType = VK_IMAGE_TYPE_2D,
-        .format = GetFormat(framebuffer),
-        .extent =
-            {
-                .width = framebuffer.width,
-                .height = framebuffer.height,
-                .depth = 1,
-            },
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .tiling = VK_IMAGE_TILING_LINEAR,
-        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = 0,
-        .pQueueFamilyIndices = nullptr,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-    };
-
     for (size_t i = 0; i < image_count; ++i) {
-        raw_images[i] = device.GetLogical().CreateImage(ci);
+        raw_images[i] = device.GetLogical().CreateImage(VkImageCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = GetFormat(framebuffer),
+            .extent =
+                {
+                    .width = framebuffer.width,
+                    .height = framebuffer.height,
+                    .depth = 1,
+                },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_LINEAR,
+            .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        });
         raw_buffer_commits[i] = memory_manager.Commit(raw_images[i], false);
+        raw_image_views[i] = device.GetLogical().CreateImageView(VkImageViewCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .image = *raw_images[i],
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = GetFormat(framebuffer),
+            .components =
+                {
+                    .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+                    .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+                    .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+                    .a = VK_COMPONENT_SWIZZLE_IDENTITY,
+                },
+            .subresourceRange =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+        });
     }
 }
 
