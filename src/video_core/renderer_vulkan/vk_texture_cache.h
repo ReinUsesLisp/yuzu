@@ -125,16 +125,21 @@ public:
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo&, ImageId, Image&);
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams&);
 
-    VkImageView Handle() const noexcept {
-        return *image_view;
+    VkImageView Handle(VideoCommon::ImageViewType type) const noexcept {
+        return *views[static_cast<size_t>(type)];
     }
 
     VkBufferView BufferView() const noexcept {
         UNIMPLEMENTED();
     }
 
+    VkImageView RenderTarget() const noexcept {
+        return render_target;
+    }
+
 private:
-    vk::ImageView image_view;
+    std::array<vk::ImageView, VideoCommon::NUM_IMAGE_VIEW_TYPES> views;
+    VkImageView render_target = VK_NULL_HANDLE;
 };
 
 class ImageAlloc : public VideoCommon::ImageAllocBase {};

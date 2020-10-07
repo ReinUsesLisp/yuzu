@@ -462,7 +462,6 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
             overlap_ids.push_back(overlap_id);
         });
     }
-
     const ImageId new_image_id = slot_images.insert(runtime, new_info, gpu_addr, cpu_addr);
     Image& new_image = slot_images[new_image_id];
 
@@ -558,9 +557,7 @@ template <typename Func>
 void TextureCache<P>::ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func) {
     using FuncReturn = std::invoke_result<Func, ImageId>;
     static constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
-
     boost::container::small_vector<ImageId, 32> images;
-
     ForEachPage(cpu_addr, size, [this, &images, cpu_addr, size, func](u64 page) {
         const auto it = page_table.find(page);
         if (it == page_table.end()) {
@@ -588,7 +585,6 @@ void TextureCache<P>::ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& f
             return false;
         }
     });
-
     for (const ImageId image_id : images) {
         slot_images[image_id].flags &= ~ImageFlagBits::Picked;
     }
@@ -605,7 +601,6 @@ template <class P>
 void TextureCache<P>::InitializeNewImage(ImageId image_id) {
     // Memory of new images has to be uploaded because there was no track of them before
     UpdateImageContents(slot_images[image_id]);
-
     // Track memory stores and reads for this image
     RegisterImage(image_id);
 }
@@ -655,7 +650,6 @@ template <class P>
 void TextureCache<P>::TrackImage(Image& image) {
     ASSERT(False(image.flags & ImageFlagBits::Tracked));
     image.flags |= ImageFlagBits::Tracked;
-
     rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_in_bytes, 1);
 }
 
@@ -663,7 +657,6 @@ template <class P>
 void TextureCache<P>::UntrackImage(Image& image) {
     ASSERT(True(image.flags & ImageFlagBits::Tracked));
     image.flags &= ~ImageFlagBits::Tracked;
-
     rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_in_bytes, -1);
 }
 

@@ -534,7 +534,7 @@ std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst, const ImageIn
 
     std::vector<ImageCopy> copies;
     copies.reserve(src.resources.mipmaps);
-    for (u16 mipmap = 0; mipmap < src.resources.mipmaps; ++mipmap) {
+    for (u32 mipmap = 0; mipmap < src.resources.mipmaps; ++mipmap) {
         copies.push_back({
             .src_subresource =
                 {
@@ -550,7 +550,7 @@ std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst, const ImageIn
                 },
             .src_offset = {0, 0, 0},
             .dst_offset = {0, 0, 0},
-            .extent = AdjustMipSize(dst.size, base.mipmap),
+            .extent = AdjustMipSize(dst.size, base.mipmap + mipmap),
         });
     }
     return copies;

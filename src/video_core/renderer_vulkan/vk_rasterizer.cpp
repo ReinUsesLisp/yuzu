@@ -43,6 +43,7 @@ namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using Tegra::Texture::TextureHandle;
+using VideoCommon::ImageViewType;
 
 MICROPROFILE_DEFINE(Vulkan_WaitForWorker, "Vulkan", "Wait for worker", MP_RGB(255, 192, 192));
 MICROPROFILE_DEFINE(Vulkan_Drawing, "Vulkan", "Record drawing", MP_RGB(192, 128, 128));
@@ -177,6 +178,43 @@ std::array<VkDeviceSize, N> ExpandStrides(const std::array<u16, N>& strides) {
     std::array<VkDeviceSize, N> expanded;
     std::copy(strides.begin(), strides.end(), expanded.begin());
     return expanded;
+}
+
+ImageViewType ImageViewTypeFromEntry(const SamplerEntry& entry) {
+    if (entry.is_buffer) {
+        return ImageViewType::e2D;
+    }
+    switch (entry.type) {
+    case Tegra::Shader::TextureType::Texture1D:
+        return entry.is_array ? ImageViewType::e1DArray : ImageViewType::e1D;
+    case Tegra::Shader::TextureType::Texture2D:
+        return entry.is_array ? ImageViewType::e2DArray : ImageViewType::e2D;
+    case Tegra::Shader::TextureType::Texture3D:
+        return ImageViewType::e3D;
+    case Tegra::Shader::TextureType::TextureCube:
+        return entry.is_array ? ImageViewType::CubeArray : ImageViewType::Cube;
+    }
+    UNREACHABLE();
+    return ImageViewType::e2D;
+}
+
+ImageViewType ImageViewTypeFromEntry(const ImageEntry& entry) {
+    switch (entry.type) {
+    case Tegra::Shader::ImageType::Texture1D:
+        return ImageViewType::e1D;
+    case Tegra::Shader::ImageType::Texture1DArray:
+        return ImageViewType::e1DArray;
+    case Tegra::Shader::ImageType::Texture2D:
+        return ImageViewType::e2D;
+    case Tegra::Shader::ImageType::Texture2DArray:
+        return ImageViewType::e2DArray;
+    case Tegra::Shader::ImageType::Texture3D:
+        return ImageViewType::e3D;
+    case Tegra::Shader::ImageType::TextureBuffer:
+        return ImageViewType::Buffer;
+    }
+    UNREACHABLE();
+    return ImageViewType::e2D;
 }
 
 } // Anonymous namespace
@@ -722,7 +760,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
         return false;
     }
 
-    screen_info.image_view = image_view->Handle();
+    screen_info.image_view = image_view->Handle(VideoCommon::ImageViewType::e2D);
     screen_info.width = image_view->size.width;
     screen_info.height = image_view->size.height;
     screen_info.is_srgb = VideoCore::Surface::IsPixelFormatSRGB(image_view->format);
@@ -961,7 +999,8 @@ void RasterizerVulkan::SetupGraphicsTextures(const ShaderEntries& entries, std::
             const TextureHandle handle = GetTextureInfo(maxwell3d, entry, stage, index);
             ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
             Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.tsc_id);
-            SetupTexture(image_view, sampler);
+            update_descriptor_queue.AddSampledImage(
+                image_view->Handle(ImageViewTypeFromEntry(entry)), sampler->Handle());
         }
     }
 }
@@ -980,7 +1019,7 @@ void RasterizerVulkan::SetupGraphicsImages(const ShaderEntries& entries, std::si
     for (const auto& entry : entries.images) {
         const TextureHandle handle = GetTextureInfo(maxwell3d, entry, stage);
         ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
-        SetupImage(image_view, entry);
+        SetupImage(image_view, entry, ImageViewTypeFromEntry(entry));
     }
 }
 
@@ -990,11 +1029,11 @@ void RasterizerVulkan::SetupComputeConstBuffers(const ShaderEntries& entries) {
     for (const auto& entry : entries.const_buffers) {
         const auto& config = launch_desc.const_buffer_config[entry.GetIndex()];
         const std::bitset<8> mask = launch_desc.const_buffer_enable_mask.Value();
-        Tegra::Engines::ConstBufferInfo buffer;
-        buffer.address = config.Address();
-        buffer.size = config.size;
-        buffer.enabled = mask[entry.GetIndex()];
-        SetupConstBuffer(entry, buffer);
+        SetupConstBuffer(entry, Tegra::Engines::ConstBufferInfo{
+                                    .address = config.Address(),
+                                    .size = config.size,
+                                    .enabled = mask[entry.GetIndex()],
+                                });
     }
 }
 
@@ -1024,7 +1063,8 @@ void RasterizerVulkan::SetupComputeTextures(const ShaderEntries& entries) {
                 GetTextureInfo(kepler_compute, entry, ComputeShaderIndex, index);
             ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
             Sampler* const sampler = texture_cache.GetComputeSampler(handle.tsc_id);
-            SetupTexture(image_view, sampler);
+            update_descriptor_queue.AddSampledImage(
+                image_view->Handle(ImageViewTypeFromEntry(entry)), sampler->Handle());
         }
     }
 }
@@ -1043,7 +1083,7 @@ void RasterizerVulkan::SetupComputeImages(const ShaderEntries& entries) {
     for (const auto& entry : entries.images) {
         const TextureHandle handle = GetTextureInfo(kepler_compute, entry, ComputeShaderIndex);
         ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
-        SetupImage(image_view, entry);
+        SetupImage(image_view, entry, ImageViewTypeFromEntry(entry));
     }
 }
 
@@ -1085,16 +1125,13 @@ void RasterizerVulkan::SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAdd
     update_descriptor_queue.AddBuffer(info.handle, info.offset, size);
 }
 
-void RasterizerVulkan::SetupTexture(ImageView* image_view, Sampler* sampler) {
-    update_descriptor_queue.AddSampledImage(image_view->Handle(), sampler->Handle());
-}
-
-void RasterizerVulkan::SetupImage(ImageView* image_view, const ImageEntry& entry) {
+void RasterizerVulkan::SetupImage(ImageView* image_view, const ImageEntry& entry,
+                                  ImageViewType view_type) {
     if (entry.is_written) {
         UNREACHABLE();
         // image_view->image->flags |= VideoCommon::ImageFlagBits::GpuModified;
     }
-    update_descriptor_queue.AddImage(image_view->Handle());
+    update_descriptor_queue.AddImage(image_view->Handle(view_type));
 }
 
 void RasterizerVulkan::UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs) {

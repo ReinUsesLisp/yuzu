@@ -248,6 +248,50 @@ void TransitionToGeneral(vk::CommandBuffer cmdbuf, VkImage image, VkImageAspectF
     };
 }
 
+[[nodiscard]] std::vector<VkBufferImageCopy> TransformBufferImageCopies(
+    std::span<const VideoCommon::BufferImageCopy> copies, VkImageAspectFlags aspect_mask) {
+    struct Maker {
+        constexpr VkBufferImageCopy operator()(const VideoCommon::BufferImageCopy& copy) const {
+            return VkBufferImageCopy{
+                .bufferOffset = copy.buffer_offset,
+                .bufferRowLength = copy.buffer_row_length,
+                .bufferImageHeight = copy.buffer_image_height,
+                .imageSubresource =
+                    {
+                        .aspectMask = aspect_mask,
+                        .mipLevel = copy.image_subresource.base_mipmap,
+                        .baseArrayLayer = copy.image_subresource.base_layer,
+                        .layerCount = copy.image_subresource.num_layers,
+                    },
+                .imageOffset =
+                    {
+                        .x = static_cast<s32>(copy.image_offset.x),
+                        .y = static_cast<s32>(copy.image_offset.y),
+                        .z = static_cast<s32>(copy.image_offset.z),
+                    },
+                .imageExtent =
+                    {
+                        .width = copy.image_extent.width,
+                        .height = copy.image_extent.height,
+                        .depth = copy.image_extent.depth,
+                    },
+            };
+        }
+        VkImageAspectFlags aspect_mask;
+    };
+    if (aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
+        std::vector<VkBufferImageCopy> result(copies.size() * 2);
+        std::ranges::transform(copies, result.begin(), Maker{VK_IMAGE_ASPECT_DEPTH_BIT});
+        std::ranges::transform(copies, result.begin() + copies.size(),
+                               Maker{VK_IMAGE_ASPECT_STENCIL_BIT});
+        return result;
+    } else {
+        std::vector<VkBufferImageCopy> result(copies.size());
+        std::ranges::transform(copies, result.begin(), Maker{aspect_mask});
+        return result;
+    }
+}
+
 } // Anonymous namespace
 
 ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
@@ -346,53 +390,6 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
       image(runtime.device.GetLogical().CreateImage(MakeImageCreateInfo(runtime.device, info))),
       commit(runtime.memory_manager.Commit(image, false)), aspect_mask(ImageAspectMask(info)) {}
 
-struct BufferImageCopyMaker {
-    VkImageAspectFlags aspect_mask;
-
-    constexpr VkBufferImageCopy operator()(const VideoCommon::BufferImageCopy& copy) const {
-        return VkBufferImageCopy{
-            .bufferOffset = copy.buffer_offset,
-            .bufferRowLength = copy.buffer_row_length,
-            .bufferImageHeight = copy.buffer_image_height,
-            .imageSubresource =
-                {
-                    .aspectMask = aspect_mask,
-                    .mipLevel = copy.image_subresource.base_mipmap,
-                    .baseArrayLayer = copy.image_subresource.base_layer,
-                    .layerCount = copy.image_subresource.num_layers,
-                },
-            .imageOffset =
-                {
-                    .x = static_cast<s32>(copy.image_offset.x),
-                    .y = static_cast<s32>(copy.image_offset.y),
-                    .z = static_cast<s32>(copy.image_offset.z),
-                },
-            .imageExtent =
-                {
-                    .width = copy.image_extent.width,
-                    .height = copy.image_extent.height,
-                    .depth = copy.image_extent.depth,
-                },
-        };
-    }
-};
-
-std::vector<VkBufferImageCopy> TransformBufferImageCopies(
-    std::span<const VideoCommon::BufferImageCopy> copies, VkImageAspectFlags aspect_mask) {
-    std::vector<VkBufferImageCopy> vk_copies;
-    if (aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
-        vk_copies.resize(copies.size() * 2);
-        std::ranges::transform(copies, vk_copies.begin(),
-                               BufferImageCopyMaker{VK_IMAGE_ASPECT_DEPTH_BIT});
-        std::ranges::transform(copies, vk_copies.begin() + copies.size(),
-                               BufferImageCopyMaker{VK_IMAGE_ASPECT_STENCIL_BIT});
-    } else {
-        vk_copies.resize(copies.size());
-        std::ranges::transform(copies, vk_copies.begin(), BufferImageCopyMaker{aspect_mask});
-    }
-    return vk_copies;
-}
-
 void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
     std::vector<VkBufferImageCopy> vk_copies = TransformBufferImageCopies(copies, aspect_mask);
@@ -454,16 +451,15 @@ void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
 ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,
                      ImageId image_id, Image& image)
     : VideoCommon::ImageViewBase{info, image.info, image_id} {
-    const bool is_linear = image.info.type == VideoCommon::ImageType::Linear;
-    const auto format_info =
-        MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format);
-    image_view = runtime.device.GetLogical().CreateImageView(VkImageViewCreateInfo{
+    const VkFormat format =
+        MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format).format;
+    const VkImageViewCreateInfo create_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .image = image.Handle(),
-        .viewType = ImageViewType(info.type),
-        .format = format_info.format,
+        .viewType = VkImageViewType{},
+        .format = format,
         .components =
             {
                 .r = ComponentSwizzle(info.x_source),
@@ -479,7 +475,46 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
                 .baseArrayLayer = info.range.base.layer,
                 .layerCount = info.range.extent.layers,
             },
-    });
+    };
+    const vk::Device& device = runtime.device.GetLogical();
+    const auto create = [this, &device, &create_info](VideoCommon::ImageViewType type,
+                                                      std::optional<u32> num_layers) {
+        VkImageViewCreateInfo ci{create_info};
+        ci.viewType = ImageViewType(type);
+        if (num_layers) {
+            ci.subresourceRange.layerCount = *num_layers;
+        }
+        views[static_cast<size_t>(type)] = device.CreateImageView(ci);
+    };
+    switch (info.type) {
+    case VideoCommon::ImageViewType::e1D:
+    case VideoCommon::ImageViewType::e1DArray:
+        create(VideoCommon::ImageViewType::e1D, 1);
+        create(VideoCommon::ImageViewType::e1DArray, std::nullopt);
+        render_target = Handle(VideoCommon::ImageViewType::e1DArray);
+        break;
+    case VideoCommon::ImageViewType::e2D:
+    case VideoCommon::ImageViewType::e2DArray:
+        create(VideoCommon::ImageViewType::e2D, 1);
+        create(VideoCommon::ImageViewType::e2DArray, std::nullopt);
+        render_target = Handle(VideoCommon::ImageViewType::e2DArray);
+        break;
+    case VideoCommon::ImageViewType::e3D:
+        create(VideoCommon::ImageViewType::e3D, std::nullopt);
+        render_target = Handle(VideoCommon::ImageViewType::e3D);
+        break;
+    case VideoCommon::ImageViewType::Cube:
+    case VideoCommon::ImageViewType::CubeArray:
+        create(VideoCommon::ImageViewType::Cube, 6);
+        create(VideoCommon::ImageViewType::CubeArray, std::nullopt);
+        break;
+    case VideoCommon::ImageViewType::Rect:
+        UNIMPLEMENTED();
+        break;
+    case VideoCommon::ImageViewType::Buffer:
+        UNIMPLEMENTED();
+        break;
+    }
 }
 
 ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams& params)
@@ -534,7 +569,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime, std::span<ImageView*, NUM
     for (size_t index = 0; index < NUM_RT; ++index) {
         if (const ImageView* const image_view = color_buffers[index]; image_view) {
             descriptions.push_back(AttachmentDescription(runtime.device, image_view));
-            attachments.push_back(image_view->Handle());
+            attachments.push_back(image_view->RenderTarget());
             renderpass_key.color_formats[index] = image_view->format;
             num_layers = std::max(num_layers, image_view->range.extent.layers);
         } else {
@@ -547,7 +582,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime, std::span<ImageView*, NUM
         depth_buffer ? &ATTACHMENT_REFERENCES[num_colors] : nullptr;
     if (depth_buffer) {
         descriptions.push_back(AttachmentDescription(runtime.device, depth_buffer));
-        attachments.push_back(depth_buffer->Handle());
+        attachments.push_back(depth_buffer->RenderTarget());
         renderpass_key.depth_format = depth_buffer->format;
         num_layers = std::max(num_layers, depth_buffer->range.extent.layers);
     } else {

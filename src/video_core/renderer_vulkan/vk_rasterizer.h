@@ -228,9 +228,8 @@ private:
 
     void SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAddr address);
 
-    void SetupTexture(ImageView* image_view, Sampler* sampler);
-
-    void SetupImage(ImageView* image_view, const ImageEntry& entry);
+    void SetupImage(ImageView* image_view, const ImageEntry& entry,
+                    VideoCommon::ImageViewType view_type);
 
     void UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateScissorsState(Tegra::Engines::Maxwell3D::Regs& regs);

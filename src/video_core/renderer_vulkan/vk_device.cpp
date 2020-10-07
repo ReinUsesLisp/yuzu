@@ -46,6 +46,7 @@ constexpr std::array REQUIRED_EXTENSIONS{
     VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
     VK_KHR_DESCRIPTOR_UPDATE_TEMPLATE_EXTENSION_NAME,
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME,
     VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
     VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME,
     VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME,
@@ -216,7 +217,7 @@ bool VKDevice::Create() {
     features2.features = {
         .robustBufferAccess = false,
         .fullDrawIndexUint32 = false,
-        .imageCubeArray = false,
+        .imageCubeArray = true,
         .independentBlend = true,
         .geometryShader = true,
         .tessellationShader = true,
@@ -581,6 +582,7 @@ bool VKDevice::IsSuitable(vk::PhysicalDevice physical, VkSurfaceKHR surface) {
     const auto features{physical.GetFeatures()};
     const std::array feature_report = {
         std::make_pair(features.vertexPipelineStoresAndAtomics, "vertexPipelineStoresAndAtomics"),
+        std::make_pair(features.imageCubeArray, "imageCubeArray"),
         std::make_pair(features.independentBlend, "independentBlend"),
         std::make_pair(features.depthClamp, "depthClamp"),
         std::make_pair(features.samplerAnisotropy, "samplerAnisotropy"),
