@@ -39,7 +39,7 @@ struct RenderPassKey {
 namespace std {
 template <>
 struct hash<Vulkan::RenderPassKey> {
-    constexpr size_t operator()(const Vulkan::RenderPassKey& key) const noexcept {
+    [[nodiscard]] constexpr size_t operator()(const Vulkan::RenderPassKey& key) const noexcept {
         size_t hash = static_cast<size_t>(key.depth_format) << 48;
         hash ^= static_cast<size_t>(key.samples) << 52;
         for (size_t i = 0; i < key.color_formats.size(); ++i) {
@@ -53,11 +53,11 @@ struct hash<Vulkan::RenderPassKey> {
 namespace Vulkan {
 
 struct ImageBufferMap {
-    VkBuffer Handle() const noexcept {
+    [[nodiscard]] VkBuffer Handle() const noexcept {
         return handle;
     }
 
-    std::span<u8> Span() const noexcept {
+    [[nodiscard]] std::span<u8> Span() const noexcept {
         return map.Span();
     }
 
@@ -72,16 +72,18 @@ struct TextureCacheRuntime {
     VKStagingBufferPool& staging_buffer_pool;
     std::unordered_map<RenderPassKey, vk::RenderPass> renderpass_cache;
 
-    ImageBufferMap MapUploadBuffer(size_t size);
+    [[nodiscard]] ImageBufferMap MapUploadBuffer(size_t size);
 
-    ImageBufferMap MapDownloadBuffer(size_t size) {
+    [[nodiscard]] ImageBufferMap MapDownloadBuffer(size_t size) {
         // TODO: Have a special function for this
         return MapUploadBuffer(size);
     }
 
+    void BlitImage(Image& dst, Image& src, const Tegra::Engines::Fermi2D::Config& copy);
+
     void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
 
-    bool CanAccelerateImageUpload(Image&) const noexcept {
+    [[nodiscard]] bool CanAccelerateImageUpload(Image&) const noexcept {
         return false;
     }
 
@@ -125,15 +127,15 @@ public:
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo&, ImageId, Image&);
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams&);
 
-    VkImageView Handle(VideoCommon::ImageViewType type) const noexcept {
+    [[nodiscard]] VkImageView Handle(VideoCommon::ImageViewType type) const noexcept {
         return *views[static_cast<size_t>(type)];
     }
 
-    VkBufferView BufferView() const noexcept {
+    [[nodiscard]] VkBufferView BufferView() const noexcept {
         UNIMPLEMENTED();
     }
 
-    VkImageView RenderTarget() const noexcept {
+    [[nodiscard]] VkImageView RenderTarget() const noexcept {
         return render_target;
     }
 
@@ -148,7 +150,7 @@ class Sampler {
 public:
     explicit Sampler(TextureCacheRuntime&, const Tegra::Texture::TSCEntry&);
 
-    VkSampler Handle() const noexcept {
+    [[nodiscard]] VkSampler Handle() const noexcept {
         return *sampler;
     }
 

@@ -740,12 +740,13 @@ void RasterizerVulkan::TickFrame() {
     update_descriptor_queue.TickFrame();
     buffer_cache.TickFrame();
     staging_pool.TickFrame();
+    texture_cache.TickFrame();
 }
 
 bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
                                              const Tegra::Engines::Fermi2D::Regs::Surface& dst,
                                              const Tegra::Engines::Fermi2D::Config& copy_config) {
-    // texture_cache.DoFermiCopy(src, dst, copy_config);
+    texture_cache.BlitImage(src, dst, copy_config);
     return true;
 }
 

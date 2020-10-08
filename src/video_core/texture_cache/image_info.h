@@ -16,20 +16,21 @@ using VideoCore::Surface::PixelFormat;
 
 struct ImageInfo {
     explicit ImageInfo() = default;
-    explicit ImageInfo(const TICEntry& config);
-    explicit ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index);
-    explicit ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs);
-    explicit ImageInfo(const Tegra::Engines::Fermi2D::Regs::Surface& config);
+    explicit ImageInfo(const TICEntry& config) noexcept;
+    explicit ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) noexcept;
+    explicit ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept;
+    explicit ImageInfo(const Tegra::Engines::Fermi2D::Regs::Surface& config) noexcept;
 
-    PixelFormat format{};
-    ImageType type{};
+    PixelFormat format = PixelFormat::Invalid;
+    ImageType type = ImageType::e1D;
     SubresourceExtent resources;
     Extent3D size{1, 1, 1};
-    u32 num_samples;
     union {
         Extent3D block{0, 0, 0};
         u32 pitch;
     };
+    u32 layer_stride = 0;
+    u32 num_samples = 1;
     u32 tile_width_spacing = 1;
 };
 

@@ -68,7 +68,6 @@ class TextureCache {
         std::vector<TICEntry> tic_entries;    ///< Image entries
         std::vector<TSCEntry> tsc_entries;    ///< Sampler entries
         std::vector<ImageViewId> image_views; ///< Strong image views matching @sa tic_entries
-        std::vector<ImageId> active_images;   ///< Non-null strong images in no particular order
 
         std::vector<SamplerId> samplers;          ///< Samplers matching @sa tsc_entries
         std::vector<TSCEntry> stored_tsc_entries; ///< Sampler keys stored in @sa samplers
@@ -79,6 +78,11 @@ public:
                           Tegra::Engines::KeplerCompute&, Tegra::MemoryManager&);
 
     void ImplicitDescriptorInvalidations();
+
+    int frame_no = 0;
+    void TickFrame() {
+        ++frame_no;
+    }
 
     /**
      * Get the image view from the graphics descriptor table in the specified index
@@ -242,30 +246,23 @@ private:
 
     Framebuffer* GetFramebuffer(const RenderTargets& key);
 
-    /**
-     * Upload to host contents of all modified images in the table
-     * This will only upload strong image views. Weak image views (e.g. color buffers exclusives)
-     * are uploaded when they are bound if necessary.
-     *
-     * @param tables Container of the table of images to upload if modified
-     */
-    void UploadModifiedImageViews(ClassDescriptorTables& tables);
-
     void UpdateImageContents(Image& image);
 
     template <typename MapBuffer>
     void UploadImageContents(Image& image, MapBuffer& map, size_t buffer_offset);
 
-    ImageViewId FindImageView(const TICEntry& config);
+    [[nodiscard]] ImageViewId FindImageView(const TICEntry& config);
 
-    ImageViewId CreateImageView(const TICEntry& config);
+    [[nodiscard]] ImageViewId CreateImageView(const TICEntry& config);
 
-    ImageId FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size);
+    [[nodiscard]] ImageId FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                            RelaxedOptions options = RelaxedOptions{});
 
-    ImageId InsertImage(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size);
+    [[nodiscard]] ImageId InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                      RelaxedOptions options);
 
-    ImageId ResolveImageOverlaps(ImageInfo info, GPUVAddr gpu_addr, VAddr cpu_addr,
-                                 bool strict_size);
+    [[nodiscard]] ImageId ResolveImageOverlaps(ImageInfo info, GPUVAddr gpu_addr, VAddr cpu_addr,
+                                               RelaxedOptions options);
 
     /**
      * Find or create if necessary a sampler with the given properties
@@ -275,7 +272,8 @@ private:
      * @param config        Sampler properties
      * @returns             Sampler with the given properties
      */
-    SamplerId FindSampler(TSCEntry& stored_config, SamplerId existing_id, const TSCEntry& config);
+    [[nodiscard]] SamplerId FindSampler(TSCEntry& stored_config, SamplerId existing_id,
+                                        const TSCEntry& config);
 
     /**
      * Find or create an image view for the given color buffer index
@@ -283,16 +281,16 @@ private:
      * @param index Index of the color buffer to find
      * @returns     Image view of the given color buffer
      */
-    ImageViewId FindColorBuffer(size_t index);
+    [[nodiscard]] ImageViewId FindColorBuffer(size_t index);
 
     /**
      * Find or create an image view for the depth buffer
      *
      * @returns Image view for the depth buffer
      */
-    ImageViewId FindDepthBuffer();
+    [[nodiscard]] ImageViewId FindDepthBuffer();
 
-    ImageViewId FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr);
+    [[nodiscard]] ImageViewId FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr);
 
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func);
@@ -300,11 +298,11 @@ private:
     /**
      * Setup an image immediately created before calling this method
      */
-    ImageId CreateNewImage(const ImageInfo& info, GPUVAddr gpu_addr, VAddr cpu_addr);
+    [[nodiscard]] ImageId CreateNewImage(const ImageInfo& info, GPUVAddr gpu_addr, VAddr cpu_addr);
 
     void InitializeNewImage(ImageId image_id);
 
-    ImageViewId EmplaceImageView(ImageId image_id, const ImageViewInfo& info);
+    [[nodiscard]] ImageViewId EmplaceImageView(ImageId image_id, const ImageViewInfo& info);
 
     void TouchImageView(ImageViewId image_view_id);
 
@@ -364,6 +362,8 @@ private:
     std::vector<Image> sentenced_images;
     std::vector<ImageView> sentenced_image_view;
     std::vector<Framebuffer> sentenced_framebuffers;
+
+    std::vector<ImageId> modified_images;
 
     std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
 };

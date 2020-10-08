@@ -48,11 +48,13 @@ public:
 
     [[nodiscard]] T& operator[](SlotId id) noexcept {
         ASSERT(id);
+        ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
         return *reinterpret_cast<T*>(values[id.index].storage.data());
     }
 
     [[nodiscard]] const T& operator[](SlotId id) const noexcept {
         ASSERT(id);
+        ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
         return *reinterpret_cast<T*>(values[id.index].storage.data());
     }
 
@@ -67,7 +69,7 @@ public:
 
     void erase(SlotId id) noexcept {
         reinterpret_cast<T*>(values[id.index].storage.data())->~T();
-        free_list.push_back(id.index);
+        // free_list.push_back(id.index);
         ResetStorageBit(id.index);
     }
 

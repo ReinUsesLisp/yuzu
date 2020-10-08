@@ -11,6 +11,7 @@
 
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/surface.h"
+#include "video_core/texture_cache/image_base.h"
 #include "video_core/texture_cache/image_view_base.h"
 #include "video_core/texture_cache/types.h"
 #include "video_core/textures/texture.h"
@@ -27,7 +28,9 @@ struct OverlapResult {
 
 [[nodiscard]] u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept;
 
-[[nodiscard]] u32 CalculateHostSizeInBytes(const ImageInfo& info) noexcept;
+[[nodiscard]] u32 CalculateUnswizzledSizeBytes(const ImageInfo& info) noexcept;
+
+[[nodiscard]] u32 CalculateConvertedSizeBytes(const ImageInfo& info) noexcept;
 
 [[nodiscard]] u32 CalculateLayerStride(const ImageInfo& info) noexcept;
 
@@ -42,10 +45,6 @@ struct OverlapResult {
 
 [[nodiscard]] ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept;
 
-/// @note This doesn't check for format compatibilities
-[[nodiscard]] bool IsRenderTargetShrinkCompatible(const ImageInfo& dst, const ImageInfo& src,
-                                                  u32 level) noexcept;
-
 [[nodiscard]] std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst,
                                                            const ImageInfo& src,
                                                            SubresourceBase base);
@@ -55,6 +54,9 @@ struct OverlapResult {
 [[nodiscard]] std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory,
                                                           GPUVAddr gpu_addr, const ImageInfo& info,
                                                           std::span<u8> memory);
+
+void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8> output,
+                  std::span<BufferImageCopy> copies);
 
 [[nodiscard]] std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info);
 
@@ -80,9 +82,9 @@ void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const Ima
 [[nodiscard]] std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate,
                                                              const ImageBase& image,
                                                              GPUVAddr candidate_addr,
-                                                             bool strict_size);
+                                                             RelaxedOptions options);
 
 [[nodiscard]] bool IsSubresource(const ImageInfo& candidate, const ImageBase& image,
-                                 GPUVAddr candidate_addr, bool strict_size);
+                                 GPUVAddr candidate_addr, RelaxedOptions options);
 
 } // namespace VideoCommon

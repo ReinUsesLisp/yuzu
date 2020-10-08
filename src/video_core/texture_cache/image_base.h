@@ -16,12 +16,13 @@
 namespace VideoCommon {
 
 enum class ImageFlagBits : u32 {
-    AcceleratedUpload = 1 << 0,
-    CpuModified = 1 << 1,
-    GpuModified = 1 << 2,
-    Tracked = 1 << 3,
-    Strong = 1 << 4,
-    Picked = 1 << 5,
+    AcceleratedUpload = 1 << 0, ///< Upload can be accelerated in the GPU
+    Converted = 1 << 1,   ///< Guest format is not supported natively and it has to be converted
+    CpuModified = 1 << 2, ///< Contents have been modified from the CPU
+    GpuModified = 1 << 3, ///< Contents have been modified from the GPU
+    Tracked = 1 << 4,     ///< Writes and reads are being hooked from the CPU JIT
+    Strong = 1 << 5,      ///< Exists in the image table, the dimensions are can be trusted
+    Picked = 1 << 6,      ///< Temporary flag to mark the image as picked
 };
 DECLARE_ENUM_FLAG_OPERATORS(ImageFlagBits)
 
@@ -30,22 +31,24 @@ struct ImageViewInfo;
 struct ImageBase {
     explicit ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_);
 
-    bool Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noexcept;
+    [[nodiscard]] bool Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noexcept;
 
-    std::optional<SubresourceBase> FindSubresourceFromAddress(GPUVAddr rhs_addr) const noexcept;
+    [[nodiscard]] std::optional<SubresourceBase> FindSubresourceFromAddress(
+        GPUVAddr rhs_addr) const noexcept;
 
-    ImageViewId FindView(const ImageViewInfo& info) const noexcept;
+    [[nodiscard]] ImageViewId FindView(const ImageViewInfo& info) const noexcept;
 
     void InsertView(const ImageViewInfo& info, ImageViewId image_view_id);
 
     ImageInfo info;
 
-    u64 guest_size_in_bytes = 0;
-    u64 host_size_in_bytes = 0;
+    u32 guest_size_bytes = 0;
+    u32 unswizzled_size_bytes = 0;
+    u32 converted_size_bytes = 0;
+
     GPUVAddr gpu_addr = 0;
     VAddr cpu_addr = 0;
     VAddr cpu_addr_end = 0;
-    u32 layer_stride = 0;
 
     ImageFlagBits flags = ImageFlagBits::CpuModified;
     u64 invalidation_tick = 0;

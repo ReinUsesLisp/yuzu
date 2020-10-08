@@ -19,6 +19,7 @@
 #include "video_core/texture_cache/format_lookup_table.h"
 #include "video_core/texture_cache/formatter.h"
 #include "video_core/texture_cache/util.h"
+#include "video_core/textures/astc.h"
 #include "video_core/textures/decoders.h"
 
 namespace VideoCommon {
@@ -47,6 +48,8 @@ using VideoCore::Surface::IsViewCompatible;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
 
+constexpr u32 CONVERTED_BYTES_PER_BLOCK = BytesPerBlock(PixelFormat::A8B8G8R8_UNORM);
+
 struct LevelInfo {
     Extent3D size;
     Extent3D block;
@@ -54,13 +57,7 @@ struct LevelInfo {
     u32 bytes_per_block_log2;
 };
 
-constexpr bool IsExtentRenderTargetCompatible(Extent3D lhs, Extent3D rhs) {
-    constexpr u32 RELAXED_WIDTH = 16;
-    return Common::AlignUp(lhs.width, RELAXED_WIDTH) == Common::AlignUp(rhs.width, RELAXED_WIDTH) &&
-           lhs.height == rhs.height && lhs.depth == rhs.depth;
-}
-
-constexpr u32 AdjustTileSize(u32 shift, u32 unit_factor, u32 dimension) {
+[[nodiscard]] constexpr u32 AdjustTileSize(u32 shift, u32 unit_factor, u32 dimension) {
     if (shift == 0) {
         return 0;
     }
@@ -76,11 +73,11 @@ constexpr u32 AdjustTileSize(u32 shift, u32 unit_factor, u32 dimension) {
     return shift;
 }
 
-constexpr u32 AdjustMipSize(u32 size, u32 level) {
+[[nodiscard]] constexpr u32 AdjustMipSize(u32 size, u32 level) {
     return std::max<u32>(size >> level, 1);
 }
 
-constexpr Extent3D AdjustMipSize(Extent3D size, u32 level) {
+[[nodiscard]] constexpr Extent3D AdjustMipSize(Extent3D size, u32 level) {
     return {
         .width = AdjustMipSize(size.width, level),
         .height = AdjustMipSize(size.height, level),
@@ -89,7 +86,7 @@ constexpr Extent3D AdjustMipSize(Extent3D size, u32 level) {
 }
 
 template <u32 GOB_EXTENT>
-constexpr u32 AdjustMipBlockSize(u32 num_tiles, u32 block_size, u32 level) {
+[[nodiscard]] constexpr u32 AdjustMipBlockSize(u32 num_tiles, u32 block_size, u32 level) {
     do {
         while (block_size > 0 && num_tiles <= (1U << (block_size - 1)) * GOB_EXTENT) {
             --block_size;
@@ -98,7 +95,8 @@ constexpr u32 AdjustMipBlockSize(u32 num_tiles, u32 block_size, u32 level) {
     return block_size;
 }
 
-constexpr Extent3D AdjustMipBlockSize(Extent3D num_tiles, Extent3D block_size, u32 level) {
+[[nodiscard]] constexpr Extent3D AdjustMipBlockSize(Extent3D num_tiles, Extent3D block_size,
+                                                    u32 level) {
     return {
         .width = AdjustMipBlockSize<GOB_SIZE_X>(num_tiles.width, block_size.width, level),
         .height = AdjustMipBlockSize<GOB_SIZE_Y>(num_tiles.height, block_size.height, level),
@@ -106,11 +104,11 @@ constexpr Extent3D AdjustMipBlockSize(Extent3D num_tiles, Extent3D block_size, u
     };
 }
 
-constexpr u32 AdjustTileSize(u32 size, u32 tile_size) {
+[[nodiscard]] constexpr u32 AdjustTileSize(u32 size, u32 tile_size) {
     return (size + tile_size - 1) / tile_size;
 }
 
-constexpr Extent3D AdjustTileSize(Extent3D size, Extent2D tile_size) {
+[[nodiscard]] constexpr Extent3D AdjustTileSize(Extent3D size, Extent2D tile_size) {
     return {
         .width = AdjustTileSize(size.width, tile_size.width),
         .height = AdjustTileSize(size.height, tile_size.height),
@@ -118,20 +116,20 @@ constexpr Extent3D AdjustTileSize(Extent3D size, Extent2D tile_size) {
     };
 }
 
-constexpr u32 NumBlocks(Extent3D size, Extent2D tile_size) {
+[[nodiscard]] constexpr u32 NumBlocks(Extent3D size, Extent2D tile_size) {
     const Extent3D num_blocks = AdjustTileSize(size, tile_size);
     return num_blocks.width * num_blocks.height * num_blocks.depth;
 }
 
-constexpr u32 AdjustSize(u32 size, u32 level, u32 block_size) {
+[[nodiscard]] constexpr u32 AdjustSize(u32 size, u32 level, u32 block_size) {
     return AdjustTileSize(AdjustMipSize(size, level), block_size);
 }
 
-constexpr u32 LayerSize(const TICEntry& config, PixelFormat format) {
+[[nodiscard]] constexpr u32 LayerSize(const TICEntry& config, PixelFormat format) {
     return config.Width() * config.Height() * BytesPerBlock(format);
 }
 
-constexpr bool HasTwoDimsPerLayer(TextureType type) {
+[[nodiscard]] constexpr bool HasTwoDimsPerLayer(TextureType type) {
     switch (type) {
     case TextureType::Texture2D:
     case TextureType::Texture2DArray:
@@ -148,7 +146,7 @@ constexpr bool HasTwoDimsPerLayer(TextureType type) {
     return false;
 }
 
-constexpr bool HasTwoDimsPerLayer(ImageType type) {
+[[nodiscard]] constexpr bool HasTwoDimsPerLayer(ImageType type) {
     switch (type) {
     case ImageType::e2D:
     case ImageType::e3D:
@@ -161,7 +159,7 @@ constexpr bool HasTwoDimsPerLayer(ImageType type) {
     UNREACHABLE_MSG("Invalid image type={}", static_cast<int>(type));
 }
 
-constexpr std::pair<int, int> Samples(int num_samples) {
+[[nodiscard]] constexpr std::pair<int, int> Samples(int num_samples) {
     switch (num_samples) {
     case 1:
         return {1, 1};
@@ -178,7 +176,7 @@ constexpr std::pair<int, int> Samples(int num_samples) {
     return {1, 1};
 }
 
-int NumSamples(MsaaMode msaa_mode) {
+[[nodiscard]] int NumSamples(MsaaMode msaa_mode) {
     switch (msaa_mode) {
     case MsaaMode::Msaa1x1:
         return 1;
@@ -201,11 +199,11 @@ int NumSamples(MsaaMode msaa_mode) {
     return 1;
 }
 
-constexpr Extent2D DefaultBlockSize(PixelFormat format) {
+[[nodiscard]] constexpr Extent2D DefaultBlockSize(PixelFormat format) {
     return {DefaultBlockWidth(format), DefaultBlockHeight(format)};
 }
 
-constexpr u32 CalculateLevelSize(const LevelInfo& info, u32 level) {
+[[nodiscard]] constexpr u32 CalculateLevelSize(const LevelInfo& info, u32 level) {
     const u32 width = AdjustSize(info.size.width, level, info.tile_size.width);
     const u32 height = AdjustSize(info.size.height, level, info.tile_size.height);
     const u32 depth = AdjustMipSize(info.size.depth, level);
@@ -231,7 +229,8 @@ constexpr u32 CalculateLevelSize(const LevelInfo& info, u32 level) {
     return num_tiles << tile_shift;
 }
 
-constexpr std::array<u32, MAX_MIPMAP> CalculateLevelSizes(const LevelInfo& info, u32 num_mipmaps) {
+[[nodiscard]] constexpr std::array<u32, MAX_MIPMAP> CalculateLevelSizes(const LevelInfo& info,
+                                                                        u32 num_mipmaps) {
     ASSERT(num_mipmaps <= MAX_MIPMAP);
     std::array<u32, MAX_MIPMAP> sizes{};
     for (u32 level = 0; level < num_mipmaps; ++level) {
@@ -240,8 +239,8 @@ constexpr std::array<u32, MAX_MIPMAP> CalculateLevelSizes(const LevelInfo& info,
     return sizes;
 }
 
-constexpr LevelInfo MakeLevelInfo(PixelFormat format, Extent3D size, Extent3D block,
-                                  u32 num_samples) {
+[[nodiscard]] constexpr LevelInfo MakeLevelInfo(PixelFormat format, Extent3D size, Extent3D block,
+                                                u32 num_samples) {
     const auto [samples_x, samples_y] = Samples(num_samples);
     const u32 bytes_per_block = BytesPerBlock(format);
     return {
@@ -257,12 +256,12 @@ constexpr LevelInfo MakeLevelInfo(PixelFormat format, Extent3D size, Extent3D bl
     };
 }
 
-constexpr LevelInfo MakeLevelInfo(const ImageInfo& info) {
+[[nodiscard]] constexpr LevelInfo MakeLevelInfo(const ImageInfo& info) {
     return MakeLevelInfo(info.format, info.size, info.block, info.num_samples);
 }
 
-constexpr u32 CalculateLevelOffset(PixelFormat format, Extent3D size, Extent3D block,
-                                   u32 num_samples, u32 level) {
+[[nodiscard]] constexpr u32 CalculateLevelOffset(PixelFormat format, Extent3D size, Extent3D block,
+                                                 u32 num_samples, u32 level) {
     const LevelInfo info = MakeLevelInfo(format, size, block, num_samples);
 
     u32 offset = 0;
@@ -272,9 +271,9 @@ constexpr u32 CalculateLevelOffset(PixelFormat format, Extent3D size, Extent3D b
     return offset;
 }
 
-constexpr std::optional<u32> TryCalculateNumMipmaps(PixelFormat format, Extent3D size,
-                                                    Extent3D block, u32 num_samples,
-                                                    s32 layer_stride) {
+[[nodiscard]] constexpr std::optional<u32> TryCalculateNumMipmaps(PixelFormat format, Extent3D size,
+                                                                  Extent3D block, u32 num_samples,
+                                                                  s32 layer_stride) {
     const LevelInfo level_info = MakeLevelInfo(format, size, block, num_samples);
     u32 level = 0;
     do {
@@ -286,8 +285,8 @@ constexpr std::optional<u32> TryCalculateNumMipmaps(PixelFormat format, Extent3D
     return std::nullopt;
 }
 
-constexpr u32 AlignLayerSize(u32 size_bytes, Extent3D size, Extent3D block, u32 tile_size_y,
-                             u32 tile_width_spacing) {
+[[nodiscard]] constexpr u32 AlignLayerSize(u32 size_bytes, Extent3D size, Extent3D block,
+                                           u32 tile_size_y, u32 tile_width_spacing) {
     if (tile_width_spacing > 1) {
         const u32 alignment = tile_width_spacing >> (GOB_SIZE_SHIFT + block.height + block.depth);
         return Common::AlignUp(size_bytes, alignment);
@@ -307,14 +306,14 @@ constexpr u32 AlignLayerSize(u32 size_bytes, Extent3D size, Extent3D block, u32 
     return size_bytes;
 }
 
-std::optional<SubresourceExtent> ResolveOverlapEqualAddress(const ImageInfo& new_info,
-                                                            const ImageBase& overlap,
-                                                            bool strict_size) {
+[[nodiscard]] std::optional<SubresourceExtent> ResolveOverlapEqualAddress(const ImageInfo& new_info,
+                                                                          const ImageBase& overlap,
+                                                                          bool strict_size) {
     const ImageInfo& info = overlap.info;
     if (!IsSameSize(new_info, info, 0, 0, strict_size)) {
         return std::nullopt;
     }
-    if (new_info.type != ImageType::Linear && new_info.block != info.block) {
+    if (new_info.block != info.block) {
         return std::nullopt;
     }
     const SubresourceExtent resources = new_info.resources;
@@ -324,20 +323,21 @@ std::optional<SubresourceExtent> ResolveOverlapEqualAddress(const ImageInfo& new
     };
 }
 
-std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_info,
-                                                        GPUVAddr gpu_addr, VAddr cpu_addr,
-                                                        const ImageBase& overlap,
-                                                        bool strict_size) {
-    const std::array offsets = CalculateMipmapOffsets(new_info);
-    const u32 layer_stride = CalculateLayerStride(new_info);
-    const u32 diff = static_cast<u32>(overlap.gpu_addr - gpu_addr);
+[[nodiscard]] std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_info,
+                                                                      GPUVAddr gpu_addr,
+                                                                      VAddr cpu_addr,
+                                                                      const ImageBase& overlap,
+                                                                      bool strict_size) {
+    const u32 layer_stride = new_info.layer_stride;
     const u32 new_size = layer_stride * new_info.resources.layers;
+    const u32 diff = static_cast<u32>(overlap.gpu_addr - gpu_addr);
     if (diff > new_size) {
         return std::nullopt;
     }
     const u32 base_layer = diff / layer_stride;
     const u32 mip_offset = diff % layer_stride;
     const SubresourceExtent resources = new_info.resources;
+    const std::array offsets = CalculateMipmapOffsets(new_info);
     const auto end = offsets.begin() + resources.mipmaps;
     const auto it = std::find(offsets.begin(), end, mip_offset);
     if (it == end) {
@@ -349,7 +349,7 @@ std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_inf
     if (!IsSameSize(new_info, info, mipmap, 0, strict_size)) {
         return std::nullopt;
     }
-    if (new_info.type != ImageType::Linear && new_info.block != MipmapBlockSize(info, mipmap)) {
+    if (new_info.block != MipmapBlockSize(info, mipmap)) {
         return std::nullopt;
     }
     return OverlapResult{
@@ -363,9 +363,11 @@ std::optional<OverlapResult> ResolveOverlapRightAddress(const ImageInfo& new_inf
     };
 }
 
-std::optional<OverlapResult> ResolveOverlapLeftAddress(const ImageInfo& new_info, GPUVAddr gpu_addr,
-                                                       VAddr cpu_addr, const ImageBase& overlap,
-                                                       bool strict_size) {
+[[nodiscard]] std::optional<OverlapResult> ResolveOverlapLeftAddress(const ImageInfo& new_info,
+                                                                     GPUVAddr gpu_addr,
+                                                                     VAddr cpu_addr,
+                                                                     const ImageBase& overlap,
+                                                                     bool strict_size) {
     const std::optional<SubresourceBase> base = overlap.FindSubresourceFromAddress(gpu_addr);
     if (!base) {
         return std::nullopt;
@@ -374,8 +376,7 @@ std::optional<OverlapResult> ResolveOverlapLeftAddress(const ImageInfo& new_info
     if (!IsSameSize(new_info, info, base->mipmap, 0, strict_size)) {
         return std::nullopt;
     }
-    if (new_info.type != ImageType::Linear &&
-        MipmapBlockSize(new_info, base->mipmap) != info.block) {
+    if (MipmapBlockSize(new_info, base->mipmap) != info.block) {
         return std::nullopt;
     }
     const SubresourceExtent resources = new_info.resources;
@@ -391,11 +392,11 @@ std::optional<OverlapResult> ResolveOverlapLeftAddress(const ImageInfo& new_info
 }
 
 template <typename T>
-constexpr T DivCeil(T number, T divisor) {
+[[nodiscard]] constexpr T DivCeil(T number, T divisor) {
     return (number + divisor - 1) / divisor;
 }
 
-Extent3D AlignedSize(const ImageInfo& info, u32 mipmap) {
+[[nodiscard]] Extent3D AlignedSize(const ImageInfo& info, u32 mipmap) {
     // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L176
     const Extent3D size = AdjustMipSize(info.size, mipmap);
     const Extent3D num_tiles{
@@ -421,6 +422,15 @@ Extent3D AlignedSize(const ImageInfo& info, u32 mipmap) {
     };
 }
 
+[[nodiscard]] constexpr u32 NumBlocksPerLayer(const ImageInfo& info, Extent2D tile_size) noexcept {
+    u32 num_blocks = 0;
+    for (u32 mipmap = 0; mipmap < info.resources.mipmaps; ++mipmap) {
+        const Extent3D mip_size = AdjustMipSize(info.size, mipmap);
+        num_blocks += NumBlocks(mip_size, tile_size);
+    }
+    return num_blocks;
+}
+
 } // Anonymous namespace
 
 u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept {
@@ -433,22 +443,20 @@ u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept {
     }
 }
 
-u32 CalculateHostSizeInBytes(const ImageInfo& info) noexcept {
+u32 CalculateUnswizzledSizeBytes(const ImageInfo& info) noexcept {
     // if (info.type != ImageType::Buffer) {}
-
     if (info.num_samples > 1) {
         // Multisample images can't be uploaded or downloaded to the host
         return 0;
     }
-
     const Extent2D tile_size = DefaultBlockSize(info.format);
+    return NumBlocksPerLayer(info, tile_size) * info.resources.layers * BytesPerBlock(info.format);
+}
 
-    u32 num_blocks = 0;
-    for (u32 mipmap = 0; mipmap < info.resources.mipmaps; ++mipmap) {
-        const Extent3D mip_size = AdjustMipSize(info.size, mipmap);
-        num_blocks += NumBlocks(mip_size, tile_size);
-    }
-    return num_blocks * info.resources.layers * BytesPerBlock(info.format);
+u32 CalculateConvertedSizeBytes(const ImageInfo& info) noexcept {
+    // if (info.type != ImageType::Buffer) {}
+    static constexpr Extent2D TILE_SIZE{1, 1};
+    return NumBlocksPerLayer(info, TILE_SIZE) * info.resources.layers * CONVERTED_BYTES_PER_BLOCK;
 }
 
 u32 CalculateLayerStride(const ImageInfo& info) noexcept {
@@ -462,11 +470,9 @@ u32 CalculateLayerStride(const ImageInfo& info) noexcept {
 
 u32 CalculateLayerSize(const ImageInfo& info) noexcept {
     // if (info.type != ImageType::Buffer) {}
-
     if (info.type == ImageType::Linear) {
         return static_cast<u64>(info.pitch) * info.size.height;
     }
-
     const Extent3D size = info.size;
     const Extent3D block = info.block;
     const u32 num_samples = info.num_samples;
@@ -513,23 +519,9 @@ ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept {
     }
 }
 
-bool IsRenderTargetShrinkCompatible(const ImageInfo& dst, const ImageInfo& src,
-                                    u32 level) noexcept {
-    const Extent3D dst_size = AdjustMipSize(dst.size, level);
-    const Extent2D tile_size = DefaultBlockSize(dst.format);
-    const Extent3D num_tiles = AdjustTileSize(dst_size, tile_size);
-    const Extent3D dst_block = AdjustMipBlockSize(num_tiles, dst.block, level);
-
-    UNIMPLEMENTED_IF(dst.resources.layers < src.resources.layers);
-
-    return dst.type == src.type && dst.num_samples == src.num_samples && dst_block == src.block &&
-           IsExtentRenderTargetCompatible(dst_size, src.size);
-}
-
 std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst, const ImageInfo& src,
                                              SubresourceBase base) {
     ASSERT(IsCopyCompatible(dst.format, src.format));
-    ASSERT(IsRenderTargetShrinkCompatible(dst, src, base.mipmap));
     ASSERT(dst.resources.mipmaps >= src.resources.mipmaps);
 
     std::vector<ImageCopy> copies;
@@ -568,12 +560,12 @@ bool IsValid(const Tegra::MemoryManager& gpu_memory, const TICEntry& config) {
 
 std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
                                             const ImageInfo& info, std::span<u8> output) {
-    const size_t guest_size_in_bytes = CalculateGuestSizeInBytes(info);
+    const size_t guest_size_bytes = CalculateGuestSizeInBytes(info);
     const u32 bytes_per_block = BytesPerBlock(info.format);
     const Extent3D size = info.size;
 
     if (info.type == ImageType::Linear) {
-        gpu_memory.ReadBlockUnsafe(gpu_addr, output.data(), guest_size_in_bytes);
+        gpu_memory.ReadBlockUnsafe(gpu_addr, output.data(), guest_size_bytes);
 
         ASSERT(info.pitch % bytes_per_block == 0);
         return {{
@@ -592,9 +584,9 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
         }};
     }
 
-    const auto input_data = std::make_unique<u8[]>(guest_size_in_bytes);
-    gpu_memory.ReadBlockUnsafe(gpu_addr, input_data.get(), guest_size_in_bytes);
-    const std::span<const u8> input(input_data.get(), guest_size_in_bytes);
+    const auto input_data = std::make_unique<u8[]>(guest_size_bytes);
+    gpu_memory.ReadBlockUnsafe(gpu_addr, input_data.get(), guest_size_bytes);
+    const std::span<const u8> input(input_data.get(), guest_size_bytes);
 
     const LevelInfo level_info = MakeLevelInfo(info);
     const u32 num_layers = info.resources.layers;
@@ -646,6 +638,28 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
     }
 
     return copies;
+}
+
+void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8> output,
+                  std::span<BufferImageCopy> copies) {
+    u32 output_offset = 0;
+
+    const Extent2D tile_size = DefaultBlockSize(info.format);
+    for (BufferImageCopy& copy : copies) {
+        ASSERT(copy.image_offset == Offset3D{});
+        ASSERT(copy.image_subresource.base_layer == 0);
+        ASSERT(copy.image_extent == info.size);
+        ASSERT(copy.image_extent.depth == 1);
+
+        Tegra::Texture::ASTC::Decompress(input.subspan(copy.buffer_offset), copy.image_extent.width,
+                                         copy.image_extent.height,
+                                         copy.image_subresource.num_layers, tile_size.width,
+                                         tile_size.height, output.subspan(output_offset));
+        copy.buffer_offset = output_offset;
+
+        output_offset += copy.image_extent.width * copy.image_extent.height *
+                         copy.image_subresource.num_layers * CONVERTED_BYTES_PER_BLOCK;
+    }
 }
 
 std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info) {
@@ -884,6 +898,8 @@ bool IsSameSize(const ImageInfo& lhs, const ImageInfo& rhs, u32 lhs_mipmap, u32 
 std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr gpu_addr,
                                             VAddr cpu_addr, const ImageBase& overlap,
                                             bool strict_size) {
+    ASSERT(new_info.type != ImageType::Linear);
+    ASSERT(overlap.info.type != ImageType::Linear);
     if (gpu_addr == overlap.gpu_addr) {
         const std::optional solution = ResolveOverlapEqualAddress(new_info, overlap, strict_size);
         if (!solution) {
@@ -894,8 +910,7 @@ std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr 
             .cpu_addr = cpu_addr,
             .resources = *solution,
         };
-    }
-    if (overlap.gpu_addr > gpu_addr) {
+    } else if (overlap.gpu_addr > gpu_addr) {
         return ResolveOverlapRightAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
     } else { // overlap.gpu_addr < gpu_addr
         return ResolveOverlapLeftAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
@@ -903,15 +918,22 @@ std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr 
 }
 
 std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const ImageBase& image,
-                                               GPUVAddr candidate_addr, bool strict_size) {
+                                               GPUVAddr candidate_addr, RelaxedOptions options) {
     const std::optional<SubresourceBase> subresource =
         image.FindSubresourceFromAddress(candidate_addr);
     if (!subresource) {
         return std::nullopt;
     }
     const ImageInfo& existing = image.info;
-    if (!IsViewCompatible(existing.format, candidate.format)) {
-        return std::nullopt;
+    if (False(options & RelaxedOptions::Format)) {
+        if (!IsViewCompatible(existing.format, candidate.format)) {
+            return std::nullopt;
+        }
+    }
+    if (False(options & RelaxedOptions::LayerStride)) {
+        if (existing.layer_stride != candidate.layer_stride) {
+            return std::nullopt;
+        }
     }
     if (existing.type != candidate.type) {
         return std::nullopt;
@@ -925,6 +947,7 @@ std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const
     if (existing.resources.mipmaps < candidate.resources.mipmaps + subresource->mipmap) {
         return std::nullopt;
     }
+    const bool strict_size = False(options & RelaxedOptions::Size);
     if (!IsSameSize(existing, candidate, subresource->mipmap, 0, strict_size)) {
         return std::nullopt;
     }
@@ -933,8 +956,8 @@ std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const
 }
 
 bool IsSubresource(const ImageInfo& candidate, const ImageBase& image, GPUVAddr candidate_addr,
-                   bool strict_size) {
-    return FindSubresource(candidate, image, candidate_addr, strict_size).has_value();
+                   RelaxedOptions options) {
+    return FindSubresource(candidate, image, candidate_addr, options).has_value();
 }
 
 #ifdef __cpp_using_enum

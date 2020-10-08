@@ -11,7 +11,9 @@
 
 namespace Vulkan {
 
+using Tegra::Texture::SwizzleSource;
 using Tegra::Texture::TextureMipmapFilter;
+using VideoCore::Surface::IsPixelFormatASTC;
 
 namespace {
 
@@ -88,6 +90,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     if (format_info.storage) {
         usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
+
     return VkImageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .pNext = nullptr,
@@ -112,8 +115,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
-[[nodiscard]] VkImageAspectFlags ImageAspectMask(const VideoCommon::ImageInfo& info) {
-    switch (VideoCore::Surface::GetFormatType(info.format)) {
+[[nodiscard]] VkImageAspectFlags ImageAspectMask(PixelFormat format) {
+    switch (VideoCore::Surface::GetFormatType(format)) {
     case VideoCore::Surface::SurfaceType::ColorTexture:
         return VK_IMAGE_ASPECT_COLOR_BIT;
     case VideoCore::Surface::SurfaceType::Depth:
@@ -123,6 +126,19 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     default:
         UNREACHABLE_MSG("Invalid surface type");
         return {};
+    }
+}
+
+[[nodiscard]] VkImageAspectFlags ImageViewAspectMask(const VideoCommon::ImageViewInfo& info) {
+    const bool is_first = info.Swizzle()[0] == SwizzleSource::R;
+    switch (info.format) {
+    case PixelFormat::D24_UNORM_S8_UINT:
+    case PixelFormat::D32_FLOAT_S8_UINT:
+        return is_first ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_STENCIL_BIT;
+    case PixelFormat::S8_UINT_D24_UNORM:
+        return is_first ? VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
+    default:
+        return VK_IMAGE_ASPECT_COLOR_BIT;
     }
 }
 
@@ -142,20 +158,20 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
-[[nodiscard]] VkComponentSwizzle ComponentSwizzle(u8 swizzle) {
-    switch (static_cast<Tegra::Texture::SwizzleSource>(swizzle)) {
-    case Tegra::Texture::SwizzleSource::Zero:
+[[nodiscard]] VkComponentSwizzle ComponentSwizzle(SwizzleSource swizzle) {
+    switch (swizzle) {
+    case SwizzleSource::Zero:
         return VK_COMPONENT_SWIZZLE_ZERO;
-    case Tegra::Texture::SwizzleSource::R:
+    case SwizzleSource::R:
         return VK_COMPONENT_SWIZZLE_R;
-    case Tegra::Texture::SwizzleSource::G:
+    case SwizzleSource::G:
         return VK_COMPONENT_SWIZZLE_G;
-    case Tegra::Texture::SwizzleSource::B:
+    case SwizzleSource::B:
         return VK_COMPONENT_SWIZZLE_B;
-    case Tegra::Texture::SwizzleSource::A:
+    case SwizzleSource::A:
         return VK_COMPONENT_SWIZZLE_A;
-    case Tegra::Texture::SwizzleSource::OneFloat:
-    case Tegra::Texture::SwizzleSource::OneInt:
+    case SwizzleSource::OneFloat:
+    case SwizzleSource::OneInt:
         return VK_COMPONENT_SWIZZLE_ONE;
     }
     UNREACHABLE_MSG("Invalid swizzle={}", static_cast<int>(swizzle));
@@ -249,7 +265,8 @@ void TransitionToGeneral(vk::CommandBuffer cmdbuf, VkImage image, VkImageAspectF
 }
 
 [[nodiscard]] std::vector<VkBufferImageCopy> TransformBufferImageCopies(
-    std::span<const VideoCommon::BufferImageCopy> copies, VkImageAspectFlags aspect_mask) {
+    std::span<const VideoCommon::BufferImageCopy> copies, size_t buffer_offset,
+    VkImageAspectFlags aspect_mask) {
     struct Maker {
         constexpr VkBufferImageCopy operator()(const VideoCommon::BufferImageCopy& copy) const {
             return VkBufferImageCopy{
@@ -277,18 +294,31 @@ void TransitionToGeneral(vk::CommandBuffer cmdbuf, VkImage image, VkImageAspectF
                     },
             };
         }
+        size_t buffer_offset;
         VkImageAspectFlags aspect_mask;
     };
     if (aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
         std::vector<VkBufferImageCopy> result(copies.size() * 2);
-        std::ranges::transform(copies, result.begin(), Maker{VK_IMAGE_ASPECT_DEPTH_BIT});
+        std::ranges::transform(copies, result.begin(),
+                               Maker{buffer_offset, VK_IMAGE_ASPECT_DEPTH_BIT});
         std::ranges::transform(copies, result.begin() + copies.size(),
-                               Maker{VK_IMAGE_ASPECT_STENCIL_BIT});
+                               Maker{buffer_offset, VK_IMAGE_ASPECT_STENCIL_BIT});
         return result;
     } else {
         std::vector<VkBufferImageCopy> result(copies.size());
-        std::ranges::transform(copies, result.begin(), Maker{aspect_mask});
+        std::ranges::transform(copies, result.begin(), Maker{buffer_offset, aspect_mask});
         return result;
+    }
+}
+
+[[nodiscard]] constexpr SwizzleSource SwapRedGreen(SwizzleSource value) {
+    switch (value) {
+    case SwizzleSource::R:
+        return SwizzleSource::G;
+    case SwizzleSource::G:
+        return SwizzleSource::R;
+    default:
+        return value;
     }
 }
 
@@ -300,6 +330,68 @@ ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
         .handle = *buffer.handle,
         .map = buffer.commit->Map(size),
     };
+}
+
+void TextureCacheRuntime::BlitImage(Image& dst, Image& src,
+                                    const Tegra::Engines::Fermi2D::Config& copy) {
+    if (dst.info.format != src.info.format) {
+        LOG_INFO(Render_Vulkan, "Different formats");
+    }
+    const VkImage src_image = src.Handle();
+    const VkImage dst_image = dst.Handle();
+    const VkImageAspectFlags aspect_mask = src.AspectMask();
+    ASSERT(aspect_mask == dst.AspectMask());
+
+    scheduler.RequestOutsideRenderPassOperationContext();
+    scheduler.Record([src_image, dst_image, aspect_mask, copy](vk::CommandBuffer cmdbuf) {
+        const VkImageBlit blit{
+            .srcSubresource =
+                {
+                    .aspectMask = aspect_mask,
+                    .mipLevel = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            .srcOffsets =
+                {
+                    VkOffset3D{
+                        .x = static_cast<s32>(copy.src_rect.left),
+                        .y = static_cast<s32>(copy.src_rect.top),
+                        .z = 0,
+                    },
+                    VkOffset3D{
+                        .x = static_cast<s32>(copy.src_rect.right),
+                        .y = static_cast<s32>(copy.src_rect.bottom),
+                        .z = 1,
+                    },
+                },
+            .dstSubresource =
+                {
+                    .aspectMask = aspect_mask,
+                    .mipLevel = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            .dstOffsets =
+                {
+                    VkOffset3D{
+                        .x = static_cast<s32>(copy.dst_rect.left),
+                        .y = static_cast<s32>(copy.dst_rect.top),
+                        .z = 0,
+                    },
+                    VkOffset3D{
+                        .x = static_cast<s32>(copy.dst_rect.right),
+                        .y = static_cast<s32>(copy.dst_rect.bottom),
+                        .z = 1,
+                    },
+                },
+        };
+        const VkFilter filter = copy.filter == Tegra::Engines::Fermi2D::Filter::Linear
+                                    ? VK_FILTER_LINEAR
+                                    : VK_FILTER_NEAREST;
+        cmdbuf.BlitImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, VK_IMAGE_LAYOUT_GENERAL,
+                         blit, filter);
+    });
 }
 
 void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
@@ -388,11 +480,29 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
              VAddr cpu_addr)
     : VideoCommon::ImageBase(info, gpu_addr, cpu_addr), scheduler{&runtime.scheduler},
       image(runtime.device.GetLogical().CreateImage(MakeImageCreateInfo(runtime.device, info))),
-      commit(runtime.memory_manager.Commit(image, false)), aspect_mask(ImageAspectMask(info)) {}
+      commit(runtime.memory_manager.Commit(image, false)),
+      aspect_mask(ImageAspectMask(info.format)) {
+    auto vkSetDebugUtilsObjectNameEXT =
+        (PFN_vkSetDebugUtilsObjectNameEXT)runtime.device.GetDispatchLoader().vkGetDeviceProcAddr(
+            *runtime.device.GetLogical(), "vkSetDebugUtilsObjectNameEXT");
+    auto c = fmt::format("Image 0x{:x}", static_cast<u64>(gpu_addr));
+    const VkDebugUtilsObjectNameInfoEXT tag{
+        .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+        .pNext = nullptr,
+        .objectType = VK_OBJECT_TYPE_IMAGE,
+        .objectHandle = reinterpret_cast<u64>(*image),
+        .pObjectName = c.c_str(),
+    };
+    vkSetDebugUtilsObjectNameEXT(*runtime.device.GetLogical(), &tag);
+
+    if (IsPixelFormatASTC(info.format) && !runtime.device.IsOptimalAstcSupported()) {
+        flags |= VideoCommon::ImageFlagBits::Converted;
+    }
+}
 
 void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
-    std::vector<VkBufferImageCopy> vk_copies = TransformBufferImageCopies(copies, aspect_mask);
+    std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
 
     // TODO: Move this to another API
     scheduler->RequestOutsideRenderPassOperationContext();
@@ -404,9 +514,6 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
     }
     scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
                        vk_copies](vk::CommandBuffer cmdbuf) {
-        // TODO: Move this to another API
-        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
         cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_GENERAL, vk_copies);
 
         // TODO: Move this to another API
@@ -440,7 +547,7 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
 
 void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
                            std::span<const VideoCommon::BufferImageCopy> copies) {
-    std::vector<VkBufferImageCopy> vk_copies = TransformBufferImageCopies(copies, aspect_mask);
+    std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
     scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
                        vk_copies](vk::CommandBuffer cmdbuf) {
         cmdbuf.CopyImageToBuffer(image, VK_IMAGE_LAYOUT_GENERAL, buffer, vk_copies);
@@ -453,6 +560,11 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
     : VideoCommon::ImageViewBase{info, image.info, image_id} {
     const VkFormat format =
         MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format).format;
+    std::array swizzle = info.Swizzle();
+    if (info.format == PixelFormat::S8_UINT_D24_UNORM) {
+        // Make sure we sample the first component
+        std::ranges::transform(swizzle, swizzle.begin(), SwapRedGreen);
+    }
     const VkImageViewCreateInfo create_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = nullptr,
@@ -462,14 +574,14 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
         .format = format,
         .components =
             {
-                .r = ComponentSwizzle(info.x_source),
-                .g = ComponentSwizzle(info.y_source),
-                .b = ComponentSwizzle(info.z_source),
-                .a = ComponentSwizzle(info.w_source),
+                .r = ComponentSwizzle(swizzle[0]),
+                .g = ComponentSwizzle(swizzle[1]),
+                .b = ComponentSwizzle(swizzle[2]),
+                .a = ComponentSwizzle(swizzle[3]),
             },
         .subresourceRange =
             {
-                .aspectMask = ImageAspectMask(image.info),
+                .aspectMask = ImageViewAspectMask(info),
                 .baseMipLevel = info.range.base.mipmap,
                 .levelCount = info.range.extent.mipmaps,
                 .baseArrayLayer = info.range.base.layer,
@@ -535,6 +647,8 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
         .pNext = arbitrary_borders ? &border : nullptr,
         .reductionMode = MaxwellToVK::SamplerReduction(tsc.reduction_filter),
     };
+    // Some games have samplers with garbage. Sanitize them here.
+    const float max_anisotropy = std::clamp(tsc.MaxAnisotropy(), 1.0f, 16.0f);
     sampler = device.GetLogical().CreateSampler(VkSamplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .pNext = &reduction_ci,
@@ -546,8 +660,8 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
         .addressModeV = MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_v, tsc.mag_filter),
         .addressModeW = MaxwellToVK::Sampler::WrapMode(device, tsc.wrap_p, tsc.mag_filter),
         .mipLodBias = tsc.LodBias(),
-        .anisotropyEnable = static_cast<VkBool32>(tsc.MaxAnisotropy() > 1.0f ? VK_TRUE : VK_FALSE),
-        .maxAnisotropy = tsc.MaxAnisotropy(),
+        .anisotropyEnable = static_cast<VkBool32>(max_anisotropy > 1.0f ? VK_TRUE : VK_FALSE),
+        .maxAnisotropy = max_anisotropy,
         .compareEnable = tsc.depth_compare_enabled,
         .compareOp = MaxwellToVK::Sampler::DepthCompareFunction(tsc.depth_compare_func),
         .minLod = tsc.mipmap_filter == TextureMipmapFilter::None ? 0.0f : tsc.MinLod(),

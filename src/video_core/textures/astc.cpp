@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <span>
 #include <vector>
 
 #include <boost/container/static_vector.hpp>
@@ -1672,16 +1673,14 @@ static void DecompressBlock(const u8 inBuf[16], const u32 blockWidth, const u32 
 
 namespace Tegra::Texture::ASTC {
 
-std::vector<u8> Decompress(const u8* data, u32 width, u32 height, u32 depth, u32 block_width,
-                           u32 block_height) {
+void Decompress(std::span<const uint8_t> data, uint32_t width, uint32_t height, uint32_t depth,
+                uint32_t block_width, uint32_t block_height, std::span<uint8_t> output) {
     u32 blockIdx = 0;
     std::size_t depth_offset = 0;
-    std::vector<u8> outData(height * width * depth * 4);
     for (u32 k = 0; k < depth; k++) {
         for (u32 j = 0; j < height; j += block_height) {
             for (u32 i = 0; i < width; i += block_width) {
-
-                const u8* blockPtr = data + blockIdx * 16;
+                const u8* blockPtr = data.data() + blockIdx * 16;
 
                 // Blocks can be at most 12x12
                 u32 uncompData[144];
@@ -1690,7 +1689,7 @@ std::vector<u8> Decompress(const u8* data, u32 width, u32 height, u32 depth, u32
                 u32 decompWidth = std::min(block_width, width - i);
                 u32 decompHeight = std::min(block_height, height - j);
 
-                u8* outRow = depth_offset + outData.data() + (j * width + i) * 4;
+                u8* outRow = depth_offset + output.data() + (j * width + i) * 4;
                 for (u32 jj = 0; jj < decompHeight; jj++) {
                     memcpy(outRow + jj * width * 4, uncompData + jj * block_width, decompWidth * 4);
                 }
@@ -1700,8 +1699,6 @@ std::vector<u8> Decompress(const u8* data, u32 width, u32 height, u32 depth, u32
         }
         depth_offset += height * width * 4;
     }
-
-    return outData;
 }
 
 } // namespace Tegra::Texture::ASTC

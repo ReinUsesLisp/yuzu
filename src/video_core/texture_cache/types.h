@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "common/common_funcs.h"
 #include "common/common_types.h"
 #include "video_core/texture_cache/slot_vector.h"
 
@@ -38,6 +39,13 @@ enum class ImageViewType : u32 {
     Buffer,
 };
 constexpr size_t NUM_IMAGE_VIEW_TYPES = 8;
+
+enum class RelaxedOptions : u32 {
+    Size = 1 << 0,
+    Format = 1 << 1,
+    LayerStride = 1 << 2,
+};
+DECLARE_ENUM_FLAG_OPERATORS(RelaxedOptions)
 
 struct Offset3D {
     constexpr auto operator<=>(const Offset3D&) const noexcept = default;

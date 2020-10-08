@@ -224,7 +224,14 @@ GLenum TextureMode(PixelFormat format, bool is_first) {
 }
 
 constexpr SwizzleSource SwapRedGreen(SwizzleSource value) {
-    return value == SwizzleSource::G ? SwizzleSource::R : value;
+    switch (value) {
+    case SwizzleSource::R:
+        return SwizzleSource::G;
+    case SwizzleSource::G:
+        return SwizzleSource::R;
+    default:
+        return value;
+    }
 }
 
 GLint Swizzle(SwizzleSource source) {
@@ -307,15 +314,16 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         UNIMPLEMENTED_IF(swizzle[0] != SwizzleSource::R && swizzle[0] != SwizzleSource::G);
         glTextureParameteri(handle, GL_DEPTH_STENCIL_TEXTURE_MODE,
                             TextureMode(format, swizzle[0] == SwizzleSource::R));
-
-        // Make sure we sample the first component
-        std::transform(swizzle.begin(), swizzle.end(), swizzle.begin(), SwapRedGreen);
         break;
     default:
         break;
     }
+    if (format == PixelFormat::S8_UINT_D24_UNORM) {
+        // Make sure we sample the first component
+        std::ranges::transform(swizzle, swizzle.begin(), SwapRedGreen);
+    }
     std::array<GLint, 4> gl_swizzle;
-    std::transform(swizzle.begin(), swizzle.end(), gl_swizzle.begin(), Swizzle);
+    std::ranges::transform(swizzle, gl_swizzle.begin(), Swizzle);
     glTextureParameteriv(handle, GL_TEXTURE_SWIZZLE_RGBA, gl_swizzle.data());
 }
 
@@ -469,7 +477,7 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
     const u32 bytes_per_block_log2 = std::countr_zero(bytes_per_block);
     const bool is_3d = image.info.type == VideoCommon::ImageType::e3D;
 
-    glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_in_bytes);
+    glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_bytes);
 
     if (is_3d) {
         program_manager.BindCompute(block_linear_unswizzle_3d_program.handle);
@@ -483,7 +491,7 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
     glUniform3i(DESTINATION_LOC, 0, 0, 0); // TODO
     glUniform1ui(BYTES_PER_BLOCK_LOC, bytes_per_block_log2);
     if (!is_3d) {
-        glUniform1ui(LAYER_STRIDE_LOC, image.layer_stride);
+        glUniform1ui(LAYER_STRIDE_LOC, image.info.layer_stride);
     }
 
     for (const SwizzleParameters& swizzle : swizzles) {
@@ -513,7 +521,7 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
         }
 
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, INPUT_BUFFER_BINDING, map.Handle(), offset,
-                          image.guest_size_in_bytes - swizzle.buffer_offset);
+                          image.guest_size_bytes - swizzle.buffer_offset);
         glBindImageTexture(OUTPUT_IMAGE_BINDING, image.Handle(), swizzle.mipmap, GL_TRUE, 0,
                            GL_WRITE_ONLY, StoreFormat(bytes_per_block));
 
@@ -654,7 +662,7 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
 void Image::UploadMemory(ImageBufferMap& map, size_t buffer_offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, map.Handle());
-    glFlushMappedBufferRange(GL_PIXEL_UNPACK_BUFFER, buffer_offset, host_size_in_bytes);
+    glFlushMappedBufferRange(GL_PIXEL_UNPACK_BUFFER, buffer_offset, unswizzled_size_bytes);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // FIXME
 

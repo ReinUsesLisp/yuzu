@@ -8,6 +8,7 @@
 #include "video_core/texture_cache/image_info.h"
 #include "video_core/texture_cache/samples_helper.h"
 #include "video_core/texture_cache/types.h"
+#include "video_core/texture_cache/util.h"
 #include "video_core/textures/texture.h"
 
 namespace VideoCommon {
@@ -16,13 +17,11 @@ using Tegra::Texture::TextureType;
 using Tegra::Texture::TICEntry;
 using VideoCore::Surface::PixelFormat;
 
-ImageInfo::ImageInfo(const TICEntry& config) {
+ImageInfo::ImageInfo(const TICEntry& config) noexcept {
     format = PixelFormatFromTextureInfo(config.format, config.r_type, config.g_type, config.b_type,
                                         config.a_type, config.srgb_conversion);
-
     num_samples = NumSamples(config.msaa_mode);
     resources.mipmaps = config.max_mip_level + 1;
-
     if (config.IsPitchLinear()) {
         pitch = config.Pitch();
     } else {
@@ -33,12 +32,10 @@ ImageInfo::ImageInfo(const TICEntry& config) {
         };
     }
     UNIMPLEMENTED_IF(config.tile_width_spacing != 0);
-
     if (config.texture_type != TextureType::Texture2D &&
         config.texture_type != TextureType::Texture2DNoMipmap) {
         ASSERT(!config.IsPitchLinear());
     }
-
     switch (config.texture_type) {
     case TextureType::Texture1D:
         ASSERT(config.BaseLayer() == 0);
@@ -92,31 +89,30 @@ ImageInfo::ImageInfo(const TICEntry& config) {
         UNREACHABLE_MSG("Invalid texture_type={}", static_cast<int>(config.texture_type.Value()));
         break;
     }
+    if (type != ImageType::Linear) {
+        // FIXME: Call this without passing *this
+        layer_stride = CalculateLayerStride(*this);
+    }
 }
 
-ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) {
+ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) noexcept {
     const auto& rt = regs.rt[index];
-
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(rt.format);
-
     size.width = rt.width;
     size.height = rt.height;
-
     num_samples = NumSamples(regs.multisample_mode);
-
+    layer_stride = rt.layer_stride * 4;
     block = {
         .width = rt.tile_mode.block_width,
         .height = rt.tile_mode.block_height,
         .depth = rt.tile_mode.block_depth,
     };
-
     if (rt.tile_mode.is_pitch_linear) {
         ASSERT(rt.tile_mode.is_3d == 0);
         type = ImageType::Linear;
         pitch = size.width * BytesPerBlock(format);
         return;
     }
-
     if (rt.tile_mode.is_3d) {
         ASSERT(rt.tile_mode.is_pitch_linear == 0);
         type = ImageType::e3D;
@@ -127,22 +123,19 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) 
     }
 }
 
-ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) {
+ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
     format = VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
-
     size.width = regs.zeta_width;
     size.height = regs.zeta_height;
-
     // TODO: Maybe we can deduce the number of mipmaps from the layer stride
     resources.mipmaps = 1;
     num_samples = NumSamples(regs.multisample_mode);
-
+    layer_stride = regs.zeta.layer_stride * 4;
     block = {
         .width = regs.zeta.tile_mode.block_width,
         .height = regs.zeta.tile_mode.block_height,
         .depth = regs.zeta.tile_mode.block_depth,
     };
-
     if (regs.zeta.tile_mode.is_pitch_linear) {
         ASSERT(regs.zeta.tile_mode.is_3d == 0);
         type = ImageType::Linear;
@@ -157,22 +150,19 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) {
     }
 }
 
-ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Regs::Surface& config) {
+ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Regs::Surface& config) noexcept {
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(config.format);
-
     if (config.linear) {
         type = ImageType::Linear;
         size.width = config.width;
         pitch = config.pitch;
         return;
     }
-
     block = {
         .width = config.block_width,
         .height = config.block_height,
         .depth = config.block_depth,
     };
-
     if (block.depth > 0) {
         type = ImageType::e3D;
         size.width = config.width;

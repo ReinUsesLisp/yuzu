@@ -16,6 +16,8 @@
 
 #include "video_core/texture_cache/util.h"
 
+#pragma optimize("", off)
+
 namespace VideoCommon {
 
 template <class P>
@@ -32,7 +34,7 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 
 template <class P>
 void TextureCache<P>::ImplicitDescriptorInvalidations() {
-    if (!maxwell3d.dirty.flags[Dirty::Descriptors]) {
+    if (!maxwell3d.dirty.flags[Dirty::Descriptors] && !has_deleted_images) {
         return;
     }
     maxwell3d.dirty.flags[Dirty::Descriptors] = false;
@@ -64,7 +66,6 @@ typename P::Sampler* TextureCache<P>::GetComputeSampler(size_t index) {
 template <class P>
 void TextureCache<P>::UpdateRenderTargets() {
     // TODO: Use dirty flags
-
     for (size_t index = 0; index < NUM_RT; ++index) {
         ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
         color_buffer_id = FindColorBuffer(index);
@@ -80,16 +81,13 @@ void TextureCache<P>::UpdateRenderTargets() {
         image.flags |= ImageFlagBits::GpuModified;
         UpdateImageContents(image);
     }
-
     for (size_t index = 0; index < NUM_RT; ++index) {
         render_targets.draw_buffers[index] = maxwell3d.regs.rt_control.GetMap(index);
     }
-
     render_targets.size = Extent2D{
         maxwell3d.regs.render_area.width,
         maxwell3d.regs.render_area.height,
     };
-
     if (has_deleted_images) {
         InvalidateImageDescriptorTable();
     }
@@ -121,11 +119,12 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer(const RenderTargets& ke
 
 template <class P>
 void TextureCache<P>::WriteMemory(VAddr cpu_addr, size_t size) {
-    ForEachImageInRegion(cpu_addr, size, [this](ImageId, Image& image) {
+    ForEachImageInRegion(cpu_addr, size, [this](ImageId image_id, Image& image) {
         if (True(image.flags & ImageFlagBits::CpuModified)) {
             return;
         }
         image.flags |= ImageFlagBits::CpuModified;
+        modified_images.push_back(image_id);
         UntrackImage(image);
     });
 }
@@ -138,7 +137,7 @@ void TextureCache<P>::DownloadMemory(VAddr cpu_addr, size_t size) {
         }
         image.flags &= ~ImageFlagBits::GpuModified;
 
-        auto map = runtime.MapDownloadBuffer(image.host_size_in_bytes);
+        auto map = runtime.MapDownloadBuffer(image.unswizzled_size_bytes);
         const auto copies = FullDownloadCopies(image.info);
         image.DownloadMemory(map, 0, copies);
         SwizzleImage(gpu_memory, image.gpu_addr, image.info, copies, map.Span());
@@ -168,43 +167,32 @@ template <class P>
 void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Regs::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Regs::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
-    return;
-    /*
-    UNIMPLEMENTED_IF(image_alloc_page_table.Find(src.Address()));
-    UNIMPLEMENTED_IF(image_alloc_page_table.Find(dst.Address()));
-
-    ImageAlloc* const src_alloc = GetImageAlloc(src.Address());
-    ImageAlloc* const dst_alloc = GetImageAlloc(dst.Address());
+    static constexpr auto SEARCH_OPTIONS = RelaxedOptions::Format | RelaxedOptions::LayerStride;
     const ImageInfo src_info(src);
     const ImageInfo dst_info(dst);
-
-    // TODO: Properly choose these
-    // TODO: and use relaxed size comparisons
-    Image* const src_image = FindImage(src_alloc->images, src_info);
-    Image* const dst_image = FindImage(dst_alloc->images, dst_info);
-    dst_image->flags |= ImageFlagBits::GpuModified;
-
-    const ImageViewId src_image_view_id = src_image->image_view_ids.at(0);
-    const ImageViewId dst_image_view_id = dst_image->image_view_ids.at(0);
+    const ImageId src_id = FindOrInsertImage(src_info, dst.Address(), SEARCH_OPTIONS);
+    const ImageId dst_id = FindOrInsertImage(dst_info, src.Address(), SEARCH_OPTIONS);
+    Image& src_image = slot_images[src_id];
+    Image& dst_image = slot_images[dst_id];
+    dst_image.flags |= ImageFlagBits::GpuModified;
 
     if constexpr (FRAMEBUFFER_BLITS) {
-        Framebuffer* const dst_framebuffer = GetFramebuffer({
-            .color_buffer_ids =
-                {
-                    dst_image_view_id,
-                },
-        });
+        // OpenGL blits framebuffers, not images
+
+        // TODO: Properly select this
+        const ImageViewId src_image_view_id = src_image.image_view_ids.at(0);
+        const ImageViewId dst_image_view_id = dst_image.image_view_ids.at(0);
+
         Framebuffer* const src_framebuffer = GetFramebuffer({
-            .color_buffer_ids =
-                {
-                    src_image_view_id,
-                },
+            .color_buffer_ids = {src_image_view_id},
+        });
+        Framebuffer* const dst_framebuffer = GetFramebuffer({
+            .color_buffer_ids = {dst_image_view_id},
         });
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
-        UNIMPLEMENTED();
+        runtime.BlitImage(dst_image, src_image, copy);
     }
-    */
 }
 
 template <class P>
@@ -259,8 +247,10 @@ void TextureCache<P>::InvalidateSamplerDescriptorTable() {
 
 template <class P>
 void TextureCache<P>::InvalidateContents() {
-    UploadModifiedImageViews(tables_3d);
-    UploadModifiedImageViews(tables_compute);
+    for (const ImageId image_id : modified_images) {
+        UpdateImageContents(slot_images[image_id]);
+    }
+    modified_images.clear();
 }
 
 template <class P>
@@ -273,9 +263,13 @@ typename P::ImageView* TextureCache<P>::TryFindFramebufferImageView(VAddr cpu_ad
     const auto& image_ids = it->second;
     for (const ImageId image_id : image_ids) {
         const Image& image = slot_images[image_id];
-        if (image.cpu_addr == cpu_addr) {
-            return &slot_image_views[image.image_view_ids.at(0)];
+        if (image.cpu_addr != cpu_addr) {
+            continue;
         }
+        if (image.image_view_ids.empty()) {
+            continue;
+        }
+        return &slot_image_views[image.image_view_ids.at(0)];
     }
     return nullptr;
 }
@@ -294,8 +288,10 @@ void TextureCache<P>::UpdateImageDescriptorTable(ClassDescriptorTables& tables,
 
     do {
         has_deleted_images = false;
+
         for (size_t index = num_tics; index--;) {
-            tables.image_views[index] = FindImageView(tables.tic_entries[index]);
+            const ImageViewId image_view_id = FindImageView(tables.tic_entries[index]);
+            tables.image_views[index] = image_view_id;
         }
     } while (has_deleted_images);
 }
@@ -322,10 +318,13 @@ void TextureCache<P>::UpdateSamplerDescriptorTable(ClassDescriptorTables& tables
     }
 }
 
-template <class P>
-void TextureCache<P>::UploadModifiedImageViews(ClassDescriptorTables& tables) {
-    for (const ImageId image_id : tables.active_images) {
-        UpdateImageContents(slot_images[image_id]);
+inline u32 MapSizeBytes(const ImageBase& image) {
+    if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
+        return image.guest_size_bytes;
+    } else if (True(image.flags & ImageFlagBits::Converted)) {
+        return image.converted_size_bytes;
+    } else {
+        return image.unswizzled_size_bytes;
     }
 }
 
@@ -337,26 +336,28 @@ void TextureCache<P>::UpdateImageContents(Image& image) {
     }
     image.flags &= ~ImageFlagBits::CpuModified;
 
-    const bool accelerated = True(image.flags & ImageFlagBits::AcceleratedUpload);
-    const size_t size_bytes = accelerated ? image.guest_size_in_bytes : image.host_size_in_bytes;
-    auto map = runtime.MapUploadBuffer(size_bytes);
+    auto map = runtime.MapUploadBuffer(MapSizeBytes(image));
     UploadImageContents(image, map, 0);
-
     runtime.InsertUploadMemoryBarrier();
 }
 
 template <class P>
 template <typename MapBuffer>
 void TextureCache<P>::UploadImageContents(Image& image, MapBuffer& map, size_t buffer_offset) {
-    const std::span<u8> span = map.Span();
+    const std::span<u8> mapped_span = map.Span();
     const GPUVAddr gpu_addr = image.gpu_addr;
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
-        gpu_memory.ReadBlockUnsafe(gpu_addr, span.data(), image.guest_size_in_bytes);
+        gpu_memory.ReadBlockUnsafe(gpu_addr, mapped_span.data(), mapped_span.size_bytes());
         const auto uploads = FullUploadSwizzles(image.info);
         runtime.AccelerateImageUpload(image, map, buffer_offset, uploads);
+    } else if (True(image.flags & ImageFlagBits::Converted)) {
+        std::vector<u8> unswizzled_data(image.unswizzled_size_bytes);
+        auto copies = UnswizzleImage(gpu_memory, gpu_addr, image.info, unswizzled_data);
+        ConvertImage(unswizzled_data, image.info, mapped_span, copies);
+        image.UploadMemory(map, buffer_offset, copies);
     } else {
-        const auto copies = UnswizzleImage(gpu_memory, gpu_addr, image.info, span);
+        const auto copies = UnswizzleImage(gpu_memory, gpu_addr, image.info, mapped_span);
         image.UploadMemory(map, buffer_offset, copies);
     }
     TrackImage(image);
@@ -380,7 +381,7 @@ ImageViewId TextureCache<P>::FindImageView(const TICEntry& config) {
 
 template <class P>
 ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
-    const ImageId image_id = FindOrInsertImage(ImageInfo(config), config.Address(), true);
+    const ImageId image_id = FindOrInsertImage(ImageInfo(config), config.Address());
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
@@ -398,7 +399,7 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
 
 template <class P>
 ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
-                                           bool strict_size) {
+                                           RelaxedOptions options) {
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
     if (!cpu_addr) {
         return ImageId{};
@@ -414,7 +415,7 @@ ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_a
                 return true;
             }
         } else {
-            if (IsSubresource(info, existing_image, gpu_addr, strict_size)) {
+            if (IsSubresource(info, existing_image, gpu_addr, options)) {
                 image_id = existing_image_id;
                 return true;
             }
@@ -424,14 +425,15 @@ ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_a
     if (image_id) {
         return image_id;
     }
-    return InsertImage(info, gpu_addr, true);
+    return InsertImage(info, gpu_addr, options);
 }
 
 template <class P>
-ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr, bool strict_size) {
+ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                     RelaxedOptions options) {
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
     ASSERT(cpu_addr);
-    const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, strict_size);
+    const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, options);
     const auto [it, is_new] = image_allocs_table.try_emplace(gpu_addr);
     if (is_new) {
         it->second = slot_image_allocs.insert();
@@ -442,7 +444,7 @@ ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr, b
 
 template <class P>
 ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_addr, VAddr cpu_addr,
-                                              bool strict_size) {
+                                              RelaxedOptions options) {
     const size_t size_bytes = CalculateGuestSizeInBytes(new_info);
     std::vector<ImageId> overlap_ids;
     if (new_info.type != ImageType::Linear) {
@@ -450,9 +452,18 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
             if (overlap.info.type == ImageType::Linear) {
                 return;
             }
-            const bool created_from_table = True(overlap.flags & ImageFlagBits::Strong);
-            const std::optional solution = ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap,
-                                                          strict_size && created_from_table);
+            if (False(options & RelaxedOptions::LayerStride)) {
+                if (overlap.info.layer_stride != new_info.layer_stride) {
+                    return;
+                }
+            }
+            if (!IsCopyCompatible(overlap.info.format, new_info.format)) {
+                return;
+            }
+            const bool strict_size = False(options & RelaxedOptions::Size) &&
+                                     True(overlap.flags & ImageFlagBits::Strong);
+            const std::optional solution =
+                ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap, strict_size);
             if (!solution) {
                 return;
             }
@@ -529,7 +540,7 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
 
 template <class P>
 ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr) {
-    const ImageId image_id = FindOrInsertImage(info, gpu_addr, false);
+    const ImageId image_id = FindOrInsertImage(info, gpu_addr, RelaxedOptions::Size);
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
@@ -623,14 +634,14 @@ void TextureCache<P>::TouchImageView(ImageViewId image_view_id) {
 template <class P>
 void TextureCache<P>::RegisterImage(ImageId image_id) {
     const Image& image = slot_images[image_id];
-    ForEachPage(image.cpu_addr, image.guest_size_in_bytes,
+    ForEachPage(image.cpu_addr, image.guest_size_bytes,
                 [this, image_id](u64 page) { page_table[page].push_back(image_id); });
 }
 
 template <class P>
 void TextureCache<P>::UnregisterImage(ImageId image_id) {
     const Image& image = slot_images[image_id];
-    ForEachPage(image.cpu_addr, image.guest_size_in_bytes, [this, image_id](u64 page) {
+    ForEachPage(image.cpu_addr, image.guest_size_bytes, [this, image_id](u64 page) {
         const auto page_it = page_table.find(page);
         if (page_it == page_table.end()) {
             UNREACHABLE_MSG("Unregistering unregistered page=0x{:x}", page << PAGE_SHIFT);
@@ -650,14 +661,14 @@ template <class P>
 void TextureCache<P>::TrackImage(Image& image) {
     ASSERT(False(image.flags & ImageFlagBits::Tracked));
     image.flags |= ImageFlagBits::Tracked;
-    rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_in_bytes, 1);
+    rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_bytes, 1);
 }
 
 template <class P>
 void TextureCache<P>::UntrackImage(Image& image) {
     ASSERT(True(image.flags & ImageFlagBits::Tracked));
     image.flags &= ~ImageFlagBits::Tracked;
-    rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_in_bytes, -1);
+    rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_bytes, -1);
 }
 
 template <class P>
@@ -687,6 +698,7 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     }
     RemoveImageViewReferences(image_view_ids);
     RemoveFramebuffers(image_view_ids);
+    std::erase(modified_images, image_id);
 
     for (const ImageViewId image_view_id : image_view_ids) {
         sentenced_image_view.push_back(std::move(slot_image_views[image_view_id]));
@@ -707,8 +719,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
 template <class P>
 void TextureCache<P>::ReplaceRemovedInImageDescriptorTables(
     ClassDescriptorTables& tables, ImageId image, std::span<const ImageViewId> removed_views) {
-    std::ranges::replace(tables.active_images, image, ImageId{});
-
     for (const auto& removed_view : removed_views) {
         std::ranges::replace(tables.image_views, removed_view, ImageViewId{});
     }
