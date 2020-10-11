@@ -111,10 +111,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) 
         ASSERT(rt.tile_mode.is_3d == 0);
         type = ImageType::Linear;
         pitch = size.width * BytesPerBlock(format);
-        return;
-    }
-    if (rt.tile_mode.is_3d) {
-        ASSERT(rt.tile_mode.is_pitch_linear == 0);
+    } else if (rt.tile_mode.is_3d) {
         type = ImageType::e3D;
         size.depth = rt.depth;
     } else {
@@ -150,9 +147,9 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
     }
 }
 
-ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Regs::Surface& config) noexcept {
+ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Surface& config) noexcept {
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(config.format);
-    if (config.linear) {
+    if (config.linear == Tegra::Engines::Fermi2D::MemoryLayout::Pitch) {
         type = ImageType::Linear;
         size.width = config.width;
         pitch = config.pitch;

@@ -133,8 +133,8 @@ public:
     void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;
     void TickFrame() override;
-    bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
-                               const Tegra::Engines::Fermi2D::Regs::Surface& dst,
+    bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
+                               const Tegra::Engines::Fermi2D::Surface& dst,
                                const Tegra::Engines::Fermi2D::Config& copy_config) override;
     bool AccelerateDisplay(const Tegra::FramebufferConfig& config, VAddr framebuffer_addr,
                            u32 pixel_stride) override;

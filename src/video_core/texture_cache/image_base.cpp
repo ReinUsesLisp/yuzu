@@ -11,8 +11,6 @@
 #include "video_core/texture_cache/image_view_info.h"
 #include "video_core/texture_cache/util.h"
 
-#pragma optimize("", off)
-
 namespace VideoCommon {
 
 ImageBase::ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_)

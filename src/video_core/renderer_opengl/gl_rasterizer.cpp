@@ -768,8 +768,8 @@ void RasterizerOpenGL::TickFrame() {
     buffer_cache.TickFrame();
 }
 
-bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Regs::Surface& src,
-                                             const Tegra::Engines::Fermi2D::Regs::Surface& dst,
+bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
+                                             const Tegra::Engines::Fermi2D::Surface& dst,
                                              const Tegra::Engines::Fermi2D::Config& copy_config) {
     MICROPROFILE_SCOPE(OpenGL_Blits);
     texture_cache.BlitImage(dst, src, copy_config);

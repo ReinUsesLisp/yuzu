@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include "video_core/engines/fermi_2d.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -137,6 +138,9 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         return is_first ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_STENCIL_BIT;
     case PixelFormat::S8_UINT_D24_UNORM:
         return is_first ? VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
+    case PixelFormat::D16_UNORM:
+    case PixelFormat::D32_FLOAT:
+        return VK_IMAGE_ASPECT_DEPTH_BIT;
     default:
         return VK_IMAGE_ASPECT_COLOR_BIT;
     }
@@ -355,13 +359,13 @@ void TextureCacheRuntime::BlitImage(Image& dst, Image& src,
             .srcOffsets =
                 {
                     VkOffset3D{
-                        .x = static_cast<s32>(copy.src_rect.left),
-                        .y = static_cast<s32>(copy.src_rect.top),
+                        .x = copy.src_x0,
+                        .y = copy.src_y0,
                         .z = 0,
                     },
                     VkOffset3D{
-                        .x = static_cast<s32>(copy.src_rect.right),
-                        .y = static_cast<s32>(copy.src_rect.bottom),
+                        .x = copy.src_x1,
+                        .y = copy.src_y1,
                         .z = 1,
                     },
                 },
@@ -375,18 +379,18 @@ void TextureCacheRuntime::BlitImage(Image& dst, Image& src,
             .dstOffsets =
                 {
                     VkOffset3D{
-                        .x = static_cast<s32>(copy.dst_rect.left),
-                        .y = static_cast<s32>(copy.dst_rect.top),
+                        .x = copy.dst_x0,
+                        .y = copy.dst_y0,
                         .z = 0,
                     },
                     VkOffset3D{
-                        .x = static_cast<s32>(copy.dst_rect.right),
-                        .y = static_cast<s32>(copy.dst_rect.bottom),
+                        .x = copy.dst_x1,
+                        .y = copy.dst_y1,
                         .z = 1,
                     },
                 },
         };
-        const VkFilter filter = copy.filter == Tegra::Engines::Fermi2D::Filter::Linear
+        const VkFilter filter = copy.filter == Tegra::Engines::Fermi2D::Filter::Bilinear
                                     ? VK_FILTER_LINEAR
                                     : VK_FILTER_NEAREST;
         cmdbuf.BlitImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, VK_IMAGE_LAYOUT_GENERAL,

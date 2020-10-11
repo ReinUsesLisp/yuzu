@@ -103,8 +103,7 @@ public:
 
     /// Attempt to use a faster method to perform a surface copy
     [[nodiscard]] virtual bool AccelerateSurfaceCopy(
-        const Tegra::Engines::Fermi2D::Regs::Surface& src,
-        const Tegra::Engines::Fermi2D::Regs::Surface& dst,
+        const Tegra::Engines::Fermi2D::Surface& src, const Tegra::Engines::Fermi2D::Surface& dst,
         const Tegra::Engines::Fermi2D::Config& copy_config) {
         return false;
     }

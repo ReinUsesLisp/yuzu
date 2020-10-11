@@ -436,16 +436,11 @@ void TextureCacheRuntime::CopyImage(Image& dst, Image& src, std::span<const Imag
 
 void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
                                           const Tegra::Engines::Fermi2D::Config& copy) {
-    const Common::Rectangle<u32>& src_rect = copy.src_rect;
-    const Common::Rectangle<u32>& dst_rect = copy.dst_rect;
-    const bool is_linear = copy.filter == Tegra::Engines::Fermi2D::Filter::Linear;
+    const bool is_linear = copy.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
 
-    glBlitNamedFramebuffer(src->Handle(), dst->Handle(), static_cast<GLint>(src_rect.left),
-                           static_cast<GLint>(src_rect.top), static_cast<GLint>(src_rect.right),
-                           static_cast<GLint>(src_rect.bottom), static_cast<GLint>(dst_rect.left),
-                           static_cast<GLint>(dst_rect.top), static_cast<GLint>(dst_rect.right),
-                           static_cast<GLint>(dst_rect.bottom), GL_COLOR_BUFFER_BIT,
-                           is_linear ? GL_LINEAR : GL_NEAREST);
+    glBlitNamedFramebuffer(src->Handle(), dst->Handle(), copy.src_x0, copy.src_y0, copy.src_x1,
+                           copy.src_y1, copy.dst_x0, copy.dst_y0, copy.dst_x1, copy.dst_y1,
+                           GL_COLOR_BUFFER_BIT, is_linear ? GL_LINEAR : GL_NEAREST);
 }
 
 void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferMap& map,

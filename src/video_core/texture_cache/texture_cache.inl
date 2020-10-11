@@ -16,8 +16,6 @@
 
 #include "video_core/texture_cache/util.h"
 
-#pragma optimize("", off)
-
 namespace VideoCommon {
 
 template <class P>

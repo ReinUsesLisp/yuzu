@@ -47,14 +47,12 @@ public:
     }
 
     [[nodiscard]] T& operator[](SlotId id) noexcept {
-        ASSERT(id);
-        ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
+        ValidateIndex(id);
         return *reinterpret_cast<T*>(values[id.index].storage.data());
     }
 
     [[nodiscard]] const T& operator[](SlotId id) const noexcept {
-        ASSERT(id);
-        ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
+        ValidateIndex(id);
         return *reinterpret_cast<T*>(values[id.index].storage.data());
     }
 
@@ -88,6 +86,12 @@ private:
 
     bool ReadStorageBit(u32 index) noexcept {
         return ((stored_bitset[index / 64] >> (index % 64)) & 1) != 0;
+    }
+
+    void ValidateIndex(SlotId id) const noexcept {
+        ASSERT(id);
+        ASSERT(id.index / 64 < stored_bitset.size());
+        ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
     }
 
     [[nodiscard]] u32 FreeValueIndex() noexcept {
