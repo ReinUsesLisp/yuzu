@@ -70,11 +70,12 @@ public:
     /// Send work to a separate thread.
     template <typename T>
     void Record(T&& command) {
-        if (chunk->Record(command)) {
+        command(current_cmdbuf);
+        /*if (chunk->Record(command)) {
             return;
         }
         DispatchWork();
-        (void)chunk->Record(command);
+        (void)chunk->Record(command);*/
     }
 
     /// Returns the master timeline semaphore.

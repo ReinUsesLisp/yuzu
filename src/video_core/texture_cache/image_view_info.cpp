@@ -46,9 +46,8 @@ ImageViewInfo::ImageViewInfo(const TICEntry& config) noexcept
         break;
     case TextureType::TextureCubemap:
         ASSERT(config.Depth() == 1);
-        UNIMPLEMENTED_IF(config.BaseLayer() != 0);
         type = ImageViewType::Cube;
-        range.base.layer = 0;
+        range.base.layer = config.BaseLayer();
         range.extent.layers = 6;
         break;
     case TextureType::Texture1DArray:
@@ -65,9 +64,8 @@ ImageViewInfo::ImageViewInfo(const TICEntry& config) noexcept
         UNIMPLEMENTED_MSG("Texture buffers are not implemented");
         break;
     case TextureType::TextureCubeArray:
-        UNIMPLEMENTED_IF(config.BaseLayer() != 0);
         type = ImageViewType::CubeArray;
-        range.base.layer = 0;
+        range.base.layer = config.BaseLayer();
         range.extent.layers = config.Depth() * 6;
         break;
     default:

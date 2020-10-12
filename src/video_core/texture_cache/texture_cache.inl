@@ -16,6 +16,8 @@
 
 #include "video_core/texture_cache/util.h"
 
+#pragma optimize("", off)
+
 namespace VideoCommon {
 
 template <class P>
@@ -162,10 +164,10 @@ void TextureCache<P>::UnmapMemory(VAddr cpu_addr, size_t size) {
 }
 
 template <class P>
-void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Regs::Surface& dst,
-                                const Tegra::Engines::Fermi2D::Regs::Surface& src,
+void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
+                                const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
-    static constexpr auto SEARCH_OPTIONS = RelaxedOptions::Format | RelaxedOptions::LayerStride;
+    static constexpr auto SEARCH_OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
     const ImageInfo src_info(src);
     const ImageInfo dst_info(dst);
     const ImageId src_id = FindOrInsertImage(src_info, dst.Address(), SEARCH_OPTIONS);
@@ -379,7 +381,9 @@ ImageViewId TextureCache<P>::FindImageView(const TICEntry& config) {
 
 template <class P>
 ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
-    const ImageId image_id = FindOrInsertImage(ImageInfo(config), config.Address());
+    const ImageInfo info(config);
+    const GPUVAddr image_gpu_addr = config.Address() - config.BaseLayer() * info.layer_stride;
+    const ImageId image_id = FindOrInsertImage(info, image_gpu_addr);
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
@@ -406,9 +410,12 @@ ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_a
     const size_t size = CalculateGuestSizeInBytes(info);
     ForEachImageInRegion(*cpu_addr, size, [&](ImageId existing_image_id, Image& existing_image) {
         if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear) {
+            const bool strict_size = False(options & RelaxedOptions::Size) &&
+                                     True(existing_image.flags & ImageFlagBits::Strong);
             const ImageInfo& existing = existing_image.info;
             if (existing.type == info.type && existing.pitch == info.pitch &&
-                existing.size == info.size && IsViewCompatible(existing.format, info.format)) {
+                IsPitchLinearSameSize(existing, info, strict_size) &&
+                IsViewCompatible(existing.format, info.format)) {
                 image_id = existing_image_id;
                 return true;
             }
@@ -450,10 +457,8 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
             if (overlap.info.type == ImageType::Linear) {
                 return;
             }
-            if (False(options & RelaxedOptions::LayerStride)) {
-                if (overlap.info.layer_stride != new_info.layer_stride) {
-                    return;
-                }
+            if (!IsLayerStrideCompatible(new_info, overlap.info)) {
+                return;
             }
             if (!IsCopyCompatible(overlap.info.format, new_info.format)) {
                 return;

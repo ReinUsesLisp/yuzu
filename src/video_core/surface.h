@@ -140,116 +140,6 @@ enum class SurfaceTarget {
     TextureCubeArray,
 };
 
-constexpr std::array<u32, MaxPixelFormat> COMPRESSION_FACTOR_SHIFT_TABLE = {{
-    0, // A8B8G8R8_UNORM
-    0, // A8B8G8R8_SNORM
-    0, // A8B8G8R8_SINT
-    0, // A8B8G8R8_UINT
-    0, // R5G6B5_UNORM
-    0, // B5G6R5_UNORM
-    0, // A1R5G5B5_UNORM
-    0, // A2B10G10R10_UNORM
-    0, // A2B10G10R10_UINT
-    0, // A1B5G5R5_UNORM
-    0, // R8_UNORM
-    0, // R8_SNORM
-    0, // R8_SINT
-    0, // R8_UINT
-    0, // R16G16B16A16_FLOAT
-    0, // R16G16B16A16_UNORM
-    0, // R16G16B16A16_SNORM
-    0, // R16G16B16A16_SINT
-    0, // R16G16B16A16_UINT
-    0, // B10G11R11_FLOAT
-    0, // R32G32B32A32_UINT
-    2, // BC1_RGBA_UNORM
-    2, // BC2_UNORM
-    2, // BC3_UNORM
-    2, // BC4_UNORM
-    2, // BC4_SNORM
-    2, // BC5_UNORM
-    2, // BC5_SNORM
-    2, // BC7_UNORM
-    2, // BC6H_UFLOAT
-    2, // BC6H_SFLOAT
-    2, // ASTC_2D_4X4_UNORM
-    0, // B8G8R8A8_UNORM
-    0, // R32G32B32A32_FLOAT
-    0, // R32G32B32A32_SINT
-    0, // R32G32_FLOAT
-    0, // R32G32_SINT
-    0, // R32_FLOAT
-    0, // R16_FLOAT
-    0, // R16_UNORM
-    0, // R16_SNORM
-    0, // R16_UINT
-    0, // R16_SINT
-    0, // R16G16_UNORM
-    0, // R16G16_FLOAT
-    0, // R16G16_UINT
-    0, // R16G16_SINT
-    0, // R16G16_SNORM
-    0, // R32G32B32_FLOAT
-    0, // A8B8G8R8_SRGB
-    0, // R8G8_UNORM
-    0, // R8G8_SNORM
-    0, // R8G8_SINT
-    0, // R8G8_UINT
-    0, // R32G32_UINT
-    0, // R16G16B16X16_FLOAT
-    0, // R32_UINT
-    0, // R32_SINT
-    2, // ASTC_2D_8X8_UNORM
-    2, // ASTC_2D_8X5_UNORM
-    2, // ASTC_2D_5X4_UNORM
-    0, // B8G8R8A8_SRGB
-    2, // BC1_RGBA_SRGB
-    2, // BC2_SRGB
-    2, // BC3_SRGB
-    2, // BC7_SRGB
-    0, // A4B4G4R4_UNORM
-    2, // ASTC_2D_4X4_SRGB
-    2, // ASTC_2D_8X8_SRGB
-    2, // ASTC_2D_8X5_SRGB
-    2, // ASTC_2D_5X4_SRGB
-    2, // ASTC_2D_5X5_UNORM
-    2, // ASTC_2D_5X5_SRGB
-    2, // ASTC_2D_10X8_UNORM
-    2, // ASTC_2D_10X8_SRGB
-    2, // ASTC_2D_6X6_UNORM
-    2, // ASTC_2D_6X6_SRGB
-    2, // ASTC_2D_10X10_UNORM
-    2, // ASTC_2D_10X10_SRGB
-    2, // ASTC_2D_12X12_UNORM
-    2, // ASTC_2D_12X12_SRGB
-    2, // ASTC_2D_8X6_UNORM
-    2, // ASTC_2D_8X6_SRGB
-    2, // ASTC_2D_6X5_UNORM
-    2, // ASTC_2D_6X5_SRGB
-    0, // E5B9G9R9_FLOAT
-    0, // D32_FLOAT
-    0, // D16_UNORM
-    0, // D24_UNORM_S8_UINT
-    0, // S8_UINT_D24_UNORM
-    0, // D32_FLOAT_S8_UINT
-}};
-
-/**
- * Gets the compression factor for the specified PixelFormat. This applies to just the
- * "compressed width" and "compressed height", not the overall compression factor of a
- * compressed image. This is used for maintaining proper surface sizes for compressed
- * texture formats.
- */
-constexpr u32 CompressionFactorShift(PixelFormat format) {
-    DEBUG_ASSERT(format != PixelFormat::Invalid);
-    DEBUG_ASSERT(static_cast<std::size_t>(format) < COMPRESSION_FACTOR_SHIFT_TABLE.size());
-    return COMPRESSION_FACTOR_SHIFT_TABLE[static_cast<std::size_t>(format)];
-}
-
-constexpr u32 CompressionFactor(PixelFormat format) {
-    return 1U << CompressionFactorShift(format);
-}
-
 constexpr std::array<u32, MaxPixelFormat> BLOCK_WIDTH_TABLE = {{
     1,  // A8B8G8R8_UNORM
     1,  // A8B8G8R8_SNORM
@@ -345,9 +235,6 @@ constexpr std::array<u32, MaxPixelFormat> BLOCK_WIDTH_TABLE = {{
 }};
 
 constexpr u32 DefaultBlockWidth(PixelFormat format) {
-    if (format == PixelFormat::Invalid)
-        return 0;
-
     ASSERT(static_cast<std::size_t>(format) < BLOCK_WIDTH_TABLE.size());
     return BLOCK_WIDTH_TABLE[static_cast<std::size_t>(format)];
 }
@@ -447,9 +334,6 @@ constexpr std::array<u32, MaxPixelFormat> BLOCK_HEIGHT_TABLE = {{
 }};
 
 constexpr u32 DefaultBlockHeight(PixelFormat format) {
-    if (format == PixelFormat::Invalid)
-        return 0;
-
     ASSERT(static_cast<std::size_t>(format) < BLOCK_HEIGHT_TABLE.size());
     return BLOCK_HEIGHT_TABLE[static_cast<std::size_t>(format)];
 }
@@ -549,18 +433,12 @@ constexpr std::array<u32, MaxPixelFormat> BITS_PER_BLOCK_TABLE = {{
 }};
 
 constexpr u32 BitsPerBlock(PixelFormat format) {
-    if (format == PixelFormat::Invalid)
-        return 0;
-
     ASSERT(static_cast<std::size_t>(format) < BITS_PER_BLOCK_TABLE.size());
     return BITS_PER_BLOCK_TABLE[static_cast<std::size_t>(format)];
 }
 
 /// Returns the sizer in bytes of the specified pixel format
 constexpr u32 BytesPerBlock(PixelFormat pixel_format) {
-    if (pixel_format == PixelFormat::Invalid) {
-        return 0;
-    }
     return BitsPerBlock(pixel_format) / CHAR_BIT;
 }
 

@@ -91,7 +91,6 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     if (format_info.storage) {
         usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
-
     return VkImageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .pNext = nullptr,
@@ -206,29 +205,6 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     }
     UNREACHABLE_MSG("Invalid image view type={}", static_cast<int>(type));
     return VK_IMAGE_VIEW_TYPE_2D;
-}
-
-void TransitionToGeneral(vk::CommandBuffer cmdbuf, VkImage image, VkImageAspectFlags aspect_mask) {
-    const VkImageMemoryBarrier barrier{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_HOST_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = image,
-        .subresourceRange =
-            {
-                .aspectMask = aspect_mask,
-                .baseMipLevel = 0,
-                .levelCount = VK_REMAINING_MIP_LEVELS,
-                .baseArrayLayer = 0,
-                .layerCount = VK_REMAINING_ARRAY_LAYERS,
-            },
-    };
-    cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, barrier);
 }
 
 [[nodiscard]] VkImageSubresourceLayers MakeImageSubresourceLayers(
@@ -489,7 +465,7 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     auto vkSetDebugUtilsObjectNameEXT =
         (PFN_vkSetDebugUtilsObjectNameEXT)runtime.device.GetDispatchLoader().vkGetDeviceProcAddr(
             *runtime.device.GetLogical(), "vkSetDebugUtilsObjectNameEXT");
-    auto c = fmt::format("Image 0x{:x}", static_cast<u64>(gpu_addr));
+    auto c = fmt::format("Image 0x{:x} {}", static_cast<u64>(gpu_addr), info.layer_stride);
     const VkDebugUtilsObjectNameInfoEXT tag{
         .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         .pNext = nullptr,
@@ -506,36 +482,28 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
 
 void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
-    std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
-
     // TODO: Move this to another API
     scheduler->RequestOutsideRenderPassOperationContext();
-    if (!initialized) {
-        initialized = true;
-        scheduler->Record([image = *image, aspect_mask = aspect_mask](vk::CommandBuffer cmdbuf) {
-            TransitionToGeneral(cmdbuf, image, aspect_mask);
-        });
-    }
+    std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
     scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
-                       vk_copies](vk::CommandBuffer cmdbuf) {
-        cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_GENERAL, vk_copies);
-
-        // TODO: Move this to another API
+                       initialized = initialized, vk_copies](vk::CommandBuffer cmdbuf) {
+        static constexpr VkAccessFlags ACCESS_FLAGS =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT |
+            VK_ACCESS_TRANSFER_WRITE_BIT;
         cmdbuf.PipelineBarrier(
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
             VkImageMemoryBarrier{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
                 .pNext = nullptr,
-                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                .dstAccessMask =
-                    VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
-                    VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
-                .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .srcQueueFamilyIndex = 0,
-                .dstQueueFamilyIndex = 0,
+                .srcAccessMask = ACCESS_FLAGS,
+                .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .oldLayout = initialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .image = image,
                 .subresourceRange =
                     {
@@ -546,7 +514,33 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                         .layerCount = VK_REMAINING_ARRAY_LAYERS,
                     },
             });
+
+        cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk_copies);
+
+        // TODO: Move this to another API
+        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                               0,
+                               VkImageMemoryBarrier{
+                                   .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                   .pNext = nullptr,
+                                   .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   .dstAccessMask = ACCESS_FLAGS,
+                                   .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                   .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                   .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                   .image = image,
+                                   .subresourceRange =
+                                       {
+                                           .aspectMask = aspect_mask,
+                                           .baseMipLevel = 0,
+                                           .levelCount = VK_REMAINING_MIP_LEVELS,
+                                           .baseArrayLayer = 0,
+                                           .layerCount = VK_REMAINING_ARRAY_LAYERS,
+                                       },
+                               });
     });
+    initialized = true;
 }
 
 void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,

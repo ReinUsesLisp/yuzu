@@ -319,8 +319,8 @@ void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
         internal_format = GL_RGBA8;
         texture.gl_format = GL_RGBA;
         texture.gl_type = GL_UNSIGNED_INT_8_8_8_8_REV;
-        UNIMPLEMENTED_MSG("Unknown framebuffer pixel format: {}",
-                          static_cast<u32>(framebuffer.pixel_format));
+        // UNIMPLEMENTED_MSG("Unknown framebuffer pixel format: {}",
+        //                   static_cast<u32>(framebuffer.pixel_format));
     }
 
     texture.resource.Release();

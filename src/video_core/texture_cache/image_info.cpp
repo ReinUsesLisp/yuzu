@@ -57,26 +57,24 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
         resources.layers = config.BaseLayer() + 1;
         break;
     case TextureType::Texture2DArray:
-        UNIMPLEMENTED_IF(config.BaseLayer() != 0);
         type = ImageType::e2D;
         size.width = config.Width();
         size.height = config.Height();
-        resources.layers = config.Depth();
+        resources.layers = config.BaseLayer() + config.Depth();
         break;
     case TextureType::TextureCubemap:
-        UNIMPLEMENTED_IF(config.BaseLayer() != 0);
         ASSERT(config.Depth() == 1);
         type = ImageType::e2D;
         size.width = config.Width();
         size.height = config.Height();
-        resources.layers = 6;
+        resources.layers = config.BaseLayer() + 6;
         break;
     case TextureType::TextureCubeArray:
         UNIMPLEMENTED_IF(config.load_store_hint != 0);
         type = ImageType::e2D;
         size.width = config.Width();
         size.height = config.Height();
-        resources.layers = config.Depth() * 6;
+        resources.layers = config.BaseLayer() + config.Depth() * 6;
         break;
     case TextureType::Texture3D:
         ASSERT(config.BaseLayer() == 0);
@@ -100,8 +98,8 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) 
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(rt.format);
     size.width = rt.width;
     size.height = rt.height;
-    num_samples = NumSamples(regs.multisample_mode);
     layer_stride = rt.layer_stride * 4;
+    num_samples = NumSamples(regs.multisample_mode);
     block = {
         .width = rt.tile_mode.block_width,
         .height = rt.tile_mode.block_height,
@@ -126,8 +124,8 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
     size.height = regs.zeta_height;
     // TODO: Maybe we can deduce the number of mipmaps from the layer stride
     resources.mipmaps = 1;
-    num_samples = NumSamples(regs.multisample_mode);
     layer_stride = regs.zeta.layer_stride * 4;
+    num_samples = NumSamples(regs.multisample_mode);
     block = {
         .width = regs.zeta.tile_mode.block_width,
         .height = regs.zeta.tile_mode.block_height,
@@ -151,7 +149,11 @@ ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Surface& config) noexcept {
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(config.format);
     if (config.linear == Tegra::Engines::Fermi2D::MemoryLayout::Pitch) {
         type = ImageType::Linear;
-        size.width = config.width;
+        size = {
+            .width = config.pitch / VideoCore::Surface::BytesPerBlock(format),
+            .height = config.height,
+            .depth = 1,
+        };
         pitch = config.pitch;
         return;
     }
@@ -162,13 +164,18 @@ ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Surface& config) noexcept {
     };
     if (block.depth > 0) {
         type = ImageType::e3D;
-        size.width = config.width;
-        size.height = config.height;
-        size.depth = config.depth;
+        size = {
+            .width = config.width,
+            .height = config.height,
+            .depth = config.depth,
+        };
     } else {
         type = ImageType::e2D;
-        size.width = config.width;
-        size.height = config.height;
+        size = {
+            .width = config.width,
+            .height = config.height,
+            .depth = 1,
+        };
         resources.layers = config.depth;
     }
 }

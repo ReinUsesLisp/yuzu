@@ -579,6 +579,11 @@ public:
             NegativeW = 7,
         };
 
+        enum class SamplerIndex : u32 {
+            Independently = 0,
+            ViaHeaderIndex = 1,
+        };
+
         struct TileMode {
             union {
                 BitField<0, 4, u32> block_width;
@@ -939,7 +944,9 @@ public:
                     BitField<16, 1, u32> zeta_volume;
                 };
 
-                INSERT_UNION_PADDING_WORDS(0x26);
+                SamplerIndex sampler_index;
+
+                INSERT_UNION_PADDING_WORDS(0x25);
 
                 u32 depth_test_enable;
 
@@ -1621,6 +1628,7 @@ ASSERT_REG_POSITION(rt_control, 0x487);
 ASSERT_REG_POSITION(zeta_width, 0x48a);
 ASSERT_REG_POSITION(zeta_height, 0x48b);
 ASSERT_REG_POSITION(zeta_depth, 0x48c);
+ASSERT_REG_POSITION(sampler_index, 0x48D);
 ASSERT_REG_POSITION(depth_test_enable, 0x4B3);
 ASSERT_REG_POSITION(independent_blend_enable, 0x4B9);
 ASSERT_REG_POSITION(depth_write_enabled, 0x4BA);

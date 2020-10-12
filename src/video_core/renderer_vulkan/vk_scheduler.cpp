@@ -126,6 +126,9 @@ void VKScheduler::RequestRenderpass(VkRenderPass renderpass, VkFramebuffer frame
         if (end_renderpass) {
             cmdbuf.EndRenderPass();
         }
+        // TODO: Use image barriers here too
+        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                               VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT);
         cmdbuf.BeginRenderPass(renderpass_bi, VK_SUBPASS_CONTENTS_INLINE);
     });
 }

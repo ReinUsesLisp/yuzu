@@ -43,7 +43,6 @@ constexpr size_t NUM_IMAGE_VIEW_TYPES = 8;
 enum class RelaxedOptions : u32 {
     Size = 1 << 0,
     Format = 1 << 1,
-    LayerStride = 1 << 2,
 };
 DECLARE_ENUM_FLAG_OPERATORS(RelaxedOptions)
 

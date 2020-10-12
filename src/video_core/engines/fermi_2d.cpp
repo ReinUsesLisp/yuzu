@@ -10,7 +10,11 @@
 
 namespace Tegra::Engines {
 
-Fermi2D::Fermi2D() = default;
+Fermi2D::Fermi2D() {
+    // Nvidia's OpenGL driver seems to assume these values
+    regs.src.depth = 1;
+    regs.dst.depth = 1;
+}
 
 Fermi2D::~Fermi2D() = default;
 

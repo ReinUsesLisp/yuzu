@@ -71,13 +71,19 @@ void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const Ima
 
 [[nodiscard]] std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs);
 
-[[nodiscard]] bool IsSameSize(const ImageInfo& new_info, const ImageInfo& overlap_info,
-                              u32 new_mipmap, u32 overlap_mipmap, bool strict_size) noexcept;
+[[nodiscard]] bool IsBlockLinearSameSize(const ImageInfo& new_info, const ImageInfo& overlap_info,
+                                         u32 new_mipmap, u32 overlap_mipmap,
+                                         bool strict_size) noexcept;
+
+[[nodiscard]] bool IsPitchLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs,
+                                         bool strict_size) noexcept;
 
 [[nodiscard]] std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info,
                                                           GPUVAddr gpu_addr, VAddr cpu_addr,
                                                           const ImageBase& overlap,
                                                           bool strict_size);
+
+[[nodiscard]] bool IsLayerStrideCompatible(const ImageInfo& lhs, const ImageInfo& rhs);
 
 [[nodiscard]] std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate,
                                                              const ImageBase& image,

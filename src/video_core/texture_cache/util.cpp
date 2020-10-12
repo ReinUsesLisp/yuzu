@@ -22,6 +22,8 @@
 #include "video_core/textures/astc.h"
 #include "video_core/textures/decoders.h"
 
+#pragma optimize("", off)
+
 namespace VideoCommon {
 
 namespace {
@@ -310,7 +312,7 @@ template <u32 GOB_EXTENT>
                                                                           const ImageBase& overlap,
                                                                           bool strict_size) {
     const ImageInfo& info = overlap.info;
-    if (!IsSameSize(new_info, info, 0, 0, strict_size)) {
+    if (!IsBlockLinearSameSize(new_info, info, 0, 0, strict_size)) {
         return std::nullopt;
     }
     if (new_info.block != info.block) {
@@ -346,7 +348,7 @@ template <u32 GOB_EXTENT>
     }
     const u32 mipmap = static_cast<u32>(std::distance(offsets.begin(), it));
     const ImageInfo& info = overlap.info;
-    if (!IsSameSize(new_info, info, mipmap, 0, strict_size)) {
+    if (!IsBlockLinearSameSize(new_info, info, mipmap, 0, strict_size)) {
         return std::nullopt;
     }
     if (new_info.block != MipmapBlockSize(info, mipmap)) {
@@ -373,7 +375,7 @@ template <u32 GOB_EXTENT>
         return std::nullopt;
     }
     const ImageInfo& info = overlap.info;
-    if (!IsSameSize(new_info, info, base->mipmap, 0, strict_size)) {
+    if (!IsBlockLinearSameSize(new_info, info, base->mipmap, 0, strict_size)) {
         return std::nullopt;
     }
     if (MipmapBlockSize(new_info, base->mipmap) != info.block) {
@@ -396,8 +398,24 @@ template <typename T>
     return (number + divisor - 1) / divisor;
 }
 
-[[nodiscard]] Extent3D AlignedSize(const ImageInfo& info, u32 mipmap) {
+[[nodiscard]] Extent2D PitchLinearAlignedSize(const ImageInfo& info) {
+    // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L212
+    static constexpr u32 STRIDE_ALIGNMENT = 32;
+    ASSERT(info.type == ImageType::Linear);
+    const Extent2D num_tiles{
+        .width = DivCeil(info.size.width, DefaultBlockWidth(info.format)),
+        .height = DivCeil(info.size.height, DefaultBlockHeight(info.format)),
+    };
+    const u32 width_alignment = STRIDE_ALIGNMENT / BytesPerBlock(info.format);
+    return Extent2D{
+        .width = Common::AlignUp(num_tiles.width, width_alignment),
+        .height = num_tiles.height,
+    };
+}
+
+[[nodiscard]] Extent3D BlockLinearAlignedSize(const ImageInfo& info, u32 mipmap) {
     // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L176
+    ASSERT(info.type != ImageType::Linear);
     const Extent3D size = AdjustMipSize(info.size, mipmap);
     const Extent3D num_tiles{
         .width = DivCeil(size.width, DefaultBlockWidth(info.format)),
@@ -434,10 +452,12 @@ template <typename T>
 } // Anonymous namespace
 
 u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept {
-    // FIXME
+    if (info.type == ImageType::Linear) {
+        return info.pitch * info.size.height;
+    }
     if (info.resources.layers > 1) {
-        // TODO: Maybe subtract the bytes from the last layer?
-        return CalculateLayerStride(info) * info.resources.layers;
+        ASSERT(info.layer_stride != 0);
+        return info.layer_stride * info.resources.layers;
     } else {
         return CalculateLayerSize(info);
     }
@@ -448,6 +468,9 @@ u32 CalculateUnswizzledSizeBytes(const ImageInfo& info) noexcept {
     if (info.num_samples > 1) {
         // Multisample images can't be uploaded or downloaded to the host
         return 0;
+    }
+    if (info.type == ImageType::Linear) {
+        return info.pitch * info.size.height;
     }
     const Extent2D tile_size = DefaultBlockSize(info.format);
     return NumBlocksPerLayer(info, tile_size) * info.resources.layers * BytesPerBlock(info.format);
@@ -469,15 +492,9 @@ u32 CalculateLayerStride(const ImageInfo& info) noexcept {
 }
 
 u32 CalculateLayerSize(const ImageInfo& info) noexcept {
-    // if (info.type != ImageType::Buffer) {}
-    if (info.type == ImageType::Linear) {
-        return static_cast<u64>(info.pitch) * info.size.height;
-    }
-    const Extent3D size = info.size;
-    const Extent3D block = info.block;
-    const u32 num_samples = info.num_samples;
-    const u32 num_mipmaps = info.resources.mipmaps;
-    return CalculateLevelOffset(info.format, size, block, num_samples, num_mipmaps);
+    ASSERT(info.type != ImageType::Linear);
+    return CalculateLevelOffset(info.format, info.size, info.block, info.num_samples,
+                                info.resources.mipmaps);
 }
 
 std::array<u32, MAX_MIPMAP> CalculateMipmapOffsets(const ImageInfo& info) noexcept {
@@ -882,15 +899,29 @@ std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs) {
     }
 }
 
-bool IsSameSize(const ImageInfo& lhs, const ImageInfo& rhs, u32 lhs_mipmap, u32 rhs_mipmap,
-                bool strict_size) noexcept {
+bool IsBlockLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs, u32 lhs_mipmap,
+                           u32 rhs_mipmap, bool strict_size) noexcept {
+    ASSERT(lhs.type != ImageType::Linear);
+    ASSERT(rhs.type != ImageType::Linear);
     if (strict_size) {
         const Extent3D lhs_size = AdjustMipSize(lhs.size, lhs_mipmap);
         const Extent3D rhs_size = AdjustMipSize(rhs.size, rhs_mipmap);
         return lhs_size == rhs_size;
     } else {
-        const Extent3D lhs_size = AlignedSize(lhs, lhs_mipmap);
-        const Extent3D rhs_size = AlignedSize(rhs, rhs_mipmap);
+        const Extent3D lhs_size = BlockLinearAlignedSize(lhs, lhs_mipmap);
+        const Extent3D rhs_size = BlockLinearAlignedSize(rhs, rhs_mipmap);
+        return lhs_size == rhs_size;
+    }
+}
+
+bool IsPitchLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs, bool strict_size) noexcept {
+    ASSERT(lhs.type == ImageType::Linear);
+    ASSERT(rhs.type == ImageType::Linear);
+    if (strict_size) {
+        return lhs.size.width == rhs.size.width && lhs.size.height == rhs.size.height;
+    } else {
+        const Extent2D lhs_size = PitchLinearAlignedSize(lhs);
+        const Extent2D rhs_size = PitchLinearAlignedSize(rhs);
         return lhs_size == rhs_size;
     }
 }
@@ -917,6 +948,18 @@ std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr 
     }
 }
 
+bool IsLayerStrideCompatible(const ImageInfo& lhs, const ImageInfo& rhs) {
+    // If either of the layer strides is zero, we can assume they are compatible
+    // These images generally come from rendertargets
+    if (lhs.layer_stride == 0) {
+        return true;
+    }
+    if (rhs.layer_stride == 0) {
+        return true;
+    }
+    return lhs.layer_stride == rhs.layer_stride;
+}
+
 std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const ImageBase& image,
                                                GPUVAddr candidate_addr, RelaxedOptions options) {
     const std::optional<SubresourceBase> subresource =
@@ -930,10 +973,8 @@ std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const
             return std::nullopt;
         }
     }
-    if (False(options & RelaxedOptions::LayerStride)) {
-        if (existing.layer_stride != candidate.layer_stride) {
-            return std::nullopt;
-        }
+    if (!IsLayerStrideCompatible(existing, candidate)) {
+        return std::nullopt;
     }
     if (existing.type != candidate.type) {
         return std::nullopt;
@@ -948,7 +989,7 @@ std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const
         return std::nullopt;
     }
     const bool strict_size = False(options & RelaxedOptions::Size);
-    if (!IsSameSize(existing, candidate, subresource->mipmap, 0, strict_size)) {
+    if (!IsBlockLinearSameSize(existing, candidate, subresource->mipmap, 0, strict_size)) {
         return std::nullopt;
     }
     // TODO: compare block sizes

@@ -183,7 +183,7 @@ PixelFormat PixelFormatFromRenderTargetFormat(Tegra::RenderTargetFormat format) 
     case Tegra::RenderTargetFormat::R8_UINT:
         return PixelFormat::R8_UINT;
     default:
-        UNIMPLEMENTED_MSG("Unimplemented format={}", static_cast<int>(format));
+        // UNIMPLEMENTED_MSG("Unimplemented format={}", static_cast<int>(format));
         return PixelFormat::A8B8G8R8_UNORM;
     }
 }
@@ -197,7 +197,7 @@ PixelFormat PixelFormatFromGPUPixelFormat(Tegra::FramebufferConfig::PixelFormat 
     case Tegra::FramebufferConfig::PixelFormat::B8G8R8A8_UNORM:
         return PixelFormat::B8G8R8A8_UNORM;
     default:
-        UNIMPLEMENTED_MSG("Unimplemented format={}", static_cast<u32>(format));
+        // UNIMPLEMENTED_MSG("Unimplemented format={}", static_cast<u32>(format));
         return PixelFormat::A8B8G8R8_UNORM;
     }
 }

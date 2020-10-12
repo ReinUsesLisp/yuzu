@@ -13,6 +13,14 @@
 
 namespace VideoCommon {
 
+[[nodiscard]] constexpr std::pair<u32, u32> LayerMipOffset(u32 diff, u32 layer_stride) {
+    if (layer_stride == 0) {
+        return {0, diff};
+    } else {
+        return {diff / layer_stride, diff % layer_stride};
+    }
+}
+
 ImageBase::ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_)
     : info{info_}, guest_size_bytes{CalculateGuestSizeInBytes(info)},
       unswizzled_size_bytes{CalculateUnswizzledSizeBytes(info)},
@@ -36,8 +44,7 @@ std::optional<SubresourceBase> ImageBase::FindSubresourceFromAddress(
         // This can happen when two CPU addresses are used for different GPU addresses
         return std::nullopt;
     }
-    const u32 layer = diff / info.layer_stride;
-    const u32 mip_offset = diff % info.layer_stride;
+    const auto [layer, mip_offset] = LayerMipOffset(diff, info.layer_stride);
     const auto end = mipmap_offsets.begin() + info.resources.mipmaps;
     const auto it = std::find(mipmap_offsets.begin(), end, mip_offset);
     if (it == end) {
