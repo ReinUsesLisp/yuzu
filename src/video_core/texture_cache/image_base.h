@@ -58,6 +58,9 @@ struct ImageBase {
 
     std::vector<ImageViewInfo> image_view_infos;
     std::vector<ImageViewId> image_view_ids;
+
+    std::vector<u32> slice_offsets;
+    std::vector<SubresourceBase> slice_subresources;
 };
 
 struct ImageAllocBase {

@@ -57,9 +57,8 @@ void Swizzle(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixe
 
     for (u32 slice = 0; slice < depth; ++slice) {
         const u32 z = slice + origin_z;
-        const u32 offset_z =
-            (z >> block_depth) * slice_size + (((z & block_depth_mask) * GOB_SIZE) << block_height);
-
+        const u32 offset_z = (z >> block_depth) * slice_size +
+                             ((z & block_depth_mask) << (GOB_SIZE_SHIFT + block_height));
         for (u32 line = 0; line < height; ++line) {
             const u32 y = line + origin_y;
             const auto& table = SWIZZLE_TABLE[y % GOB_SIZE_Y];

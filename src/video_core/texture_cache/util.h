@@ -38,7 +38,9 @@ struct OverlapResult {
 
 [[nodiscard]] std::array<u32, MAX_MIPMAP> CalculateMipmapOffsets(const ImageInfo& info) noexcept;
 
-[[nodiscard]] GPUVAddr CalculateBaseAddress(const TICEntry& config);
+[[nodiscard]] std::vector<u32> CalculateSliceOffsets(const ImageInfo& info);
+
+[[nodiscard]] std::vector<SubresourceBase> CalculateSliceSubresources(const ImageInfo& info);
 
 [[nodiscard]] VideoCore::Surface::PixelFormat PixelFormatFromTIC(
     const Tegra::Texture::TICEntry& config) noexcept;
@@ -49,7 +51,7 @@ struct OverlapResult {
                                                            const ImageInfo& src,
                                                            SubresourceBase base);
 
-[[nodiscard]] bool IsValid(const Tegra::MemoryManager& gpu_memory, const TICEntry& config);
+[[nodiscard]] bool IsValidAddress(const Tegra::MemoryManager& gpu_memory, const TICEntry& config);
 
 [[nodiscard]] std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory,
                                                           GPUVAddr gpu_addr, const ImageInfo& info,
@@ -62,7 +64,7 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
 
 [[nodiscard]] Extent3D MipmapSize(const ImageInfo& info, u32 mipmap);
 
-[[nodiscard]] Extent3D MipmapBlockSize(const ImageInfo& info, u32 mipmap);
+[[nodiscard]] Extent3D MipBlockSize(const ImageInfo& info, u32 mipmap);
 
 [[nodiscard]] std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info);
 
@@ -71,9 +73,9 @@ void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const Ima
 
 [[nodiscard]] std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs);
 
-[[nodiscard]] bool IsBlockLinearSameSize(const ImageInfo& new_info, const ImageInfo& overlap_info,
-                                         u32 new_mipmap, u32 overlap_mipmap,
-                                         bool strict_size) noexcept;
+[[nodiscard]] bool IsBlockLinearSizeCompatible(const ImageInfo& new_info,
+                                               const ImageInfo& overlap_info, u32 new_mipmap,
+                                               u32 overlap_mipmap, bool strict_size) noexcept;
 
 [[nodiscard]] bool IsPitchLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs,
                                          bool strict_size) noexcept;

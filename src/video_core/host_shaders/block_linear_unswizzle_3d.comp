@@ -110,7 +110,8 @@ void main() {
     uint offset = 0;
     offset += (pos.z >> block_depth) * slice_size;
     offset += (pos.z & block_depth_mask) << (GOB_SIZE_SHIFT + block_height);
-    offset += (block_y >> block_height) * block_size + (block_y & block_height_mask) * GOB_SIZE;
+    offset += (block_y >> block_height) * block_size;
+    offset += (block_y & block_height_mask) << GOB_SIZE_SHIFT;
     offset += (pos.x >> GOB_SIZE_X_SHIFT) << x_shift;
     offset += swizzle;
 

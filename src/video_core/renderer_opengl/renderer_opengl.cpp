@@ -386,7 +386,7 @@ void RendererOpenGL::DrawScreen(const Layout::FramebufferLayout& layout) {
     state_tracker.NotifyPolygonModes();
     state_tracker.NotifyViewport0();
     state_tracker.NotifyScissor0();
-    state_tracker.NotifyColorMask0();
+    state_tracker.NotifyColorMask(0);
     state_tracker.NotifyBlend0();
     state_tracker.NotifyFramebuffer();
     state_tracker.NotifyFrontFace();

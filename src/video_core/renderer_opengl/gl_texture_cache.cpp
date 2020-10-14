@@ -36,6 +36,19 @@ using VideoCore::Surface::MaxPixelFormat;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceType;
 
+struct CopyOrigin {
+    GLint level;
+    GLint x;
+    GLint y;
+    GLint z;
+};
+
+struct CopyRegion {
+    GLsizei width;
+    GLsizei height;
+    GLsizei depth;
+};
+
 struct FormatTuple {
     GLenum internal_format;
     GLenum format = GL_NONE;
@@ -344,6 +357,51 @@ bool CanBeAccelerated(const TextureCacheRuntime& runtime, const VideoCommon::Ima
     return format_info.compatibility_class == store_class;
 }
 
+[[nodiscard]] CopyOrigin MakeCopyOrigin(VideoCommon::Offset3D offset,
+                                        VideoCommon::SubresourceLayers subresource, GLenum target) {
+    switch (target) {
+    case GL_TEXTURE_2D_ARRAY:
+        return CopyOrigin{
+            .level = static_cast<GLint>(subresource.base_mipmap),
+            .x = static_cast<GLint>(offset.x),
+            .y = static_cast<GLint>(offset.y),
+            .z = static_cast<GLint>(subresource.base_layer),
+        };
+    case GL_TEXTURE_3D:
+        return CopyOrigin{
+            .level = static_cast<GLint>(subresource.base_mipmap),
+            .x = static_cast<GLint>(offset.x),
+            .y = static_cast<GLint>(offset.y),
+            .z = static_cast<GLint>(offset.z),
+        };
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented copy target={}", target);
+        return CopyOrigin{};
+    }
+}
+
+[[nodiscard]] CopyRegion MakeCopyRegion(VideoCommon::Extent3D extent,
+                                        VideoCommon::SubresourceLayers dst_subresource,
+                                        GLenum target) {
+    switch (target) {
+    case GL_TEXTURE_2D_ARRAY:
+        return CopyRegion{
+            .width = static_cast<GLsizei>(extent.width),
+            .height = static_cast<GLsizei>(extent.height),
+            .depth = static_cast<GLsizei>(dst_subresource.num_layers),
+        };
+    case GL_TEXTURE_3D:
+        return CopyRegion{
+            .width = static_cast<GLsizei>(extent.width),
+            .height = static_cast<GLsizei>(extent.height),
+            .depth = static_cast<GLsizei>(extent.depth),
+        };
+    default:
+        UNIMPLEMENTED_MSG("Unimplemented copy target={}", target);
+        return CopyRegion{};
+    }
+}
+
 } // Anonymous namespace
 
 ImageBufferMap::ImageBufferMap(GLuint handle_, u8* map, size_t size, OGLSync* sync_)
@@ -406,31 +464,19 @@ ImageBufferMap TextureCacheRuntime::MapDownloadBuffer(size_t size) {
     return download_buffers.RequestMap(size, false);
 }
 
-void TextureCacheRuntime::CopyImage(Image& dst, Image& src, std::span<const ImageCopy> copies) {
-    const GLuint dst_name = dst.Handle();
-    const GLuint src_name = src.Handle();
-
-    // TODO: support non-2D targets
-    const GLenum src_target = GL_TEXTURE_2D_ARRAY;
-    const GLenum dst_target = GL_TEXTURE_2D_ARRAY;
-
+void TextureCacheRuntime::CopyImage(Image& dst_image, Image& src_image,
+                                    std::span<const ImageCopy> copies) {
+    const GLuint dst_name = dst_image.Handle();
+    const GLuint src_name = src_image.Handle();
+    const GLenum src_target = ImageTarget(dst_image.info);
+    const GLenum dst_target = ImageTarget(src_image.info);
     for (const ImageCopy& copy : copies) {
-        const GLint src_level = copy.src_subresource.base_mipmap;
-        const GLint src_x = copy.src_offset.x;
-        const GLint src_y = copy.src_offset.y;
-        const GLint src_z = copy.src_subresource.base_layer;
-
-        const GLint dst_level = copy.dst_subresource.base_mipmap;
-        const GLint dst_x = copy.dst_offset.x;
-        const GLint dst_y = copy.dst_offset.y;
-        const GLint dst_z = copy.dst_subresource.base_layer;
-
-        const GLsizei width = copy.extent.width;
-        const GLsizei height = copy.extent.height;
-        const GLsizei depth = copy.dst_subresource.num_layers;
-
-        glCopyImageSubData(src_name, src_target, src_level, src_x, src_y, src_z, dst_name,
-                           dst_target, dst_level, dst_x, dst_y, dst_z, width, height, depth);
+        const auto src_origin = MakeCopyOrigin(copy.src_offset, copy.src_subresource, src_target);
+        const auto dst_origin = MakeCopyOrigin(copy.dst_offset, copy.dst_subresource, dst_target);
+        const auto region = MakeCopyRegion(copy.extent, copy.dst_subresource, dst_target);
+        glCopyImageSubData(src_name, src_target, src_origin.level, src_origin.x, src_origin.y,
+                           src_origin.z, dst_name, dst_target, dst_origin.level, dst_origin.x,
+                           dst_origin.y, dst_origin.z, region.width, region.height, region.depth);
     }
 }
 
@@ -450,7 +496,8 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
     using Tegra::Texture::GOB_SIZE_X;
     using Tegra::Texture::GOB_SIZE_X_SHIFT;
 
-    static constexpr GLuint WORKGROUP_SIZE = 32;
+    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE_2D{32, 32, 1};
+    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE_3D{16, 8, 8};
 
     static constexpr GLuint SWIZZLE_BUFFER_BINDING = 0;
     static constexpr GLuint INPUT_BUFFER_BINDING = 1;
@@ -471,6 +518,7 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
     const u32 bytes_per_block = BytesPerBlock(image.info.format);
     const u32 bytes_per_block_log2 = std::countr_zero(bytes_per_block);
     const bool is_3d = image.info.type == VideoCommon::ImageType::e3D;
+    const VideoCommon::Extent3D workgroup_size = is_3d ? WORKGROUP_SIZE_3D : WORKGROUP_SIZE_2D;
 
     glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_bytes);
 
@@ -490,29 +538,38 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
     }
 
     for (const SwizzleParameters& swizzle : swizzles) {
+        const VideoCommon::Extent3D block = swizzle.block;
+        const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
         const size_t offset = swizzle.buffer_offset + buffer_offset;
 
-        const GLuint aligned_width = Common::AlignUp(image.info.size.width, WORKGROUP_SIZE);
-        const GLuint aligned_height = Common::AlignUp(image.info.size.height, WORKGROUP_SIZE);
-        const GLuint num_dispatches_x = aligned_width / WORKGROUP_SIZE;
-        const GLuint num_dispatches_y = aligned_height / WORKGROUP_SIZE;
+        const u32 aligned_width = Common::AlignUp(num_tiles.width, workgroup_size.width);
+        const u32 aligned_height = Common::AlignUp(num_tiles.height, workgroup_size.height);
+        const u32 aligned_depth = Common::AlignUp(num_tiles.depth, workgroup_size.depth);
+        const u32 num_dispatches_x = aligned_width / workgroup_size.width;
+        const u32 num_dispatches_y = aligned_height / workgroup_size.height;
+        const u32 num_dispatches_z =
+            is_3d ? aligned_depth / workgroup_size.depth : image.info.resources.layers;
 
-        const u32 stride = swizzle.num_tiles.width * bytes_per_block;
+        const u32 stride = num_tiles.width * bytes_per_block;
+
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
-        const u32 x_shift = GOB_SIZE_SHIFT + swizzle.block.height;
-        const u32 block_size = gobs_in_x << x_shift;
+        const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block.height + block.depth);
+        const u32 slice_size = (gobs_in_x * num_tiles.height) << (block.height + block.depth);
+
+        const u32 block_height_mask = (1U << block.height) - 1;
+        const u32 block_depth_mask = (1U << block.depth) - 1;
+        const u32 x_shift = GOB_SIZE_SHIFT + block.height + block.depth;
+
         if (is_3d) {
-            const u32 slice_size = (gobs_in_x * swizzle.num_tiles.height)
-                                   << (swizzle.block.height + swizzle.block.depth);
             glUniform1ui(SLICE_SIZE_LOC, slice_size);
         }
         glUniform1ui(BLOCK_SIZE_LOC, block_size);
         glUniform1ui(X_SHIFT_LOC, x_shift);
-        glUniform1ui(BLOCK_HEIGHT_LOC, swizzle.block.height);
-        glUniform1ui(BLOCK_HEIGHT_MASK_LOC, (1U << swizzle.block.height) - 1);
+        glUniform1ui(BLOCK_HEIGHT_LOC, block.height);
+        glUniform1ui(BLOCK_HEIGHT_MASK_LOC, block_height_mask);
         if (is_3d) {
-            glUniform1ui(BLOCK_DEPTH_LOC, swizzle.block.depth);
-            glUniform1ui(BLOCK_DEPTH_MASK_LOC, (1U << swizzle.block.depth) - 1);
+            glUniform1ui(BLOCK_DEPTH_LOC, block.depth);
+            glUniform1ui(BLOCK_DEPTH_MASK_LOC, block_depth_mask);
         }
 
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, INPUT_BUFFER_BINDING, map.Handle(), offset,
@@ -520,7 +577,7 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
         glBindImageTexture(OUTPUT_IMAGE_BINDING, image.Handle(), swizzle.mipmap, GL_TRUE, 0,
                            GL_WRITE_ONLY, StoreFormat(bytes_per_block));
 
-        glDispatchCompute(num_dispatches_x, num_dispatches_y, image.info.resources.layers);
+        glDispatchCompute(num_dispatches_x, num_dispatches_y, num_dispatches_z);
     }
 }
 
@@ -612,7 +669,6 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     if (CanBeAccelerated(runtime, info)) {
         flags |= VideoCommon::ImageFlagBits::AcceleratedUpload;
     }
-
     const GLenum target = ImageTarget(info);
     const GLsizei width = info.size.width;
     const GLsizei height = info.size.height;
@@ -649,7 +705,6 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
         UNREACHABLE_MSG("Invalid target=0x{:x}", target);
         break;
     }
-
     const std::string name = fmt::format("Image 0x{:x}", gpu_addr);
     glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
 }
@@ -791,7 +846,6 @@ void Image::CopyImageToBuffer(const VideoCommon::BufferImageCopy& copy, size_t b
     default:
         UNREACHABLE();
     }
-
     // Compressed formats don't have a pixel format or type
     const bool is_compressed = gl_format == GL_NONE;
     if (is_compressed) {
@@ -821,6 +875,18 @@ ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo& inf
         flatten_range.extent.layers = 1;
         [[fallthrough]];
     case ImageViewType::e2D:
+        if (image.info.type == VideoCommon::ImageType::e3D) {
+            // 2D and 2D array views on a 3D textures are used exclusively for render targets
+            ASSERT(info.range.extent.mipmaps == 1);
+            glGenTextures(1, handles.data());
+            SetupView(image, ImageViewType::e3D, handles[0], info,
+                      {
+                          .base = {.mipmap = info.range.base.mipmap, .layer = 0},
+                          .extent = {.mipmaps = 1, .layers = 1},
+                      });
+            is_slice_view = true;
+            break;
+        }
         glGenTextures(2, handles.data());
         SetupView(image, ImageViewType::e2D, handles[0], info, flatten_range);
         SetupView(image, ImageViewType::e2DArray, handles[1], info, info.range);
@@ -845,7 +911,6 @@ ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo& inf
         UNIMPLEMENTED_MSG("Texture buffer");
         break;
     }
-
     default_handle = Handle(info.type);
 }
 
@@ -914,10 +979,11 @@ Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {
 
 // ANONYMOUS
 void AttachTexture(GLuint fbo, GLenum attachment, const ImageView* image_view) {
-    const GLuint texture = image_view->DefaultHandle();
-    if (image_view->type == VideoCommon::ImageViewType::e3D) {
+    if (image_view->Is3D()) {
+        const GLuint texture = image_view->Handle(ImageViewType::e3D);
         glNamedFramebufferTextureLayer(fbo, attachment, texture, 0, image_view->range.base.layer);
     } else {
+        const GLuint texture = image_view->DefaultHandle();
         glNamedFramebufferTexture(fbo, attachment, texture, 0);
     }
 }

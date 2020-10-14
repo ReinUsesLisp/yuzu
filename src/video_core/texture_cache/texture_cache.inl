@@ -16,8 +16,6 @@
 
 #include "video_core/texture_cache/util.h"
 
-#pragma optimize("", off)
-
 namespace VideoCommon {
 
 template <class P>
@@ -367,7 +365,7 @@ template <class P>
 ImageViewId TextureCache<P>::FindImageView(const TICEntry& config) {
     // TODO: Add fast path here comparing to previous TIC
 
-    if (!IsValid(gpu_memory, config)) {
+    if (!IsValidAddress(gpu_memory, config)) {
         return NULL_IMAGE_VIEW_ID;
     }
     const auto [pair, is_new] = image_views.try_emplace(config);
@@ -569,13 +567,17 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
 template <class P>
 template <typename Func>
 void TextureCache<P>::ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func) {
-    using FuncReturn = std::invoke_result<Func, ImageId>;
+    using FuncReturn = typename std::invoke_result<Func, ImageId, Image&>::type;
     static constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
     boost::container::small_vector<ImageId, 32> images;
     ForEachPage(cpu_addr, size, [this, &images, cpu_addr, size, func](u64 page) {
         const auto it = page_table.find(page);
         if (it == page_table.end()) {
-            return;
+            if constexpr (BOOL_BREAK) {
+                return false;
+            } else {
+                return;
+            }
         }
         for (const ImageId image_id : it->second) {
             Image& image = slot_images[image_id];

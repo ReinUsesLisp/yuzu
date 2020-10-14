@@ -131,9 +131,9 @@ public:
         flags[OpenGL::Dirty::Scissor0] = true;
     }
 
-    void NotifyColorMask0() {
+    void NotifyColorMask(size_t index) {
         flags[OpenGL::Dirty::ColorMasks] = true;
-        flags[OpenGL::Dirty::ColorMask0] = true;
+        flags[OpenGL::Dirty::ColorMask0 + index] = true;
     }
 
     void NotifyBlend0() {

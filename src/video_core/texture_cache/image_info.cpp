@@ -25,7 +25,7 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
     if (config.IsPitchLinear()) {
         pitch = config.Pitch();
     } else {
-        block = {
+        block = Extent3D{
             .width = config.block_width,
             .height = config.block_height,
             .depth = config.block_depth,
@@ -100,7 +100,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) 
     size.height = rt.height;
     layer_stride = rt.layer_stride * 4;
     num_samples = NumSamples(regs.multisample_mode);
-    block = {
+    block = Extent3D{
         .width = rt.tile_mode.block_width,
         .height = rt.tile_mode.block_height,
         .depth = rt.tile_mode.block_depth,
@@ -126,7 +126,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
     resources.mipmaps = 1;
     layer_stride = regs.zeta.layer_stride * 4;
     num_samples = NumSamples(regs.multisample_mode);
-    block = {
+    block = Extent3D{
         .width = regs.zeta.tile_mode.block_width,
         .height = regs.zeta.tile_mode.block_height,
         .depth = regs.zeta.tile_mode.block_depth,
@@ -146,37 +146,29 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
 }
 
 ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Surface& config) noexcept {
+    UNIMPLEMENTED_IF_MSG(config.layer != 0, "Surface layer is not zero");
+    UNIMPLEMENTED_IF_MSG(config.depth > 1, "Depth is larger than one");
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(config.format);
     if (config.linear == Tegra::Engines::Fermi2D::MemoryLayout::Pitch) {
         type = ImageType::Linear;
-        size = {
+        size = Extent3D{
             .width = config.pitch / VideoCore::Surface::BytesPerBlock(format),
             .height = config.height,
             .depth = 1,
         };
         pitch = config.pitch;
-        return;
-    }
-    block = {
-        .width = config.block_width,
-        .height = config.block_height,
-        .depth = config.block_depth,
-    };
-    if (block.depth > 0) {
-        type = ImageType::e3D;
-        size = {
+    } else {
+        type = ImageType::e2D;
+        block = Extent3D{
+            .width = config.block_width,
+            .height = config.block_height,
+            .depth = config.block_depth,
+        };
+        size = Extent3D{
             .width = config.width,
             .height = config.height,
             .depth = config.depth,
         };
-    } else {
-        type = ImageType::e2D;
-        size = {
-            .width = config.width,
-            .height = config.height,
-            .depth = 1,
-        };
-        resources.layers = config.depth;
     }
 }
 

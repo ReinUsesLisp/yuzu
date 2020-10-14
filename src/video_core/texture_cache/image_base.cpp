@@ -26,7 +26,12 @@ ImageBase::ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_
       unswizzled_size_bytes{CalculateUnswizzledSizeBytes(info)},
       converted_size_bytes{CalculateConvertedSizeBytes(info)}, gpu_addr{gpu_addr_},
       cpu_addr{cpu_addr_}, cpu_addr_end{cpu_addr + guest_size_bytes},
-      mipmap_offsets{CalculateMipmapOffsets(info)} {}
+      mipmap_offsets{CalculateMipmapOffsets(info)} {
+    if (info.type == ImageType::e3D) {
+        slice_offsets = CalculateSliceOffsets(info);
+        slice_subresources = CalculateSliceSubresources(info);
+    }
+}
 
 bool ImageBase::Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noexcept {
     const VAddr overlap_end = overlap_cpu_addr + overlap_size;
@@ -44,16 +49,25 @@ std::optional<SubresourceBase> ImageBase::FindSubresourceFromAddress(
         // This can happen when two CPU addresses are used for different GPU addresses
         return std::nullopt;
     }
-    const auto [layer, mip_offset] = LayerMipOffset(diff, info.layer_stride);
-    const auto end = mipmap_offsets.begin() + info.resources.mipmaps;
-    const auto it = std::find(mipmap_offsets.begin(), end, mip_offset);
-    if (it == end) {
-        return std::nullopt;
+    if (info.type != ImageType::e3D) {
+        const auto [layer, mip_offset] = LayerMipOffset(diff, info.layer_stride);
+        const auto end = mipmap_offsets.begin() + info.resources.mipmaps;
+        const auto it = std::find(mipmap_offsets.begin(), end, mip_offset);
+        if (it == end) {
+            return std::nullopt;
+        }
+        return SubresourceBase{
+            .mipmap = static_cast<u32>(std::distance(mipmap_offsets.begin(), it)),
+            .layer = layer,
+        };
+    } else {
+        // TODO: Consider using binary_search after a threshold
+        const auto it = std::ranges::find(slice_offsets, diff);
+        if (it == slice_offsets.cend()) {
+            return std::nullopt;
+        }
+        return slice_subresources[std::distance(slice_offsets.begin(), it)];
     }
-    return SubresourceBase{
-        .mipmap = static_cast<u32>(std::distance(mipmap_offsets.begin(), it)),
-        .layer = layer,
-    };
 }
 
 ImageViewId ImageBase::FindView(const ImageViewInfo& info) const noexcept {

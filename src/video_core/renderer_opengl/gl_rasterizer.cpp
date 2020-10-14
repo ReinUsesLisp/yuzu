@@ -426,8 +426,9 @@ void RasterizerOpenGL::Clear() {
         regs.clear_buffers.A) {
         use_color = true;
 
-        state_tracker.NotifyColorMask0();
-        glColorMaski(0, regs.clear_buffers.R != 0, regs.clear_buffers.G != 0,
+        const GLuint index = regs.clear_buffers.RT;
+        state_tracker.NotifyColorMask(index);
+        glColorMaski(index, regs.clear_buffers.R != 0, regs.clear_buffers.G != 0,
                      regs.clear_buffers.B != 0, regs.clear_buffers.A != 0);
 
         // TODO(Rodrigo): Determine if clamping is used on clears
@@ -467,7 +468,7 @@ void RasterizerOpenGL::Clear() {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
 
     if (use_color) {
-        glClearBufferfv(GL_COLOR, 0, regs.clear_color);
+        glClearBufferfv(GL_COLOR, regs.clear_buffers.RT, regs.clear_color);
     }
 
     if (use_depth && use_stencil) {

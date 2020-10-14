@@ -141,16 +141,20 @@ public:
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo&, ImageId, Image&);
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams&);
 
-    GLuint Handle(ImageViewType type) const noexcept {
+    [[nodiscard]] GLuint Handle(ImageViewType type) const noexcept {
         return views[static_cast<size_t>(type)].handle;
     }
 
-    GLuint DefaultHandle() const noexcept {
+    [[nodiscard]] GLuint DefaultHandle() const noexcept {
         return default_handle;
     }
 
-    GLenum Format() const noexcept {
+    [[nodiscard]] GLenum Format() const noexcept {
         UNIMPLEMENTED();
+    }
+
+    [[nodiscard]] bool Is3D() const noexcept {
+        return is_slice_view;
     }
 
 private:
@@ -159,6 +163,7 @@ private:
 
     std::array<OGLTextureView, VideoCommon::NUM_IMAGE_VIEW_TYPES> views;
     GLuint default_handle = 0;
+    bool is_slice_view = false;
 };
 
 class ImageAlloc : public VideoCommon::ImageAllocBase {};
