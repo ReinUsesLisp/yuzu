@@ -369,6 +369,10 @@ template <u32 GOB_EXTENT>
     if (!IsBlockLinearSizeCompatible(new_info, info, base.mipmap, 0, strict_size)) {
         return std::nullopt;
     }
+    const u32 mip_depth = std::max(1U, new_info.size.depth << base.mipmap);
+    if (mip_depth < info.size.depth + base.layer) {
+        return std::nullopt;
+    }
     if (MipBlockSize(new_info, base.mipmap) != info.block) {
         return std::nullopt;
     }
@@ -1074,7 +1078,16 @@ bool IsLayerStrideCompatible(const ImageInfo& lhs, const ImageInfo& rhs) {
     if (rhs.layer_stride == 0) {
         return true;
     }
-    return lhs.layer_stride == rhs.layer_stride;
+    // It's definitely compatible if the layer stride matches
+    if (lhs.layer_stride == rhs.layer_stride) {
+        return true;
+    }
+    // Although we also have to compare for cases where it can be unaligned
+    // This can happen if the image doesn't have layers, so the stride is not aligned
+    if (lhs.maybe_unaligned_layer_stride == rhs.maybe_unaligned_layer_stride) {
+        return true;
+    }
+    return false;
 }
 
 std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const ImageBase& image,
@@ -1124,11 +1137,11 @@ bool IsSubresource(const ImageInfo& candidate, const ImageBase& image, GPUVAddr 
     return FindSubresource(candidate, image, candidate_addr, options).has_value();
 }
 
-#ifdef __cpp_using_enum
-using enum PixelFormat;
-
 static_assert(CalculateLevelSize(LevelInfo{{1920, 1080}, {0, 2, 0}, {1, 1}, 2}, 0) == 0x7f8000);
 static_assert(CalculateLevelSize(LevelInfo{{32, 32}, {0, 0, 4}, {1, 1}, 4}, 0) == 0x4000);
+
+#ifdef __cpp_using_enum
+using enum PixelFormat;
 
 static_assert(CalculateLevelOffset(R8_SINT, {1920, 1080}, {0, 2}, 1, 7) == 0x2afc00);
 static_assert(CalculateLevelOffset(ASTC_2D_12X12_UNORM, {8192, 4096}, {0, 2}, 1, 12) == 0x50d200);

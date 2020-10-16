@@ -489,7 +489,6 @@ ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_a
         UnregisterImage(overlap_id);
         DeleteImage(overlap_id);
     }
-
     RegisterImage(new_image_id);
     return new_image_id;
 }
@@ -692,7 +691,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
         UNREACHABLE_MSG("Trying to delete an image that does not exist");
         return;
     }
-
     ASSERT_MSG(False(image.flags & ImageFlagBits::Tracked), "Image was not untracked");
 
     const std::span<const ImageViewId> image_view_ids = image.image_view_ids;

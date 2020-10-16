@@ -90,6 +90,7 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
     if (type != ImageType::Linear) {
         // FIXME: Call this without passing *this
         layer_stride = CalculateLayerStride(*this);
+        maybe_unaligned_layer_stride = CalculateLayerSize(*this);
     }
 }
 
@@ -99,6 +100,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) 
     size.width = rt.width;
     size.height = rt.height;
     layer_stride = rt.layer_stride * 4;
+    maybe_unaligned_layer_stride = layer_stride;
     num_samples = NumSamples(regs.multisample_mode);
     block = Extent3D{
         .width = rt.tile_mode.block_width,
@@ -125,6 +127,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
     // TODO: Maybe we can deduce the number of mipmaps from the layer stride
     resources.mipmaps = 1;
     layer_stride = regs.zeta.layer_stride * 4;
+    maybe_unaligned_layer_stride = layer_stride;
     num_samples = NumSamples(regs.multisample_mode);
     block = Extent3D{
         .width = regs.zeta.tile_mode.block_width,
