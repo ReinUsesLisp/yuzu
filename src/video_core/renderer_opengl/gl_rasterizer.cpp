@@ -963,7 +963,7 @@ void RasterizerOpenGL::SetupGlobalMemory(u32 binding, const GlobalMemoryEntry& e
 // ANONYMOUS
 ImageViewType ImageViewTypeFromEntry(const SamplerEntry& entry) {
     if (entry.is_buffer) {
-        return ImageViewType::e2D;
+        return ImageViewType::Buffer;
     }
     switch (entry.type) {
     case Tegra::Shader::TextureType::Texture1D:

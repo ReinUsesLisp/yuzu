@@ -39,7 +39,7 @@ enum class ImageViewType : u32 {
     Rect,
     Buffer,
 };
-constexpr size_t NUM_IMAGE_VIEW_TYPES = 8;
+constexpr size_t NUM_IMAGE_VIEW_TYPES = 9;
 
 enum class RelaxedOptions : u32 {
     Size = 1 << 0,

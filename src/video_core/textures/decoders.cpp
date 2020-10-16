@@ -39,13 +39,13 @@ constexpr SwizzleTable SWIZZLE_TABLE = MakeSwizzleTableConst();
 
 template <bool TO_LINEAR>
 void Swizzle(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixel, u32 width,
-             u32 height, u32 depth, u32 block_height, u32 block_depth) {
+             u32 height, u32 depth, u32 block_height, u32 block_depth, u32 stride_alignment) {
     static constexpr u32 origin_x = 0; // TODO
     static constexpr u32 origin_y = 0; // TODO
     static constexpr u32 origin_z = 0; // TODO
 
-    const u32 stride = width * bytes_per_pixel;
-    const u32 pitch = stride; // TODO
+    const u32 pitch = width * bytes_per_pixel; // TODO
+    const u32 stride = Common::AlignUp(width, stride_alignment) * bytes_per_pixel;
 
     const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
     const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block_height + block_depth);
@@ -92,13 +92,17 @@ SwizzleTable MakeSwizzleTable() {
 }
 
 void UnswizzleTexture(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixel,
-                      u32 width, u32 height, u32 depth, u32 block_height, u32 block_depth) {
-    Swizzle<false>(output, input, bytes_per_pixel, width, height, depth, block_height, block_depth);
+                      u32 width, u32 height, u32 depth, u32 block_height, u32 block_depth,
+                      u32 stride_alignment) {
+    Swizzle<false>(output, input, bytes_per_pixel, width, height, depth, block_height, block_depth,
+                   stride_alignment);
 }
 
 void SwizzleTexture(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixel, u32 width,
-                    u32 height, u32 depth, u32 block_height, u32 block_depth) {
-    Swizzle<true>(output, input, bytes_per_pixel, width, height, depth, block_height, block_depth);
+                    u32 height, u32 depth, u32 block_height, u32 block_depth,
+                    u32 stride_alignment) {
+    Swizzle<true>(output, input, bytes_per_pixel, width, height, depth, block_height, block_depth,
+                  stride_alignment);
 }
 
 void SwizzleSubrect(u32 subrect_width, u32 subrect_height, u32 source_pitch, u32 swizzled_width,

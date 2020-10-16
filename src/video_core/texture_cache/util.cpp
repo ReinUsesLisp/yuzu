@@ -54,7 +54,8 @@ struct LevelInfo {
     Extent3D size;
     Extent3D block;
     Extent2D tile_size;
-    u32 bytes_per_block_log2;
+    u32 bpp_log2;
+    u32 tile_width_spacing;
 };
 
 template <typename T>
@@ -63,8 +64,13 @@ template <typename T>
 }
 
 template <typename T>
-[[nodiscard]] constexpr T AlignUpLog2(T value, size_t alignment_log2) {
+[[nodiscard]] constexpr T DivCeilLog2(T value, size_t alignment_log2) {
     return (value + (T(1) << alignment_log2) - 1) >> alignment_log2;
+}
+
+template <typename T>
+[[nodiscard]] constexpr T AlignUpLog2(T value, size_t alignment_log2) {
+    return DivCeilLog2(value, alignment_log2) << alignment_log2;
 }
 
 [[nodiscard]] constexpr u32 AdjustTileSize(u32 shift, u32 unit_factor, u32 dimension) {
@@ -120,6 +126,14 @@ template <u32 GOB_EXTENT>
         .height = DivCeil(size.height, tile_size.height),
         .depth = size.depth,
     };
+}
+
+[[nodiscard]] constexpr u32 BytesPerBlockLog2(u32 bytes_per_block) {
+    return std::countl_zero(bytes_per_block) ^ 0x1F;
+}
+
+[[nodiscard]] constexpr u32 BytesPerBlockLog2(PixelFormat format) {
+    return BytesPerBlockLog2(BytesPerBlock(format));
 }
 
 [[nodiscard]] constexpr u32 NumBlocks(Extent3D size, Extent2D tile_size) {
@@ -211,8 +225,7 @@ template <u32 GOB_EXTENT>
 
 [[nodiscard]] constexpr Extent3D NumLevelBlocks(const LevelInfo& info, u32 level) {
     return Extent3D{
-        .width = AdjustSize(info.size.width, level, info.tile_size.width)
-                 << info.bytes_per_block_log2,
+        .width = AdjustSize(info.size.width, level, info.tile_size.width) << info.bpp_log2,
         .height = AdjustSize(info.size.height, level, info.tile_size.height),
         .depth = AdjustMipSize(info.size.depth, level),
     };
@@ -227,17 +240,41 @@ template <u32 GOB_EXTENT>
     };
 }
 
+[[nodiscard]] constexpr Extent2D GobSize(u32 bpp_log2, u32 tile_width_spacing, u32 block_height) {
+    return Extent2D{
+        .width = (GOB_SIZE_X >> bpp_log2) << tile_width_spacing,
+        .height = GOB_SIZE_Y << block_height,
+    };
+}
+
+[[nodiscard]] constexpr u32 StrideAlignment(Extent3D num_tiles, Extent3D block, Extent2D gob,
+                                            u32 bpp_log2) {
+    if (num_tiles.depth < (1U << block.depth) || num_tiles.width <= gob.width ||
+        num_tiles.height <= gob.height) {
+        return GOB_SIZE_X >> bpp_log2;
+    } else {
+        return gob.width;
+    }
+}
+
+[[nodiscard]] constexpr u32 StrideAlignment(Extent3D num_tiles, Extent3D block, u32 bpp_log2,
+                                            u32 tile_width_spacing) {
+    const Extent2D gob = GobSize(bpp_log2, tile_width_spacing, block.height);
+    return StrideAlignment(num_tiles, block, gob, bpp_log2);
+}
+
 [[nodiscard]] constexpr Extent2D NumGOBs(const LevelInfo& info, u32 level) {
     const Extent3D blocks = NumLevelBlocks(info, level);
     const Extent2D gobs{
         .width = Common::AlignUp(blocks.width, GOB_SIZE_X) >> GOB_SIZE_X_SHIFT,
         .height = Common::AlignUp(blocks.height, GOB_SIZE_Y) >> GOB_SIZE_Y_SHIFT,
     };
-    // TODO: tile_width_spacing
-    const u32 alignment = 1;
-    const u32 width_gobs_aligned = Common::AlignUp(gobs.width, alignment);
+    const Extent2D gob = GobSize(info.bpp_log2, info.tile_width_spacing, info.block.height);
+    const bool is_too_small = blocks.width <= gob.width || blocks.height <= gob.height ||
+                              blocks.depth < (1U << info.block.depth);
+    const u32 alignment = is_too_small ? 0 : info.tile_width_spacing;
     return Extent2D{
-        .width = Common::AlignUp(gobs.width, alignment),
+        .width = AlignUpLog2(gobs.width, alignment),
         .height = gobs.height,
     };
 }
@@ -247,9 +284,9 @@ template <u32 GOB_EXTENT>
     const Extent3D tile_shift = TileShift(info, level);
     const Extent2D gobs = NumGOBs(info, level);
     return Extent3D{
-        .width = AlignUpLog2(gobs.width, tile_shift.width),
-        .height = AlignUpLog2(gobs.height, tile_shift.height),
-        .depth = AlignUpLog2(blocks.depth, tile_shift.depth),
+        .width = DivCeilLog2(gobs.width, tile_shift.width),
+        .height = DivCeilLog2(gobs.height, tile_shift.height),
+        .depth = DivCeilLog2(blocks.depth, tile_shift.depth),
     };
 }
 
@@ -272,7 +309,7 @@ template <u32 GOB_EXTENT>
 }
 
 [[nodiscard]] constexpr LevelInfo MakeLevelInfo(PixelFormat format, Extent3D size, Extent3D block,
-                                                u32 num_samples) {
+                                                u32 num_samples, u32 tile_width_spacing) {
     const auto [samples_x, samples_y] = Samples(num_samples);
     const u32 bytes_per_block = BytesPerBlock(format);
     return {
@@ -284,18 +321,20 @@ template <u32 GOB_EXTENT>
             },
         .block = block,
         .tile_size = DefaultBlockSize(format),
-        .bytes_per_block_log2 = static_cast<u32>(std::countl_zero(bytes_per_block)) ^ 0x1f,
+        .bpp_log2 = BytesPerBlockLog2(bytes_per_block),
+        .tile_width_spacing = tile_width_spacing,
     };
 }
 
 [[nodiscard]] constexpr LevelInfo MakeLevelInfo(const ImageInfo& info) {
-    return MakeLevelInfo(info.format, info.size, info.block, info.num_samples);
+    return MakeLevelInfo(info.format, info.size, info.block, info.num_samples,
+                         info.tile_width_spacing);
 }
 
 [[nodiscard]] constexpr u32 CalculateLevelOffset(PixelFormat format, Extent3D size, Extent3D block,
-                                                 u32 num_samples, u32 level) {
-    const LevelInfo info = MakeLevelInfo(format, size, block, num_samples);
-
+                                                 u32 num_samples, u32 tile_width_spacing,
+                                                 u32 level) {
+    const LevelInfo info = MakeLevelInfo(format, size, block, num_samples, tile_width_spacing);
     u32 offset = 0;
     for (u32 current_level = 0; current_level < level; ++current_level) {
         offset += CalculateLevelSize(info, current_level);
@@ -303,25 +342,12 @@ template <u32 GOB_EXTENT>
     return offset;
 }
 
-[[nodiscard]] constexpr std::optional<u32> TryCalculateNumMipmaps(PixelFormat format, Extent3D size,
-                                                                  Extent3D block, u32 num_samples,
-                                                                  s32 layer_stride) {
-    const LevelInfo level_info = MakeLevelInfo(format, size, block, num_samples);
-    u32 level = 0;
-    do {
-        layer_stride -= CalculateLevelSize(level_info, level++);
-    } while (layer_stride > 0);
-    if (layer_stride == 0) {
-        return level;
-    }
-    return std::nullopt;
-}
-
 [[nodiscard]] constexpr u32 AlignLayerSize(u32 size_bytes, Extent3D size, Extent3D block,
                                            u32 tile_size_y, u32 tile_width_spacing) {
-    if (tile_width_spacing > 1) {
-        const u32 alignment = tile_width_spacing >> (GOB_SIZE_SHIFT + block.height + block.depth);
-        return Common::AlignUp(size_bytes, alignment);
+    // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L134
+    if (tile_width_spacing > 0) {
+        const u32 alignment_log2 = GOB_SIZE_SHIFT + tile_width_spacing + block.height + block.depth;
+        return AlignUpLog2(size_bytes, alignment_log2);
     }
     const u32 aligned_height = Common::AlignUp(size.height, tile_size_y);
     while (block.height != 0 && aligned_height <= (1U << (block.height - 1)) * GOB_SIZE_Y) {
@@ -480,30 +506,22 @@ template <u32 GOB_EXTENT>
     };
 }
 
-[[nodiscard]] Extent3D BlockLinearAlignedSize(const ImageInfo& info, u32 mipmap) {
+[[nodiscard]] Extent3D BlockLinearAlignedSize(const ImageInfo& info, u32 level) {
     // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L176
     ASSERT(info.type != ImageType::Linear);
-    const Extent3D size = AdjustMipSize(info.size, mipmap);
+    const Extent3D size = AdjustMipSize(info.size, level);
     const Extent3D num_tiles{
         .width = DivCeil(size.width, DefaultBlockWidth(info.format)),
         .height = DivCeil(size.height, DefaultBlockHeight(info.format)),
         .depth = size.depth,
     };
-    const u32 bytes_per_block = BytesPerBlock(info.format);
-    const u32 gob_width = (GOB_SIZE_X / bytes_per_block) * info.tile_width_spacing;
-    const u32 gob_height = 1u << (info.block.height + GOB_SIZE_Y);
-    u32 alignment = gob_width;
-    if (num_tiles.depth < (1u << info.block.depth) || num_tiles.width <= gob_width ||
-        num_tiles.height <= gob_height) {
-        alignment = GOB_SIZE_X / bytes_per_block;
-    }
-    const Extent3D mipmap_block = AdjustMipBlockSize(num_tiles, info.block, 0);
-    const u32 block_of_gobs_height = 1u << (mipmap_block.height + GOB_SIZE_Y_SHIFT);
-    const u32 block_of_gobs_depth = 1u << (mipmap_block.depth + GOB_SIZE_Z_SHIFT);
+    const u32 bpp_log2 = BytesPerBlockLog2(info.format);
+    const u32 alignment = StrideAlignment(num_tiles, info.block, bpp_log2, info.tile_width_spacing);
+    const Extent3D mip_block = AdjustMipBlockSize(num_tiles, info.block, 0);
     return Extent3D{
         .width = Common::AlignUp(num_tiles.width, alignment),
-        .height = Common::AlignUp(num_tiles.height, block_of_gobs_height),
-        .depth = Common::AlignUp(num_tiles.depth, block_of_gobs_depth),
+        .height = AlignUpLog2(num_tiles.height, GOB_SIZE_Y_SHIFT + mip_block.height),
+        .depth = AlignUpLog2(num_tiles.depth, GOB_SIZE_Z_SHIFT + mip_block.depth),
     };
 }
 
@@ -577,7 +595,7 @@ u32 CalculateLayerStride(const ImageInfo& info) noexcept {
 u32 CalculateLayerSize(const ImageInfo& info) noexcept {
     ASSERT(info.type != ImageType::Linear);
     return CalculateLevelOffset(info.format, info.size, info.block, info.num_samples,
-                                info.resources.mipmaps);
+                                info.tile_width_spacing, info.resources.mipmaps);
 }
 
 std::array<u32, MAX_MIPMAP> CalculateMipmapOffsets(const ImageInfo& info) noexcept {
@@ -630,6 +648,16 @@ std::vector<SubresourceBase> CalculateSliceSubresources(const ImageInfo& info) {
         }
     }
     return subresources;
+}
+
+u32 CalculateLevelStrideAlignment(const ImageInfo& info, u32 level) {
+    const Extent2D tile_size = DefaultBlockSize(info.format);
+    const Extent3D level_size = AdjustMipSize(info.size, level);
+    const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
+    const Extent3D block = AdjustMipBlockSize(num_tiles, info.block, level);
+    const u32 bpp_log2 = BytesPerBlockLog2(info.format);
+    const Extent2D gob = GobSize(bpp_log2, info.tile_width_spacing, info.block.height);
+    return StrideAlignment(num_tiles, info.block, gob, bpp_log2);
 }
 
 PixelFormat PixelFormatFromTIC(const TICEntry& config) noexcept {
@@ -706,17 +734,17 @@ bool IsValidAddress(const Tegra::MemoryManager& gpu_memory, const TICEntry& conf
 std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
                                             const ImageInfo& info, std::span<u8> output) {
     const size_t guest_size_bytes = CalculateGuestSizeInBytes(info);
-    const u32 bytes_per_block = BytesPerBlock(info.format);
+    const u32 bpp_log2 = BytesPerBlockLog2(info.format);
     const Extent3D size = info.size;
 
     if (info.type == ImageType::Linear) {
         gpu_memory.ReadBlockUnsafe(gpu_addr, output.data(), guest_size_bytes);
 
-        ASSERT(info.pitch % bytes_per_block == 0);
+        ASSERT((info.pitch >> bpp_log2) << bpp_log2 == info.pitch);
         return {{
             .buffer_offset = 0,
             .buffer_size = static_cast<size_t>(info.pitch) * size.height,
-            .buffer_row_length = info.pitch / bytes_per_block,
+            .buffer_row_length = info.pitch >> bpp_log2,
             .buffer_image_height = size.height,
             .image_subresource =
                 {
@@ -737,6 +765,7 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
     const u32 num_mipmaps = info.resources.mipmaps;
     const Extent2D tile_size = DefaultBlockSize(info.format);
     const std::array level_sizes = CalculateLevelSizes(level_info, num_mipmaps);
+    const Extent2D gob = GobSize(bpp_log2, info.tile_width_spacing, info.block.height);
     const u32 layer_stride =
         AlignLayerSize(std::reduce(level_sizes.begin(), level_sizes.begin() + num_mipmaps, 0), size,
                        level_info.block, tile_size.height, info.tile_width_spacing);
@@ -745,35 +774,34 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
     u32 host_offset = 0;
     std::vector<BufferImageCopy> copies(num_mipmaps);
 
-    for (u32 mipmap = 0; mipmap < num_mipmaps; ++mipmap) {
-        const Extent3D level_size = AdjustMipSize(size, mipmap);
+    for (u32 level = 0; level < num_mipmaps; ++level) {
+        const Extent3D level_size = AdjustMipSize(size, level);
         const u32 num_blocks_per_layer = NumBlocks(level_size, tile_size);
-        const u32 host_bytes_per_layer = num_blocks_per_layer * bytes_per_block;
-        copies[mipmap] = BufferImageCopy{
+        const u32 host_bytes_per_layer = num_blocks_per_layer << bpp_log2;
+        copies[level] = BufferImageCopy{
             .buffer_offset = host_offset,
             .buffer_size = static_cast<size_t>(host_bytes_per_layer) * num_layers,
             .buffer_row_length = Common::AlignUp(level_size.width, tile_size.width),
             .buffer_image_height = Common::AlignUp(level_size.height, tile_size.height),
             .image_subresource =
                 {
-                    .base_mipmap = mipmap,
+                    .base_mipmap = level,
                     .base_layer = 0,
                     .num_layers = info.resources.layers,
                 },
             .image_offset = {0, 0, 0},
             .image_extent = level_size,
         };
-
         const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
-        const Extent3D block = AdjustMipBlockSize(num_tiles, level_info.block, mipmap);
+        const Extent3D block = AdjustMipBlockSize(num_tiles, level_info.block, level);
+        const u32 stride_alignment = StrideAlignment(num_tiles, info.block, gob, bpp_log2);
         size_t guest_layer_offset = 0;
 
         for (u32 layer = 0; layer < info.resources.layers; ++layer) {
             const std::span<u8> dst = output.subspan(host_offset);
             const std::span<const u8> src = input.subspan(guest_offset + guest_layer_offset);
-            UnswizzleTexture(dst, src, bytes_per_block, num_tiles.width, num_tiles.height,
-                             num_tiles.depth, block.height, block.depth);
-
+            UnswizzleTexture(dst, src, 1U << bpp_log2, num_tiles.width, num_tiles.height,
+                             num_tiles.depth, block.height, block.depth, stride_alignment);
             guest_layer_offset += layer_stride;
             host_offset += host_bytes_per_layer;
         }
@@ -834,6 +862,7 @@ std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info) {
             .image_extent = size,
         }};
     }
+    UNIMPLEMENTED_IF(info.tile_width_spacing > 0);
 
     const u32 num_layers = info.resources.layers;
     const u32 num_mipmaps = info.resources.mipmaps;
@@ -939,6 +968,8 @@ void SwizzleBlockLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr
     const Extent3D level_size = AdjustMipSize(size, mipmap);
     const u32 num_blocks_per_layer = NumBlocks(level_size, tile_size);
     const u32 host_bytes_per_layer = num_blocks_per_layer * bytes_per_block;
+
+    UNIMPLEMENTED_IF(info.tile_width_spacing > 0);
 
     UNIMPLEMENTED_IF(copy.image_offset.x != 0);
     UNIMPLEMENTED_IF(copy.image_offset.y != 0);
@@ -1144,32 +1175,41 @@ bool IsSubresource(const ImageInfo& candidate, const ImageBase& image, GPUVAddr 
     return FindSubresource(candidate, image, candidate_addr, options).has_value();
 }
 
-static_assert(CalculateLevelSize(LevelInfo{{1920, 1080}, {0, 2, 0}, {1, 1}, 2}, 0) == 0x7f8000);
-static_assert(CalculateLevelSize(LevelInfo{{32, 32}, {0, 0, 4}, {1, 1}, 4}, 0) == 0x4000);
+using P = PixelFormat;
 
-#ifdef __cpp_using_enum
-using enum PixelFormat;
+static_assert(CalculateLevelSize(LevelInfo{{1920, 1080}, {0, 2, 0}, {1, 1}, 2, 0}, 0) == 0x7f8000);
+static_assert(CalculateLevelSize(LevelInfo{{32, 32}, {0, 0, 4}, {1, 1}, 4, 0}, 0) == 0x4000);
 
-static_assert(CalculateLevelOffset(R8_SINT, {1920, 1080}, {0, 2}, 1, 7) == 0x2afc00);
-static_assert(CalculateLevelOffset(ASTC_2D_12X12_UNORM, {8192, 4096}, {0, 2}, 1, 12) == 0x50d200);
+static_assert(CalculateLevelOffset(P::R8_SINT, {1920, 1080}, {0, 2}, 1, 0, 7) == 0x2afc00);
+static_assert(CalculateLevelOffset(P::ASTC_2D_12X12_UNORM, {8192, 4096}, {0, 2}, 1, 0, 12) ==
+              0x50d200);
 
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0) == 0);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 1) == 0x400000);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 2) == 0x500000);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 3) == 0x540000);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 4) == 0x550000);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 5) == 0x554000);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 6) == 0x555000);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 7) == 0x555400);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 8) == 0x555600);
-static_assert(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 9) == 0x555800);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 0) == 0);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 1) == 0x400000);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 2) == 0x500000);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 3) == 0x540000);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 4) == 0x550000);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 5) == 0x554000);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 6) == 0x555000);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 7) == 0x555400);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 8) == 0x555600);
+static_assert(CalculateLevelOffset(P::A8B8G8R8_UNORM, {1024, 1024}, {0, 4}, 1, 0, 9) == 0x555800);
 
-static_assert(AlignLayerSize(CalculateLevelOffset(ASTC_2D_12X12_UNORM, {8192, 4096}, {0, 2}, 1, 12),
-                             {8192, 4096}, {0, 2}, 12, 1) == 0x50d800);
-static_assert(AlignLayerSize(CalculateLevelOffset(A8B8G8R8_UNORM, {1024, 1024}, {0, 2}, 1, 10),
-                             {1024, 1024}, {0, 2}, 1, 1) == 0x556000);
-static_assert(AlignLayerSize(CalculateLevelOffset(PixelFormat::BC3_UNORM, {128, 128}, {0, 2}, 1, 8),
-                             {128, 128}, {0, 2}, 4, 1) == 24576);
-#endif
+constexpr u32 ValidateLayerSize(PixelFormat format, u32 width, u32 height, u32 block_height,
+                                u32 tile_width_spacing, u32 level) {
+    const Extent3D size{width, height, 1};
+    const Extent3D block{0, block_height, 0};
+    const u32 offset = CalculateLevelOffset(format, size, block, 1, tile_width_spacing, level);
+    return AlignLayerSize(offset, size, block, DefaultBlockHeight(format), tile_width_spacing);
+}
+
+static_assert(ValidateLayerSize(P::ASTC_2D_12X12_UNORM, 8192, 4096, 2, 0, 12) == 0x50d800);
+static_assert(ValidateLayerSize(P::A8B8G8R8_UNORM, 1024, 1024, 2, 0, 10) == 0x556000);
+static_assert(ValidateLayerSize(P::BC3_UNORM, 128, 128, 2, 0, 8) == 0x6000);
+
+static_assert(ValidateLayerSize(P::A8B8G8R8_UNORM, 518, 572, 4, 3, 1) == 0x190000,
+              "Tile width spacing is not working");
+static_assert(ValidateLayerSize(P::BC5_UNORM, 1024, 1024, 3, 4, 11) == 0x160000,
+              "Compressed tile width spacing is not working");
 
 } // namespace VideoCommon

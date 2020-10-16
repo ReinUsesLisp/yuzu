@@ -131,6 +131,7 @@ private:
 
     OGLTexture texture;
     OGLTextureView store_view;
+    OGLBuffer buffer;
     GLenum gl_internal_format = GL_NONE;
     GLenum gl_store_format = GL_NONE;
     GLenum gl_format = GL_NONE;
@@ -153,7 +154,7 @@ public:
     }
 
     [[nodiscard]] GLenum Format() const noexcept {
-        UNIMPLEMENTED();
+        return internal_format;
     }
 
     [[nodiscard]] bool Is3D() const noexcept {
@@ -166,6 +167,7 @@ private:
 
     std::array<OGLTextureView, VideoCommon::NUM_IMAGE_VIEW_TYPES> views;
     GLuint default_handle = 0;
+    GLenum internal_format = GL_NONE;
     bool is_slice_view = false;
 };
 

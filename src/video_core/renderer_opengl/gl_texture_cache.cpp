@@ -28,6 +28,7 @@ using Tegra::Texture::TextureMipmapFilter;
 using Tegra::Texture::TextureType;
 using Tegra::Texture::TICEntry;
 using Tegra::Texture::TSCEntry;
+using VideoCommon::CalculateLevelStrideAlignment;
 using VideoCommon::ImageCopy;
 using VideoCommon::NUM_RT;
 using VideoCommon::SwizzleParameters;
@@ -189,8 +190,9 @@ GLenum ImageTarget(const VideoCommon::ImageInfo& info) {
     case VideoCommon::ImageType::Rect:
         ASSERT(info.num_samples == 1);
         return GL_TEXTURE_RECTANGLE;
+    case VideoCommon::ImageType::Buffer:
+        return GL_TEXTURE_BUFFER;
     }
-
     UNREACHABLE_MSG("Invalid image type={}", static_cast<int>(info.type));
     return GL_NONE;
 }
@@ -215,10 +217,8 @@ GLenum ImageTarget(ImageViewType type, int num_samples) {
     case ImageViewType::Rect:
         return GL_TEXTURE_RECTANGLE;
     case ImageViewType::Buffer:
-        UNIMPLEMENTED_MSG("Texture buffers are not implemented");
-        return GL_NONE;
+        return GL_TEXTURE_BUFFER;
     }
-
     UNREACHABLE_MSG("Invalid image view type={}", static_cast<int>(type));
     return GL_NONE;
 }
@@ -550,7 +550,8 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
         const u32 num_dispatches_z =
             is_3d ? aligned_depth / workgroup_size.depth : image.info.resources.layers;
 
-        const u32 stride = num_tiles.width * bytes_per_block;
+        const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
+        const u32 stride = Common::AlignUp(num_tiles.width, stride_alignment) * bytes_per_block;
 
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
         const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block.height + block.depth);
@@ -677,9 +678,11 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     const GLsizei num_layers = info.resources.layers;
     const GLsizei num_samples = info.num_samples;
 
-    texture.Create(target);
-    const GLuint handle = texture.handle;
-
+    GLuint handle = 0;
+    if (target != GL_TEXTURE_BUFFER) {
+        texture.Create(target);
+        handle = texture.handle;
+    }
     switch (target) {
     case GL_TEXTURE_1D_ARRAY:
         glTextureStorage2D(handle, num_mipmaps, gl_store_format, width, num_layers);
@@ -699,14 +702,20 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
         glTextureStorage3D(handle, num_mipmaps, gl_store_format, width, height, depth);
         break;
     case GL_TEXTURE_BUFFER:
-        UNIMPLEMENTED();
+        buffer.Create();
+        glNamedBufferStorage(buffer.handle, guest_size_bytes, nullptr, 0);
         break;
     default:
         UNREACHABLE_MSG("Invalid target=0x{:x}", target);
         break;
     }
-    const std::string name = fmt::format("Image 0x{:x}", gpu_addr);
-    glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
+    if (target != GL_TEXTURE_BUFFER) {
+        const std::string name = fmt::format("Image 0x{:x}", gpu_addr);
+        glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
+    } else {
+        const std::string name = fmt::format("Buffer 0x{:x}", gpu_addr);
+        glObjectLabel(GL_BUFFER, buffer.handle, static_cast<GLsizei>(name.size()), name.data());
+    }
 }
 
 void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
@@ -735,8 +744,8 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
 void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                          std::span<const VideoCommon::BufferCopy> copies) {
     for (const VideoCommon::BufferCopy& copy : copies) {
-        glCopyNamedBufferSubData(map.Handle(), -1, copy.src_offset + buffer_offset, copy.dst_offset,
-                                 copy.size);
+        glCopyNamedBufferSubData(map.Handle(), buffer.handle, copy.src_offset + buffer_offset,
+                                 copy.dst_offset, copy.size);
     }
 }
 
@@ -867,7 +876,8 @@ void Image::CopyImageToBuffer(const VideoCommon::BufferImageCopy& copy, size_t b
 
 ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo& info, ImageId image_id,
                      Image& image)
-    : VideoCommon::ImageViewBase{info, image.info, image_id} {
+    : VideoCommon::ImageViewBase{info, image.info, image_id},
+      internal_format{GetFormatTuple(format).internal_format} {
     VideoCommon::SubresourceRange flatten_range = info.range;
     std::array<GLuint, 2> handles;
     switch (info.type) {
@@ -916,7 +926,8 @@ ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo& inf
         SetupView(image, ImageViewType::Rect, handles[0], info, info.range);
         break;
     case ImageViewType::Buffer:
-        UNIMPLEMENTED_MSG("Texture buffer");
+        glCreateTextures(GL_TEXTURE_BUFFER, 1, handles.data());
+        SetupView(image, ImageViewType::Buffer, handles[0], info, info.range);
         break;
     }
     default_handle = Handle(info.type);
@@ -925,17 +936,21 @@ ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo& inf
 void ImageView::SetupView(Image& image, ImageViewType type, GLuint handle,
                           const VideoCommon::ImageViewInfo& info,
                           VideoCommon::SubresourceRange range) {
-    const GLenum internal_format = GetFormatTuple(format).internal_format;
-    const GLuint parent = image.texture.handle;
-    const GLenum target = ImageTarget(type, image.info.num_samples);
-
-    glTextureView(handle, target, parent, internal_format, range.base.mipmap, range.extent.mipmaps,
-                  range.base.layer, range.extent.layers);
-
-    const std::string name = fmt::format("ImageView {} ({})", NameView(*this), handle);
+    std::string name;
+    if (info.type == ImageViewType::Buffer) {
+        // TODO: Take offset from buffer cache
+        glTextureBufferRange(handle, internal_format, image.buffer.handle, 0,
+                             image.guest_size_bytes);
+        name = fmt::format("BufferView {} ({})", NameView(*this), handle);
+    } else {
+        const GLuint parent = image.texture.handle;
+        const GLenum target = ImageTarget(type, image.info.num_samples);
+        glTextureView(handle, target, parent, internal_format, range.base.mipmap,
+                      range.extent.mipmaps, range.base.layer, range.extent.layers);
+        ApplySwizzle(handle, format, info.Swizzle());
+        name = fmt::format("ImageView {} ({})", NameView(*this), handle);
+    }
     glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
-
-    ApplySwizzle(handle, format, info.Swizzle());
 
     views[static_cast<size_t>(type)].handle = handle;
 }
@@ -987,12 +1002,18 @@ Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {
 
 // ANONYMOUS
 void AttachTexture(GLuint fbo, GLenum attachment, const ImageView* image_view) {
-    if (image_view->Is3D()) {
-        const GLuint texture = image_view->Handle(ImageViewType::e3D);
-        glNamedFramebufferTextureLayer(fbo, attachment, texture, 0, image_view->range.base.layer);
-    } else {
+    if (!image_view->Is3D()) {
         const GLuint texture = image_view->DefaultHandle();
         glNamedFramebufferTexture(fbo, attachment, texture, 0);
+        return;
+    }
+    const GLuint texture = image_view->Handle(ImageViewType::e3D);
+    if (image_view->range.extent.layers > 1) {
+        // TODO: OpenGL doesn't support rendering to a fixed number of slices
+        glNamedFramebufferTexture(fbo, attachment, texture, 0);
+    } else {
+        const u32 slice = image_view->range.base.layer;
+        glNamedFramebufferTextureLayer(fbo, attachment, texture, 0, slice);
     }
 }
 

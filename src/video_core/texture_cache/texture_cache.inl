@@ -555,9 +555,15 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     } else {
         base = image.FindSubresourceFromAddress(gpu_addr).value();
     }
+    u32 layers;
+    if (image.info.type == ImageType::e3D) {
+        layers = std::max(1U, image.info.size.depth >> base.mipmap);
+    } else {
+        layers = info.resources.layers;
+    }
     const SubresourceRange range{
         .base = base,
-        .extent = {.mipmaps = 1, .layers = info.resources.layers},
+        .extent = {.mipmaps = 1, .layers = layers},
     };
     const ImageViewInfo view_info(view_type, info.format, range);
     if (const ImageViewId image_view_id = image.FindView(view_info); image_view_id) {

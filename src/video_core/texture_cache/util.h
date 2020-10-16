@@ -42,6 +42,8 @@ struct OverlapResult {
 
 [[nodiscard]] std::vector<SubresourceBase> CalculateSliceSubresources(const ImageInfo& info);
 
+[[nodiscard]] u32 CalculateLevelStrideAlignment(const ImageInfo& info, u32 level);
+
 [[nodiscard]] VideoCore::Surface::PixelFormat PixelFormatFromTIC(
     const Tegra::Texture::TICEntry& config) noexcept;
 
