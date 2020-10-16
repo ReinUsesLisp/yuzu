@@ -709,7 +709,7 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
 }
 
-void Image::UploadMemory(ImageBufferMap& map, size_t buffer_offset,
+void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, map.Handle());
     glFlushMappedBufferRange(GL_PIXEL_UNPACK_BUFFER, buffer_offset, unswizzled_size_bytes);
@@ -729,6 +729,14 @@ void Image::UploadMemory(ImageBufferMap& map, size_t buffer_offset,
             glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, current_image_height);
         }
         CopyBufferToImage(copy, buffer_offset);
+    }
+}
+
+void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                         std::span<const VideoCommon::BufferCopy> copies) {
+    for (const VideoCommon::BufferCopy& copy : copies) {
+        glCopyNamedBufferSubData(map.Handle(), -1, copy.src_offset + buffer_offset, copy.dst_offset,
+                                 copy.size);
     }
 }
 

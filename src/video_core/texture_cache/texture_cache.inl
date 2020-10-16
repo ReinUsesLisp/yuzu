@@ -354,6 +354,9 @@ void TextureCache<P>::UploadImageContents(Image& image, MapBuffer& map, size_t b
         auto copies = UnswizzleImage(gpu_memory, gpu_addr, image.info, unswizzled_data);
         ConvertImage(unswizzled_data, image.info, mapped_span, copies);
         image.UploadMemory(map, buffer_offset, copies);
+    } else if (image.info.type == ImageType::Buffer) {
+        const std::array copies{UploadBufferCopy(gpu_memory, gpu_addr, image, mapped_span)};
+        image.UploadMemory(map, buffer_offset, copies);
     } else {
         const auto copies = UnswizzleImage(gpu_memory, gpu_addr, image.info, mapped_span);
         image.UploadMemory(map, buffer_offset, copies);

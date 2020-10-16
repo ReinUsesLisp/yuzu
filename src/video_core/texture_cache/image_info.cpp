@@ -24,7 +24,7 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
     resources.mipmaps = config.max_mip_level + 1;
     if (config.IsPitchLinear()) {
         pitch = config.Pitch();
-    } else {
+    } else if (config.IsBlockLinear()) {
         block = Extent3D{
             .width = config.block_width,
             .height = config.block_height,
@@ -82,6 +82,10 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
         size.width = config.Width();
         size.height = config.Height();
         size.depth = config.Depth();
+        break;
+    case TextureType::Texture1DBuffer:
+        type = ImageType::Buffer;
+        size.width = config.Width();
         break;
     default:
         UNREACHABLE_MSG("Invalid texture_type={}", static_cast<int>(config.texture_type.Value()));

@@ -111,8 +111,11 @@ public:
     explicit Image(TextureCacheRuntime&, const VideoCommon::ImageInfo& info, GPUVAddr gpu_addr,
                    VAddr cpu_addr);
 
-    void UploadMemory(ImageBufferMap& map, size_t buffer_offset,
+    void UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                       std::span<const VideoCommon::BufferImageCopy> copies);
+
+    void UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                      std::span<const VideoCommon::BufferCopy> copies);
 
     void DownloadMemory(ImageBufferMap& map, size_t buffer_offset,
                         std::span<const VideoCommon::BufferImageCopy> copies);

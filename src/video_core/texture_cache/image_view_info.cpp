@@ -61,7 +61,7 @@ ImageViewInfo::ImageViewInfo(const TICEntry& config) noexcept
         range.extent.layers = config.Depth();
         break;
     case TextureType::Texture1DBuffer:
-        UNIMPLEMENTED_MSG("Texture buffers are not implemented");
+        type = ImageViewType::Buffer;
         break;
     case TextureType::TextureCubeArray:
         type = ImageViewType::CubeArray;

@@ -103,11 +103,18 @@ public:
     void UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
                       std::span<const VideoCommon::BufferImageCopy> copies);
 
+    void UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                      std::span<const VideoCommon::BufferCopy> copies);
+
     void DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
                         std::span<const VideoCommon::BufferImageCopy> copies);
 
     [[nodiscard]] VkImage Handle() const noexcept {
         return *image;
+    }
+
+    [[nodiscard]] VkBuffer Buffer() const noexcept {
+        return *buffer;
     }
 
     [[nodiscard]] VkImageCreateFlags AspectMask() const noexcept {
@@ -117,6 +124,7 @@ public:
 private:
     VKScheduler* scheduler;
     vk::Image image;
+    vk::Buffer buffer;
     VKMemoryCommit commit;
     VkImageAspectFlags aspect_mask = 0;
     bool initialized = false;
@@ -128,11 +136,11 @@ public:
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams&);
 
     [[nodiscard]] VkImageView Handle(VideoCommon::ImageViewType type) const noexcept {
-        return *views[static_cast<size_t>(type)];
+        return *image_views[static_cast<size_t>(type)];
     }
 
     [[nodiscard]] VkBufferView BufferView() const noexcept {
-        UNIMPLEMENTED();
+        return *buffer_view;
     }
 
     [[nodiscard]] VkImageView RenderTarget() const noexcept {
@@ -140,7 +148,8 @@ public:
     }
 
 private:
-    std::array<vk::ImageView, VideoCommon::NUM_IMAGE_VIEW_TYPES> views;
+    std::array<vk::ImageView, VideoCommon::NUM_IMAGE_VIEW_TYPES> image_views;
+    vk::BufferView buffer_view;
     VkImageView render_target = VK_NULL_HANDLE;
 };
 

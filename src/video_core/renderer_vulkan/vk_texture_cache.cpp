@@ -115,6 +115,32 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
+[[nodiscard]] vk::Image MakeImage(const VKDevice& device, const VideoCommon::ImageInfo& info) {
+    if (info.type == VideoCommon::ImageType::Buffer) {
+        return vk::Image{};
+    }
+    return device.GetLogical().CreateImage(MakeImageCreateInfo(device, info));
+}
+
+[[nodiscard]] vk::Buffer MakeBuffer(const VKDevice& device, const VideoCommon::ImageInfo& info) {
+    if (info.type != VideoCommon::ImageType::Buffer) {
+        return vk::Buffer{};
+    }
+    const size_t bytes_per_block = VideoCore::Surface::BytesPerBlock(info.format);
+    return device.GetLogical().CreateBuffer(VkBufferCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .size = info.size.width * bytes_per_block,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                 VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
+                 VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+    });
+}
+
 [[nodiscard]] VkImageAspectFlags ImageAspectMask(PixelFormat format) {
     switch (VideoCore::Surface::GetFormatType(format)) {
     case VideoCore::Surface::SurfaceType::ColorTexture:
@@ -244,6 +270,20 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
+[[nodiscard]] std::vector<VkBufferCopy> TransformBufferCopies(
+    std::span<const VideoCommon::BufferCopy> copies, size_t buffer_offset) {
+    std::vector<VkBufferCopy> result(copies.size());
+    std::ranges::transform(
+        copies, result.begin(), [buffer_offset](const VideoCommon::BufferCopy& copy) {
+            return VkBufferCopy{
+                .srcOffset = static_cast<VkDeviceSize>(copy.src_offset + buffer_offset),
+                .dstOffset = static_cast<VkDeviceSize>(copy.dst_offset),
+                .size = static_cast<VkDeviceSize>(copy.size),
+            };
+        });
+    return result;
+}
+
 [[nodiscard]] std::vector<VkBufferImageCopy> TransformBufferImageCopies(
     std::span<const VideoCommon::BufferImageCopy> copies, size_t buffer_offset,
     VkImageAspectFlags aspect_mask) {
@@ -300,6 +340,58 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     default:
         return value;
     }
+}
+
+void CopyBufferToImage(vk::CommandBuffer cmdbuf, VkBuffer src_buffer, VkImage image,
+                       VkImageAspectFlags aspect_mask, bool is_initialized,
+                       std::span<const VkBufferImageCopy> copies) {
+    static constexpr VkAccessFlags ACCESS_FLAGS =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    const VkImageMemoryBarrier read_barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = ACCESS_FLAGS,
+        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .oldLayout = is_initialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange =
+            {
+                .aspectMask = aspect_mask,
+                .baseMipLevel = 0,
+                .levelCount = VK_REMAINING_MIP_LEVELS,
+                .baseArrayLayer = 0,
+                .layerCount = VK_REMAINING_ARRAY_LAYERS,
+            },
+    };
+    const VkImageMemoryBarrier write_barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = ACCESS_FLAGS,
+        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange =
+            {
+                .aspectMask = aspect_mask,
+                .baseMipLevel = 0,
+                .levelCount = VK_REMAINING_MIP_LEVELS,
+                .baseArrayLayer = 0,
+                .layerCount = VK_REMAINING_ARRAY_LAYERS,
+            },
+    };
+    cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                           read_barrier);
+    cmdbuf.CopyBufferToImage(src_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copies);
+    // TODO: Move this to another API
+    cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                           write_barrier);
 }
 
 } // Anonymous namespace
@@ -459,22 +551,28 @@ void TextureCacheRuntime::InsertUploadMemoryBarrier() {
 Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, GPUVAddr gpu_addr,
              VAddr cpu_addr)
     : VideoCommon::ImageBase(info, gpu_addr, cpu_addr), scheduler{&runtime.scheduler},
-      image(runtime.device.GetLogical().CreateImage(MakeImageCreateInfo(runtime.device, info))),
-      commit(runtime.memory_manager.Commit(image, false)),
+      image(MakeImage(runtime.device, info)), buffer(MakeBuffer(runtime.device, info)),
       aspect_mask(ImageAspectMask(info.format)) {
-    auto vkSetDebugUtilsObjectNameEXT =
-        (PFN_vkSetDebugUtilsObjectNameEXT)runtime.device.GetDispatchLoader().vkGetDeviceProcAddr(
-            *runtime.device.GetLogical(), "vkSetDebugUtilsObjectNameEXT");
-    auto c = fmt::format("Image 0x{:x} {}", static_cast<u64>(gpu_addr), info.layer_stride);
-    const VkDebugUtilsObjectNameInfoEXT tag{
-        .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-        .pNext = nullptr,
-        .objectType = VK_OBJECT_TYPE_IMAGE,
-        .objectHandle = reinterpret_cast<u64>(*image),
-        .pObjectName = c.c_str(),
-    };
-    vkSetDebugUtilsObjectNameEXT(*runtime.device.GetLogical(), &tag);
+    if (image) {
+        commit = runtime.memory_manager.Commit(image, false);
+    } else {
+        commit = runtime.memory_manager.Commit(buffer, false);
+    }
 
+    if (image) {
+        auto vkSetDebugUtilsObjectNameEXT =
+            (PFN_vkSetDebugUtilsObjectNameEXT)runtime.device.GetDispatchLoader()
+                .vkGetDeviceProcAddr(*runtime.device.GetLogical(), "vkSetDebugUtilsObjectNameEXT");
+        auto c = fmt::format("Image 0x{:x} {}", static_cast<u64>(gpu_addr), info.layer_stride);
+        const VkDebugUtilsObjectNameInfoEXT tag{
+            .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+            .pNext = nullptr,
+            .objectType = VK_OBJECT_TYPE_IMAGE,
+            .objectHandle = reinterpret_cast<u64>(*image),
+            .pObjectName = c.c_str(),
+        };
+        vkSetDebugUtilsObjectNameEXT(*runtime.device.GetLogical(), &tag);
+    }
     if (IsPixelFormatASTC(info.format) && !runtime.device.IsOptimalAstcSupported()) {
         flags |= VideoCommon::ImageFlagBits::Converted;
     }
@@ -485,62 +583,27 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
     // TODO: Move this to another API
     scheduler->RequestOutsideRenderPassOperationContext();
     std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
-    scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
-                       initialized = initialized, vk_copies](vk::CommandBuffer cmdbuf) {
-        static constexpr VkAccessFlags ACCESS_FLAGS =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
-            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT |
-            VK_ACCESS_TRANSFER_WRITE_BIT;
-        cmdbuf.PipelineBarrier(
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-            VkImageMemoryBarrier{
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .pNext = nullptr,
-                .srcAccessMask = ACCESS_FLAGS,
-                .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                .oldLayout = initialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED,
-                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = image,
-                .subresourceRange =
-                    {
-                        .aspectMask = aspect_mask,
-                        .baseMipLevel = 0,
-                        .levelCount = VK_REMAINING_MIP_LEVELS,
-                        .baseArrayLayer = 0,
-                        .layerCount = VK_REMAINING_ARRAY_LAYERS,
-                    },
-            });
-
-        cmdbuf.CopyBufferToImage(buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk_copies);
-
-        // TODO: Move this to another API
-        cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                               0,
-                               VkImageMemoryBarrier{
-                                   .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                                   .pNext = nullptr,
-                                   .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                                   .dstAccessMask = ACCESS_FLAGS,
-                                   .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                   .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                   .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                   .image = image,
-                                   .subresourceRange =
-                                       {
-                                           .aspectMask = aspect_mask,
-                                           .baseMipLevel = 0,
-                                           .levelCount = VK_REMAINING_MIP_LEVELS,
-                                           .baseArrayLayer = 0,
-                                           .layerCount = VK_REMAINING_ARRAY_LAYERS,
-                                       },
-                               });
+    const VkBuffer src_buffer = map.handle;
+    const VkImage vk_image = *image;
+    const VkImageAspectFlags vk_aspect_mask = aspect_mask;
+    const bool is_initialized = std::exchange(initialized, true);
+    scheduler->Record([src_buffer, vk_image, vk_aspect_mask, is_initialized,
+                       vk_copies](vk::CommandBuffer cmdbuf) {
+        CopyBufferToImage(cmdbuf, src_buffer, vk_image, vk_aspect_mask, is_initialized, vk_copies);
     });
-    initialized = true;
+}
+
+void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
+                         std::span<const VideoCommon::BufferCopy> copies) {
+    // TODO: Move this to another API
+    scheduler->RequestOutsideRenderPassOperationContext();
+    std::vector vk_copies = TransformBufferCopies(copies, buffer_offset);
+    const VkBuffer src_buffer = map.handle;
+    const VkBuffer dst_buffer = *buffer;
+    scheduler->Record([src_buffer, dst_buffer, vk_copies](vk::CommandBuffer cmdbuf) {
+        // TODO: Barriers
+        cmdbuf.CopyBuffer(src_buffer, dst_buffer, vk_copies);
+    });
 }
 
 void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
@@ -548,6 +611,7 @@ void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
     std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
     scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
                        vk_copies](vk::CommandBuffer cmdbuf) {
+        // TODO: Barriers
         cmdbuf.CopyImageToBuffer(image, VK_IMAGE_LAYOUT_GENERAL, buffer, vk_copies);
     });
     scheduler->Finish();
@@ -558,11 +622,7 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
     : VideoCommon::ImageViewBase{info, image.info, image_id} {
     const VkFormat format =
         MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format).format;
-    std::array swizzle = info.Swizzle();
-    if (info.format == PixelFormat::S8_UINT_D24_UNORM) {
-        // Make sure we sample the first component
-        std::ranges::transform(swizzle, swizzle.begin(), SwapRedGreen);
-    }
+    const std::array swizzle = info.Swizzle();
     const VkImageViewCreateInfo create_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = nullptr,
@@ -594,7 +654,7 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
         if (num_layers) {
             ci.subresourceRange.layerCount = *num_layers;
         }
-        views[static_cast<size_t>(type)] = device.CreateImageView(ci);
+        image_views[static_cast<size_t>(type)] = device.CreateImageView(ci);
     };
     switch (info.type) {
     case VideoCommon::ImageViewType::e1D:
@@ -622,7 +682,15 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
         UNIMPLEMENTED();
         break;
     case VideoCommon::ImageViewType::Buffer:
-        UNIMPLEMENTED();
+        buffer_view = device.CreateBufferView(VkBufferViewCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .buffer = image.Buffer(),
+            .format = format,
+            .offset = 0, // TODO: Redesign buffer cache to support this
+            .range = image.guest_size_bytes,
+        });
         break;
     }
 }

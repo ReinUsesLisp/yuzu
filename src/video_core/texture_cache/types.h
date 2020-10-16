@@ -25,6 +25,7 @@ enum class ImageType : u32 {
     e3D,
     Linear,
     Rect,
+    Buffer,
 };
 
 enum class ImageViewType : u32 {
@@ -112,6 +113,12 @@ struct BufferImageCopy {
     SubresourceLayers image_subresource;
     Offset3D image_offset;
     Extent3D image_extent;
+};
+
+struct BufferCopy {
+    size_t src_offset;
+    size_t dst_offset;
+    size_t size;
 };
 
 struct SwizzleParameters {

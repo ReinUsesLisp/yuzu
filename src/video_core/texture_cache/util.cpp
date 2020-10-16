@@ -528,6 +528,9 @@ template <u32 GOB_EXTENT>
 } // Anonymous namespace
 
 u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept {
+    if (info.type == ImageType::Buffer) {
+        return info.size.width * BytesPerBlock(info.format);
+    }
     if (info.type == ImageType::Linear) {
         return info.pitch * info.size.height;
     }
@@ -540,7 +543,9 @@ u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept {
 }
 
 u32 CalculateUnswizzledSizeBytes(const ImageInfo& info) noexcept {
-    // if (info.type != ImageType::Buffer) {}
+    if (info.type == ImageType::Buffer) {
+        return info.size.width * BytesPerBlock(info.format);
+    }
     if (info.num_samples > 1) {
         // Multisample images can't be uploaded or downloaded to the host
         return 0;
@@ -553,7 +558,9 @@ u32 CalculateUnswizzledSizeBytes(const ImageInfo& info) noexcept {
 }
 
 u32 CalculateConvertedSizeBytes(const ImageInfo& info) noexcept {
-    // if (info.type != ImageType::Buffer) {}
+    if (info.type == ImageType::Buffer) {
+        return info.size.width * BytesPerBlock(info.format);
+    }
     static constexpr Extent2D TILE_SIZE{1, 1};
     return NumBlocksPerLayer(info, TILE_SIZE) * info.resources.layers * CONVERTED_BYTES_PER_BLOCK;
 }
@@ -721,7 +728,6 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
             .image_extent = size,
         }};
     }
-
     const auto input_data = std::make_unique<u8[]>(guest_size_bytes);
     gpu_memory.ReadBlockUnsafe(gpu_addr, input_data.get(), guest_size_bytes);
     const std::span<const u8> input(input_data.get(), guest_size_bytes);
@@ -771,11 +777,19 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
             guest_layer_offset += layer_stride;
             host_offset += host_bytes_per_layer;
         }
-
-        guest_offset += level_sizes[mipmap];
+        guest_offset += level_sizes[level];
     }
-
     return copies;
+}
+
+BufferCopy UploadBufferCopy(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
+                            const ImageBase& image, std::span<u8> output) {
+    gpu_memory.ReadBlockUnsafe(gpu_addr, output.data(), image.guest_size_bytes);
+    return BufferCopy{
+        .src_offset = 0,
+        .dst_offset = 0,
+        .size = image.guest_size_bytes,
+    };
 }
 
 void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8> output,
@@ -803,7 +817,6 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
 std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info) {
     const Extent3D size = info.size;
     const u32 bytes_per_block = BytesPerBlock(info.format);
-
     if (info.type == ImageType::Linear) {
         ASSERT(info.pitch % bytes_per_block == 0);
         return {{
@@ -833,7 +846,6 @@ std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info) {
         const Extent3D level_size = AdjustMipSize(size, mipmap);
         const u32 num_blocks_per_layer = NumBlocks(level_size, tile_size);
         const u32 host_bytes_per_mipmap = num_blocks_per_layer * bytes_per_block * num_layers;
-
         copies[mipmap] = BufferImageCopy{
             .buffer_offset = host_offset,
             .buffer_size = host_bytes_per_mipmap,
@@ -848,10 +860,8 @@ std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info) {
             .image_offset = {0, 0, 0},
             .image_extent = level_size,
         };
-
         host_offset += host_bytes_per_mipmap;
     }
-
     return copies;
 }
 
@@ -882,17 +892,14 @@ std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info) {
         const Extent3D level_size = AdjustMipSize(size, mipmap);
         const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
         const Extent3D block = AdjustMipBlockSize(num_tiles, level_info.block, mipmap);
-
         params[mipmap] = SwizzleParameters{
             .num_tiles = num_tiles,
             .block = block,
             .buffer_offset = guest_offset,
             .mipmap = mipmap,
         };
-
         guest_offset += CalculateLevelSize(level_info, mipmap);
     }
-
     return params;
 }
 
