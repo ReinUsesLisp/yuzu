@@ -45,7 +45,7 @@ void Swizzle(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixe
     static constexpr u32 origin_z = 0; // TODO
 
     const u32 pitch = width * bytes_per_pixel; // TODO
-    const u32 stride = Common::AlignUp(width, stride_alignment) * bytes_per_pixel;
+    const u32 stride = Common::AlignBits(width, stride_alignment) * bytes_per_pixel;
 
     const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
     const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block_height + block_depth);

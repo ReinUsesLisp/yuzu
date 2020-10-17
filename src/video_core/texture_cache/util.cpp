@@ -68,11 +68,6 @@ template <typename T>
     return (value + (T(1) << alignment_log2) - 1) >> alignment_log2;
 }
 
-template <typename T>
-[[nodiscard]] constexpr T AlignUpLog2(T value, size_t alignment_log2) {
-    return DivCeilLog2(value, alignment_log2) << alignment_log2;
-}
-
 [[nodiscard]] constexpr u32 AdjustTileSize(u32 shift, u32 unit_factor, u32 dimension) {
     if (shift == 0) {
         return 0;
@@ -240,18 +235,23 @@ template <u32 GOB_EXTENT>
     };
 }
 
-[[nodiscard]] constexpr Extent2D GobSize(u32 bpp_log2, u32 tile_width_spacing, u32 block_height) {
+[[nodiscard]] constexpr Extent2D GobSize(u32 bpp_log2, u32 block_height, u32 tile_width_spacing) {
     return Extent2D{
-        .width = (GOB_SIZE_X >> bpp_log2) << tile_width_spacing,
-        .height = GOB_SIZE_Y << block_height,
+        .width = GOB_SIZE_X_SHIFT - bpp_log2 + tile_width_spacing,
+        .height = GOB_SIZE_Y_SHIFT + block_height,
     };
+}
+
+[[nodiscard]] constexpr bool IsSmallerThanGobSize(Extent3D num_tiles, Extent2D gob,
+                                                  u32 block_depth) {
+    return num_tiles.width <= (1U << gob.width) || num_tiles.height <= (1U << gob.height) ||
+           num_tiles.depth < (1U << block_depth);
 }
 
 [[nodiscard]] constexpr u32 StrideAlignment(Extent3D num_tiles, Extent3D block, Extent2D gob,
                                             u32 bpp_log2) {
-    if (num_tiles.depth < (1U << block.depth) || num_tiles.width <= gob.width ||
-        num_tiles.height <= gob.height) {
-        return GOB_SIZE_X >> bpp_log2;
+    if (IsSmallerThanGobSize(num_tiles, gob, block.depth)) {
+        return GOB_SIZE_X_SHIFT - bpp_log2;
     } else {
         return gob.width;
     }
@@ -259,22 +259,21 @@ template <u32 GOB_EXTENT>
 
 [[nodiscard]] constexpr u32 StrideAlignment(Extent3D num_tiles, Extent3D block, u32 bpp_log2,
                                             u32 tile_width_spacing) {
-    const Extent2D gob = GobSize(bpp_log2, tile_width_spacing, block.height);
+    const Extent2D gob = GobSize(bpp_log2, block.height, tile_width_spacing);
     return StrideAlignment(num_tiles, block, gob, bpp_log2);
 }
 
-[[nodiscard]] constexpr Extent2D NumGOBs(const LevelInfo& info, u32 level) {
+[[nodiscard]] constexpr Extent2D NumGobs(const LevelInfo& info, u32 level) {
     const Extent3D blocks = NumLevelBlocks(info, level);
     const Extent2D gobs{
-        .width = Common::AlignUp(blocks.width, GOB_SIZE_X) >> GOB_SIZE_X_SHIFT,
-        .height = Common::AlignUp(blocks.height, GOB_SIZE_Y) >> GOB_SIZE_Y_SHIFT,
+        .width = DivCeilLog2(blocks.width, GOB_SIZE_X_SHIFT),
+        .height = DivCeilLog2(blocks.height, GOB_SIZE_Y_SHIFT),
     };
-    const Extent2D gob = GobSize(info.bpp_log2, info.tile_width_spacing, info.block.height);
-    const bool is_too_small = blocks.width <= gob.width || blocks.height <= gob.height ||
-                              blocks.depth < (1U << info.block.depth);
-    const u32 alignment = is_too_small ? 0 : info.tile_width_spacing;
+    const Extent2D gob = GobSize(info.bpp_log2, info.block.height, info.tile_width_spacing);
+    const bool is_small = IsSmallerThanGobSize(blocks, gob, info.block.depth);
+    const u32 alignment = is_small ? 0 : info.tile_width_spacing;
     return Extent2D{
-        .width = AlignUpLog2(gobs.width, alignment),
+        .width = Common::AlignBits(gobs.width, alignment),
         .height = gobs.height,
     };
 }
@@ -282,7 +281,7 @@ template <u32 GOB_EXTENT>
 [[nodiscard]] constexpr Extent3D LevelTiles(const LevelInfo& info, u32 level) {
     const Extent3D blocks = NumLevelBlocks(info, level);
     const Extent3D tile_shift = TileShift(info, level);
-    const Extent2D gobs = NumGOBs(info, level);
+    const Extent2D gobs = NumGobs(info, level);
     return Extent3D{
         .width = DivCeilLog2(gobs.width, tile_shift.width),
         .height = DivCeilLog2(gobs.height, tile_shift.height),
@@ -347,7 +346,7 @@ template <u32 GOB_EXTENT>
     // https://github.com/Ryujinx/Ryujinx/blob/1c9aba6de1520aea5480c032e0ff5664ac1bb36f/Ryujinx.Graphics.Texture/SizeCalculator.cs#L134
     if (tile_width_spacing > 0) {
         const u32 alignment_log2 = GOB_SIZE_SHIFT + tile_width_spacing + block.height + block.depth;
-        return AlignUpLog2(size_bytes, alignment_log2);
+        return Common::AlignBits(size_bytes, alignment_log2);
     }
     const u32 aligned_height = Common::AlignUp(size.height, tile_size_y);
     while (block.height != 0 && aligned_height <= (1U << (block.height - 1)) * GOB_SIZE_Y) {
@@ -519,9 +518,9 @@ template <u32 GOB_EXTENT>
     const u32 alignment = StrideAlignment(num_tiles, info.block, bpp_log2, info.tile_width_spacing);
     const Extent3D mip_block = AdjustMipBlockSize(num_tiles, info.block, 0);
     return Extent3D{
-        .width = Common::AlignUp(num_tiles.width, alignment),
-        .height = AlignUpLog2(num_tiles.height, GOB_SIZE_Y_SHIFT + mip_block.height),
-        .depth = AlignUpLog2(num_tiles.depth, GOB_SIZE_Z_SHIFT + mip_block.depth),
+        .width = Common::AlignBits(num_tiles.width, alignment),
+        .height = Common::AlignBits(num_tiles.height, GOB_SIZE_Y_SHIFT + mip_block.height),
+        .depth = Common::AlignBits(num_tiles.depth, GOB_SIZE_Z_SHIFT + mip_block.depth),
     };
 }
 
@@ -656,8 +655,7 @@ u32 CalculateLevelStrideAlignment(const ImageInfo& info, u32 level) {
     const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
     const Extent3D block = AdjustMipBlockSize(num_tiles, info.block, level);
     const u32 bpp_log2 = BytesPerBlockLog2(info.format);
-    const Extent2D gob = GobSize(bpp_log2, info.tile_width_spacing, info.block.height);
-    return StrideAlignment(num_tiles, info.block, gob, bpp_log2);
+    return StrideAlignment(num_tiles, info.block, bpp_log2, info.tile_width_spacing);
 }
 
 PixelFormat PixelFormatFromTIC(const TICEntry& config) noexcept {
@@ -765,11 +763,10 @@ std::vector<BufferImageCopy> UnswizzleImage(Tegra::MemoryManager& gpu_memory, GP
     const u32 num_mipmaps = info.resources.mipmaps;
     const Extent2D tile_size = DefaultBlockSize(info.format);
     const std::array level_sizes = CalculateLevelSizes(level_info, num_mipmaps);
-    const Extent2D gob = GobSize(bpp_log2, info.tile_width_spacing, info.block.height);
-    const u32 layer_stride =
-        AlignLayerSize(std::reduce(level_sizes.begin(), level_sizes.begin() + num_mipmaps, 0), size,
-                       level_info.block, tile_size.height, info.tile_width_spacing);
-
+    const Extent2D gob = GobSize(bpp_log2, info.block.height, info.tile_width_spacing);
+    const u32 layer_size = std::reduce(level_sizes.begin(), level_sizes.begin() + num_mipmaps, 0);
+    const u32 layer_stride = AlignLayerSize(layer_size, size, level_info.block, tile_size.height,
+                                            info.tile_width_spacing);
     size_t guest_offset = 0;
     u32 host_offset = 0;
     std::vector<BufferImageCopy> copies(num_mipmaps);

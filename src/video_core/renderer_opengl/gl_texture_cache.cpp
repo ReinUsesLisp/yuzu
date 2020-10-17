@@ -551,7 +551,7 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
             is_3d ? aligned_depth / workgroup_size.depth : image.info.resources.layers;
 
         const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
-        const u32 stride = Common::AlignUp(num_tiles.width, stride_alignment) * bytes_per_block;
+        const u32 stride = Common::AlignBits(num_tiles.width, stride_alignment) * bytes_per_block;
 
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
         const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block.height + block.depth);
