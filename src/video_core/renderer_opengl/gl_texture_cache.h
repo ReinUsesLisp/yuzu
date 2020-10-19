@@ -14,7 +14,9 @@
 
 namespace OpenGL {
 
+class Device;
 class ProgramManager;
+class StateTracker;
 
 class Framebuffer;
 class Image;
@@ -53,7 +55,8 @@ struct FormatProperties {
 
 class TextureCacheRuntime {
 public:
-    explicit TextureCacheRuntime(ProgramManager& program_manager_);
+    explicit TextureCacheRuntime(const Device& device, ProgramManager& program_manager,
+                                 StateTracker& state_tracker);
     ~TextureCacheRuntime();
 
     ImageBufferMap MapUploadBuffer(size_t size);
@@ -71,6 +74,8 @@ public:
     void InsertUploadMemoryBarrier();
 
     FormatProperties FormatInfo(VideoCommon::ImageType type, GLenum internal_format) const;
+
+    const Device& device;
 
 private:
     struct StagingBuffers {
@@ -92,6 +97,7 @@ private:
     };
 
     ProgramManager& program_manager;
+    StateTracker& state_tracker;
 
     std::array<std::unordered_map<GLenum, FormatProperties>, 3> format_properties;
 

@@ -19,6 +19,7 @@ using VideoCore::Surface::PixelFormat;
 
 /// Properties used to determine a image view
 struct ImageViewInfo {
+    explicit ImageViewInfo() noexcept = default;
     explicit ImageViewInfo(const TICEntry& config) noexcept;
     explicit ImageViewInfo(ImageViewType type_, PixelFormat format_,
                            SubresourceRange range_ = {}) noexcept;
@@ -26,7 +27,7 @@ struct ImageViewInfo {
     constexpr auto operator<=>(const ImageViewInfo&) const noexcept = default;
 
     constexpr std::array<SwizzleSource, 4> Swizzle() const noexcept {
-        return {
+        return std::array{
             static_cast<SwizzleSource>(x_source),
             static_cast<SwizzleSource>(y_source),
             static_cast<SwizzleSource>(z_source),

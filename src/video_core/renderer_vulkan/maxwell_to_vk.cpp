@@ -235,9 +235,8 @@ FormatInfo SurfaceFormat(const VKDevice& device, FormatType format_type, PixelFo
 
     // Use A8B8G8R8_UNORM on hardware that doesn't support ASTC natively
     if (!device.IsOptimalAstcSupported() && VideoCore::Surface::IsPixelFormatASTC(pixel_format)) {
-        tuple.format = VideoCore::Surface::IsPixelFormatSRGB(pixel_format)
-                           ? VK_FORMAT_A8B8G8R8_SRGB_PACK32
-                           : VK_FORMAT_A8B8G8R8_UNORM_PACK32;
+        const bool is_srgb = VideoCore::Surface::IsPixelFormatSRGB(pixel_format);
+        tuple.format = is_srgb ? VK_FORMAT_A8B8G8R8_SRGB_PACK32 : VK_FORMAT_A8B8G8R8_UNORM_PACK32;
     }
     const bool attachable = tuple.usage & Attachable;
     const bool storage = tuple.usage & Storage;

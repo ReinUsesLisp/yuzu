@@ -11,7 +11,9 @@
 
 #include "video_core/host_shaders/block_linear_unswizzle_2d_comp.h"
 #include "video_core/host_shaders/block_linear_unswizzle_3d_comp.h"
+#include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
+#include "video_core/renderer_opengl/gl_state_tracker.h"
 #include "video_core/renderer_opengl/gl_texture_cache.h"
 #include "video_core/renderer_opengl/maxwell_to_gl.h"
 #include "video_core/surface.h"
@@ -33,6 +35,8 @@ using VideoCommon::ImageCopy;
 using VideoCommon::NUM_RT;
 using VideoCommon::SwizzleParameters;
 using VideoCore::Surface::BytesPerBlock;
+using VideoCore::Surface::IsPixelFormatASTC;
+using VideoCore::Surface::IsPixelFormatSRGB;
 using VideoCore::Surface::MaxPixelFormat;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceType;
@@ -413,8 +417,9 @@ ImageBufferMap::~ImageBufferMap() {
     }
 }
 
-TextureCacheRuntime::TextureCacheRuntime(ProgramManager& program_manager_)
-    : program_manager{program_manager_} {
+TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& program_manager_,
+                                         StateTracker& state_tracker_)
+    : device{device_}, program_manager{program_manager_}, state_tracker{state_tracker_} {
     static constexpr std::array TARGETS = {GL_TEXTURE_1D_ARRAY, GL_TEXTURE_2D_ARRAY, GL_TEXTURE_3D};
     for (size_t i = 0; i < TARGETS.size(); ++i) {
         const GLenum target = TARGETS[i];
@@ -482,8 +487,15 @@ void TextureCacheRuntime::CopyImage(Image& dst_image, Image& src_image,
 
 void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
                                           const Tegra::Engines::Fermi2D::Config& copy) {
-    const bool is_linear = copy.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
+    state_tracker.NotifyScissor0();
+    state_tracker.NotifyRasterizeEnable();
+    state_tracker.NotifyFramebufferSRGB();
 
+    glDisable(GL_FRAMEBUFFER_SRGB);
+    glDisable(GL_RASTERIZER_DISCARD);
+    glDisablei(GL_SCISSOR_TEST, 0);
+
+    const bool is_linear = copy.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
     glBlitNamedFramebuffer(src->Handle(), dst->Handle(), copy.src_x0, copy.src_y0, copy.src_x1,
                            copy.src_y1, copy.dst_x0, copy.dst_y0, copy.dst_x1, copy.dst_y1,
                            GL_COLOR_BUFFER_BIT, is_linear ? GL_LINEAR : GL_NEAREST);
@@ -661,14 +673,21 @@ std::optional<size_t> TextureCacheRuntime::StagingBuffers::FindBuffer(size_t req
 Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, GPUVAddr gpu_addr,
              VAddr cpu_addr)
     : VideoCommon::ImageBase(info, gpu_addr, cpu_addr) {
-    const auto& tuple = GetFormatTuple(info.format);
-    gl_internal_format = tuple.internal_format;
-    gl_store_format = tuple.store_format;
-    gl_format = tuple.format;
-    gl_type = tuple.type;
-
     if (CanBeAccelerated(runtime, info)) {
         flags |= VideoCommon::ImageFlagBits::AcceleratedUpload;
+    }
+    if (runtime.device.HasASTC() || !IsPixelFormatASTC(info.format)) {
+        const auto& tuple = GetFormatTuple(info.format);
+        gl_internal_format = tuple.internal_format;
+        gl_store_format = tuple.store_format;
+        gl_format = tuple.format;
+        gl_type = tuple.type;
+    } else {
+        flags |= VideoCommon::ImageFlagBits::Converted;
+        gl_internal_format = IsPixelFormatSRGB(info.format) ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+        gl_store_format = GL_RGBA8;
+        gl_format = GL_RGBA;
+        gl_type = GL_UNSIGNED_INT_8_8_8_8_REV;
     }
     const GLenum target = ImageTarget(info);
     const GLsizei width = info.size.width;
@@ -874,10 +893,14 @@ void Image::CopyImageToBuffer(const VideoCommon::BufferImageCopy& copy, size_t b
     }
 }
 
-ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::ImageViewInfo& info, ImageId image_id,
-                     Image& image)
-    : VideoCommon::ImageViewBase{info, image.info, image_id},
-      internal_format{GetFormatTuple(format).internal_format} {
+ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,
+                     ImageId image_id, Image& image)
+    : VideoCommon::ImageViewBase{info, image.info, image_id} {
+    if (runtime.device.HasASTC() || !IsPixelFormatASTC(info.format)) {
+        internal_format = GetFormatTuple(format).internal_format;
+    } else {
+        internal_format = IsPixelFormatSRGB(info.format) ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+    }
     VideoCommon::SubresourceRange flatten_range = info.range;
     std::array<GLuint, 2> handles;
     switch (info.type) {

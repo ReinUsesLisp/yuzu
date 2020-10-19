@@ -258,11 +258,11 @@ private:
     [[nodiscard]] ImageId FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
                                             RelaxedOptions options = RelaxedOptions{});
 
-    [[nodiscard]] ImageId InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
-                                      RelaxedOptions options);
+    [[nodiscard]] ImageId InsertImage(const ImageInfo& info, GPUVAddr new_gpu_addr,
+                                      VAddr new_cpu_addr, RelaxedOptions options);
 
-    [[nodiscard]] ImageId ResolveImageOverlaps(ImageInfo info, GPUVAddr gpu_addr, VAddr cpu_addr,
-                                               RelaxedOptions options);
+    [[nodiscard]] ImageId ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gpu_addr,
+                                               VAddr cpu_addr, RelaxedOptions options);
 
     /**
      * Find or create if necessary a sampler with the given properties
@@ -302,7 +302,7 @@ private:
 
     void InitializeNewImage(ImageId image_id);
 
-    [[nodiscard]] ImageViewId EmplaceImageView(ImageId image_id, const ImageViewInfo& info);
+    [[nodiscard]] ImageViewId FindOrEmplaceImageView(ImageId image_id, const ImageViewInfo& info);
 
     void TouchImageView(ImageViewId image_view_id);
 

@@ -148,7 +148,8 @@ RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window, Tegra:
     : RasterizerAccelerated(cpu_memory), gpu(gpu_), maxwell3d(gpu.Maxwell3D()),
       kepler_compute(gpu.KeplerCompute()), gpu_memory(gpu.MemoryManager()), device(device_),
       screen_info(screen_info_), program_manager(program_manager_), state_tracker(state_tracker_),
-      stream_buffer(device, state_tracker), texture_cache_runtime(program_manager),
+      stream_buffer(device, state_tracker),
+      texture_cache_runtime(device, program_manager, state_tracker),
       texture_cache(texture_cache_runtime, *this, maxwell3d, kepler_compute, gpu_memory),
       shader_cache(*this, emu_window, gpu, maxwell3d, kepler_compute, gpu_memory, device),
       query_cache(*this, maxwell3d, gpu_memory),
@@ -461,7 +462,6 @@ void RasterizerOpenGL::Clear() {
         state_tracker.NotifyScissor0();
         glDisablei(GL_SCISSOR_TEST, 0);
     }
-
     UNIMPLEMENTED_IF(regs.clear_flags.viewport);
 
     texture_cache.UpdateRenderTargets();
@@ -470,7 +470,6 @@ void RasterizerOpenGL::Clear() {
     if (use_color) {
         glClearBufferfv(GL_COLOR, regs.clear_buffers.RT, regs.clear_color);
     }
-
     if (use_depth && use_stencil) {
         glClearBufferfi(GL_DEPTH_STENCIL, 0, regs.clear_depth, regs.clear_stencil);
     } else if (use_depth) {

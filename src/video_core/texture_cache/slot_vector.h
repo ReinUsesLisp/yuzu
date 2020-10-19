@@ -66,14 +66,17 @@ public:
     }
 
     void erase(SlotId id) noexcept {
+        // Delete and pollute bits to avoid read after free situations
         reinterpret_cast<T*>(values[id.index].storage.data())->~T();
-        // free_list.push_back(id.index);
+        values[id.index].storage.fill(0xcc);
+
+        free_list.push_back(id.index);
         ResetStorageBit(id.index);
     }
 
 private:
     struct Entry {
-        std::array<char, sizeof(T)> storage;
+        std::array<unsigned char, sizeof(T)> storage;
     };
 
     void SetStorageBit(u32 index) noexcept {

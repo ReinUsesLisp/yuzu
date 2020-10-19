@@ -479,13 +479,17 @@ template <u32 GOB_EXTENT>
         return std::nullopt;
     }
     const SubresourceExtent resources = new_info.resources;
+    u32 layers = 1;
+    if (info.type != ImageType::e3D) {
+        layers = std::max(resources.layers, info.resources.layers + base->layer);
+    }
     return OverlapResult{
         .gpu_addr = overlap.gpu_addr,
         .cpu_addr = overlap.cpu_addr,
         .resources =
             {
                 .mipmaps = std::max(resources.mipmaps + base->mipmap, info.resources.mipmaps),
-                .layers = std::max(resources.layers + base->layer, info.resources.layers),
+                .layers = layers,
             },
     };
 }
@@ -825,7 +829,7 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
     for (BufferImageCopy& copy : copies) {
         ASSERT(copy.image_offset == Offset3D{});
         ASSERT(copy.image_subresource.base_layer == 0);
-        ASSERT(copy.image_extent == info.size);
+        ASSERT(copy.image_extent == AdjustMipSize(info.size, copy.image_subresource.base_mipmap));
         ASSERT(copy.image_extent.depth == 1);
 
         Tegra::Texture::ASTC::Decompress(input.subspan(copy.buffer_offset), copy.image_extent.width,

@@ -166,27 +166,36 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
     static constexpr auto SEARCH_OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
-    const ImageInfo src_info(src);
     const ImageInfo dst_info(dst);
-    const ImageId src_id = FindOrInsertImage(src_info, dst.Address(), SEARCH_OPTIONS);
-    const ImageId dst_id = FindOrInsertImage(dst_info, src.Address(), SEARCH_OPTIONS);
-    Image& src_image = slot_images[src_id];
+    const ImageInfo src_info(src);
+    const ImageId dst_id = FindOrInsertImage(dst_info, dst.Address(), SEARCH_OPTIONS);
+    const ImageId src_id = FindOrInsertImage(src_info, src.Address(), SEARCH_OPTIONS);
     Image& dst_image = slot_images[dst_id];
+    Image& src_image = slot_images[src_id];
     dst_image.flags |= ImageFlagBits::GpuModified;
 
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits framebuffers, not images
-
         // TODO: Properly select this
-        const ImageViewId src_image_view_id = src_image.image_view_ids.at(0);
-        const ImageViewId dst_image_view_id = dst_image.image_view_ids.at(0);
-
-        Framebuffer* const src_framebuffer = GetFramebuffer({
-            .color_buffer_ids = {src_image_view_id},
-        });
-        Framebuffer* const dst_framebuffer = GetFramebuffer({
-            .color_buffer_ids = {dst_image_view_id},
-        });
+        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_image.info.format,
+                                          SubresourceRange{});
+        const ImageViewInfo src_view_info(ImageViewType::e2D, src_image.info.format,
+                                          SubresourceRange{});
+        const ImageViewId dst_view_id = FindOrEmplaceImageView(dst_id, dst_view_info);
+        const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
+        // TODO: Apply mips
+        const Extent3D dst_extent = dst_image.info.size;
+        const Extent3D src_extent = src_image.info.size;
+        const RenderTargets dst_targets{
+            .color_buffer_ids = {dst_view_id},
+            .size = {.width = dst_extent.width, .height = dst_extent.height},
+        };
+        const RenderTargets src_targets{
+            .color_buffer_ids = {src_view_id},
+            .size = {.width = src_extent.width, .height = src_extent.height},
+        };
+        Framebuffer* const dst_framebuffer = GetFramebuffer(dst_targets);
+        Framebuffer* const src_framebuffer = GetFramebuffer(src_targets);
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
         runtime.BlitImage(dst_image, src_image, copy);
@@ -389,12 +398,9 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
         return NULL_IMAGE_VIEW_ID;
     }
     const ImageViewInfo view_info(config);
-    Image& image = slot_images[image_id];
-    ImageViewId image_view_id = image.FindView(view_info);
-    if (!image_view_id) {
-        image_view_id = EmplaceImageView(image_id, view_info);
-    }
-    ImageView& image_view = slot_image_views[image_view_id];
+    const ImageViewId image_view_id = FindOrEmplaceImageView(image_id, view_info);
+    ImageBase& image = slot_images[image_id];
+    ImageViewBase& image_view = slot_image_views[image_view_id];
     image_view.flags |= ImageViewFlagBits::Strong;
     image.flags |= ImageFlagBits::Strong;
     return image_view_id;
@@ -431,16 +437,15 @@ ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_a
     if (image_id) {
         return image_id;
     }
-    return InsertImage(info, gpu_addr, options);
+    return InsertImage(info, gpu_addr, *cpu_addr, options);
 }
 
 template <class P>
-ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
-                                     RelaxedOptions options) {
-    const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
-    ASSERT(cpu_addr);
-    const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, options);
-    const auto [it, is_new] = image_allocs_table.try_emplace(gpu_addr);
+ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr new_gpu_addr,
+                                     VAddr new_cpu_addr, RelaxedOptions options) {
+    const ImageId image_id = ResolveImageOverlaps(info, new_gpu_addr, new_cpu_addr, options);
+    const Image& image = slot_images[image_id];
+    const auto [it, is_new] = image_allocs_table.try_emplace(image.gpu_addr);
     if (is_new) {
         it->second = slot_image_allocs.insert();
     }
@@ -449,8 +454,9 @@ ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
 }
 
 template <class P>
-ImageId TextureCache<P>::ResolveImageOverlaps(ImageInfo new_info, GPUVAddr gpu_addr, VAddr cpu_addr,
-                                              RelaxedOptions options) {
+ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gpu_addr,
+                                              VAddr cpu_addr, RelaxedOptions options) {
+    ImageInfo new_info = info;
     const size_t size_bytes = CalculateGuestSizeInBytes(new_info);
     std::vector<ImageId> overlap_ids;
     if (new_info.type != ImageType::Linear) {
@@ -525,7 +531,8 @@ ImageViewId TextureCache<P>::FindColorBuffer(size_t index) {
     if (gpu_addr == 0) {
         return ImageViewId{};
     }
-    return FindRenderTargetView(ImageInfo(regs, index), gpu_addr);
+    const ImageInfo info(regs, index);
+    return FindRenderTargetView(info, gpu_addr);
 }
 
 template <class P>
@@ -538,7 +545,8 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
     if (gpu_addr == 0) {
         return ImageViewId{};
     }
-    return FindRenderTargetView(ImageInfo(regs), gpu_addr);
+    const ImageInfo info(regs);
+    return FindRenderTargetView(info, gpu_addr);
 }
 
 template <class P>
@@ -555,21 +563,12 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     } else {
         base = image.FindSubresourceFromAddress(gpu_addr).value();
     }
-    u32 layers;
-    if (image.info.type == ImageType::e3D) {
-        layers = std::max(1U, image.info.size.depth >> base.mipmap);
-    } else {
-        layers = info.resources.layers;
-    }
+    const u32 layers = image.info.type == ImageType::e3D ? info.size.depth : info.resources.layers;
     const SubresourceRange range{
         .base = base,
         .extent = {.mipmaps = 1, .layers = layers},
     };
-    const ImageViewInfo view_info(view_type, info.format, range);
-    if (const ImageViewId image_view_id = image.FindView(view_info); image_view_id) {
-        return image_view_id;
-    }
-    return EmplaceImageView(image_id, view_info);
+    return FindOrEmplaceImageView(image_id, ImageViewInfo(view_type, info.format, range));
 }
 
 template <class P>
@@ -630,8 +629,11 @@ void TextureCache<P>::InitializeNewImage(ImageId image_id) {
 }
 
 template <class P>
-ImageViewId TextureCache<P>::EmplaceImageView(ImageId image_id, const ImageViewInfo& info) {
+ImageViewId TextureCache<P>::FindOrEmplaceImageView(ImageId image_id, const ImageViewInfo& info) {
     Image& image = slot_images[image_id];
+    if (const ImageViewId image_view_id = image.FindView(info); image_view_id) {
+        return image_view_id;
+    }
     const ImageViewId image_view_id = slot_image_views.insert(runtime, info, image_id, image);
     image.InsertView(info, image_view_id);
     return image_view_id;
@@ -646,14 +648,20 @@ void TextureCache<P>::TouchImageView(ImageViewId image_view_id) {
 
 template <class P>
 void TextureCache<P>::RegisterImage(ImageId image_id) {
-    const Image& image = slot_images[image_id];
+    Image& image = slot_images[image_id];
+    ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
+               "Trying to register an already registered image");
+    image.flags |= ImageFlagBits::Registered;
     ForEachPage(image.cpu_addr, image.guest_size_bytes,
                 [this, image_id](u64 page) { page_table[page].push_back(image_id); });
 }
 
 template <class P>
 void TextureCache<P>::UnregisterImage(ImageId image_id) {
-    const Image& image = slot_images[image_id];
+    Image& image = slot_images[image_id];
+    ASSERT_MSG(True(image.flags & ImageFlagBits::Registered),
+               "Trying to unregister an already registered image");
+    image.flags &= ~ImageFlagBits::Registered;
     ForEachPage(image.cpu_addr, image.guest_size_bytes, [this, image_id](u64 page) {
         const auto page_it = page_table.find(page);
         if (page_it == page_table.end()) {
@@ -690,7 +698,8 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     const GPUVAddr gpu_addr = image.gpu_addr;
     const auto alloc_it = image_allocs_table.find(gpu_addr);
     if (alloc_it == image_allocs_table.end()) {
-        UNREACHABLE_MSG("Trying to delete an image that does not exist");
+        UNREACHABLE_MSG("Trying to delete an image alloc that does not exist in address 0x{:x}",
+                        gpu_addr);
         return;
     }
     const ImageAllocId alloc_id = alloc_it->second;
@@ -701,12 +710,17 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
         return;
     }
     ASSERT_MSG(False(image.flags & ImageFlagBits::Tracked), "Image was not untracked");
+    ASSERT_MSG(False(image.flags & ImageFlagBits::Registered), "Image was not unregistered");
 
     const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
     if constexpr (ENABLE_VALIDATION) {
-        // TODO: Pollute render targets
         ReplaceRemovedInImageDescriptorTables(tables_3d, image_id, image_view_ids);
         ReplaceRemovedInImageDescriptorTables(tables_compute, image_id, image_view_ids);
+
+        std::ranges::replace(render_targets.color_buffer_ids, image_id, CORRUPT_ID);
+        if (render_targets.depth_buffer_id == image_id) {
+            render_targets.depth_buffer_id = CORRUPT_ID;
+        }
     }
     RemoveImageViewReferences(image_view_ids);
     RemoveFramebuffers(image_view_ids);
@@ -732,7 +746,7 @@ template <class P>
 void TextureCache<P>::ReplaceRemovedInImageDescriptorTables(
     ClassDescriptorTables& tables, ImageId image, std::span<const ImageViewId> removed_views) {
     for (const auto& removed_view : removed_views) {
-        std::ranges::replace(tables.image_views, removed_view, ImageViewId{});
+        std::ranges::replace(tables.image_views, removed_view, CORRUPT_ID);
     }
 }
 

@@ -13,6 +13,8 @@ namespace VideoCommon {
 constexpr size_t NUM_RT = 8;
 constexpr size_t MAX_MIPMAP = 14;
 
+constexpr SlotId CORRUPT_ID{0xfffffffe};
+
 using ImageId = SlotId;
 using ImageViewId = SlotId;
 using ImageAllocId = SlotId;

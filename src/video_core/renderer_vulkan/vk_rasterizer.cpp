@@ -533,12 +533,18 @@ void RasterizerVulkan::Clear() {
     const VkExtent2D render_area = framebuffer->RenderArea();
     scheduler.RequestRenderpass(framebuffer->RenderPass(), framebuffer->Handle(), render_area);
 
-    VkClearRect clear_rect;
-    clear_rect.baseArrayLayer = regs.clear_buffers.layer;
-    clear_rect.layerCount = 1;
-    clear_rect.rect = GetScissorState(regs, 0);
-    clear_rect.rect.extent.width = std::min(clear_rect.rect.extent.width, render_area.width);
-    clear_rect.rect.extent.height = std::min(clear_rect.rect.extent.height, render_area.height);
+    VkClearRect clear_rect{
+        .rect = GetScissorState(regs, 0),
+        .baseArrayLayer = regs.clear_buffers.layer,
+        .layerCount = 1,
+    };
+    if (clear_rect.rect.extent.width == 0 || clear_rect.rect.extent.height == 0) {
+        return;
+    }
+    clear_rect.rect.extent = VkExtent2D{
+        .width = std::min(clear_rect.rect.extent.width, render_area.width),
+        .height = std::min(clear_rect.rect.extent.height, render_area.height),
+    };
 
     if (use_color) {
         VkClearValue clear_value;

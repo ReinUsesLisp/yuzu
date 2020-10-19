@@ -2,6 +2,11 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
+#include <array>
+#include <span>
+#include <vector>
+
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
@@ -128,7 +133,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     }
     const size_t bytes_per_block = VideoCore::Surface::BytesPerBlock(info.format);
     return device.GetLogical().CreateBuffer(VkBufferCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .size = info.size.width * bytes_per_block,
