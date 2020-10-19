@@ -827,16 +827,22 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
 
     const Extent2D tile_size = DefaultBlockSize(info.format);
     for (BufferImageCopy& copy : copies) {
+        const u32 level = copy.image_subresource.base_mipmap;
+        const Extent3D mip_size = AdjustMipSize(info.size, level);
         ASSERT(copy.image_offset == Offset3D{});
         ASSERT(copy.image_subresource.base_layer == 0);
-        ASSERT(copy.image_extent == AdjustMipSize(info.size, copy.image_subresource.base_mipmap));
+        ASSERT(copy.image_extent == mip_size);
         ASSERT(copy.image_extent.depth == 1);
+        ASSERT(copy.buffer_row_length == Common::AlignUp(mip_size.width, tile_size.width));
+        ASSERT(copy.buffer_image_height == Common::AlignUp(mip_size.height, tile_size.height));
 
         Tegra::Texture::ASTC::Decompress(input.subspan(copy.buffer_offset), copy.image_extent.width,
                                          copy.image_extent.height,
                                          copy.image_subresource.num_layers, tile_size.width,
                                          tile_size.height, output.subspan(output_offset));
         copy.buffer_offset = output_offset;
+        copy.buffer_row_length = mip_size.width;
+        copy.buffer_image_height = mip_size.height;
 
         output_offset += copy.image_extent.width * copy.image_extent.height *
                          copy.image_subresource.num_layers * CONVERTED_BYTES_PER_BLOCK;

@@ -531,6 +531,9 @@ ImageViewId TextureCache<P>::FindColorBuffer(size_t index) {
     if (gpu_addr == 0) {
         return ImageViewId{};
     }
+    if (rt.format == Tegra::RenderTargetFormat::NONE) {
+        return ImageViewId{};
+    }
     const ImageInfo info(regs, index);
     return FindRenderTargetView(info, gpu_addr);
 }
