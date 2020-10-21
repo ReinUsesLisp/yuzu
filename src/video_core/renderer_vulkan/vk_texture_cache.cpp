@@ -72,7 +72,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
                                                     const VideoCommon::ImageInfo& info) {
     const auto format_info = MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, info.format);
     VkImageCreateFlags flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
-    if (info.type == VideoCommon::ImageType::e2D && info.resources.layers >= 6) {
+    if (info.type == VideoCommon::ImageType::e2D && info.resources.layers >= 6 &&
+        info.size.width == info.size.height) {
         flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     }
     if (info.type == VideoCommon::ImageType::e3D) {

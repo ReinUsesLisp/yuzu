@@ -337,8 +337,8 @@ inline u32 MapSizeBytes(const ImageBase& image) {
 
 template <class P>
 void TextureCache<P>::UpdateImageContents(Image& image) {
-    // Only upload modified images
     if (False(image.flags & ImageFlagBits::CpuModified)) {
+        // Only upload modified images
         return;
     }
     image.flags &= ~ImageFlagBits::CpuModified;

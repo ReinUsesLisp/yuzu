@@ -914,15 +914,20 @@ Extent3D MipBlockSize(const ImageInfo& info, u32 mipmap) {
 }
 
 std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info) {
-    ASSERT(info.type != ImageType::Linear);
-
+    const Extent2D tile_size = DefaultBlockSize(info.format);
+    if (info.type == ImageType::Linear) {
+        return std::vector{SwizzleParameters{
+            .num_tiles = AdjustTileSize(info.size, tile_size),
+            .block = {},
+            .buffer_offset = 0,
+            .mipmap = 0,
+        }};
+    }
     const LevelInfo level_info = MakeLevelInfo(info);
     const Extent3D size = info.size;
-    const Extent2D tile_size = DefaultBlockSize(info.format);
     const u32 num_mipmaps = info.resources.mipmaps;
 
     u32 guest_offset = 0;
-
     std::vector<SwizzleParameters> params(num_mipmaps);
     for (u32 mipmap = 0; mipmap < num_mipmaps; ++mipmap) {
         const Extent3D level_size = AdjustMipSize(size, mipmap);

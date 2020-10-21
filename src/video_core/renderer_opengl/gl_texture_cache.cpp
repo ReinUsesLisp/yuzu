@@ -9,13 +9,12 @@
 
 #include <glad/glad.h>
 
-#include "video_core/host_shaders/block_linear_unswizzle_2d_comp.h"
-#include "video_core/host_shaders/block_linear_unswizzle_3d_comp.h"
 #include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
 #include "video_core/renderer_opengl/gl_state_tracker.h"
 #include "video_core/renderer_opengl/gl_texture_cache.h"
 #include "video_core/renderer_opengl/maxwell_to_gl.h"
+#include "video_core/renderer_opengl/util_shaders.h"
 #include "video_core/surface.h"
 #include "video_core/texture_cache/format_lookup_table.h"
 #include "video_core/texture_cache/texture_cache.h"
@@ -32,6 +31,7 @@ using Tegra::Texture::TICEntry;
 using Tegra::Texture::TSCEntry;
 using VideoCommon::CalculateLevelStrideAlignment;
 using VideoCommon::ImageCopy;
+using VideoCommon::ImageType;
 using VideoCommon::NUM_RT;
 using VideoCommon::SwizzleParameters;
 using VideoCore::Surface::BytesPerBlock;
@@ -161,40 +161,23 @@ const FormatTuple& GetFormatTuple(PixelFormat pixel_format) {
     return FORMAT_TABLE[static_cast<size_t>(pixel_format)];
 }
 
-GLenum StoreFormat(u32 bytes_per_block) {
-    switch (bytes_per_block) {
-    case 1:
-        return GL_R8UI;
-    case 2:
-        return GL_R16UI;
-    case 4:
-        return GL_R32UI;
-    case 8:
-        return GL_RG32UI;
-    case 16:
-        return GL_RGBA32UI;
-    }
-    UNREACHABLE();
-    return GL_R8UI;
-}
-
 GLenum ImageTarget(const VideoCommon::ImageInfo& info) {
     switch (info.type) {
-    case VideoCommon::ImageType::e1D:
+    case ImageType::e1D:
         return GL_TEXTURE_1D_ARRAY;
-    case VideoCommon::ImageType::e2D:
+    case ImageType::e2D:
         if (info.num_samples > 1) {
             return GL_TEXTURE_2D_MULTISAMPLE_ARRAY;
         }
         return GL_TEXTURE_2D_ARRAY;
-    case VideoCommon::ImageType::e3D:
+    case ImageType::e3D:
         return GL_TEXTURE_3D;
-    case VideoCommon::ImageType::Linear:
+    case ImageType::Linear:
         return GL_TEXTURE_2D_ARRAY;
-    case VideoCommon::ImageType::Rect:
+    case ImageType::Rect:
         ASSERT(info.num_samples == 1);
         return GL_TEXTURE_RECTANGLE;
-    case VideoCommon::ImageType::Buffer:
+    case ImageType::Buffer:
         return GL_TEXTURE_BUFFER;
     }
     UNREACHABLE_MSG("Invalid image type={}", static_cast<int>(info.type));
@@ -345,7 +328,12 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
 }
 
 bool CanBeAccelerated(const TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info) {
-    if (info.type != VideoCommon::ImageType::e2D && info.type != VideoCommon::ImageType::e3D) {
+    switch (info.type) {
+    case ImageType::e2D:
+    case ImageType::e3D:
+    case ImageType::Linear:
+        break;
+    default:
         return false;
     }
     const GLenum internal_format = GetFormatTuple(info.format).internal_format;
@@ -417,9 +405,9 @@ ImageBufferMap::~ImageBufferMap() {
     }
 }
 
-TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& program_manager_,
+TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& program_manager,
                                          StateTracker& state_tracker_)
-    : device{device_}, program_manager{program_manager_}, state_tracker{state_tracker_} {
+    : device{device_}, state_tracker{state_tracker_}, util_shaders(program_manager) {
     static constexpr std::array TARGETS = {GL_TEXTURE_1D_ARRAY, GL_TEXTURE_2D_ARRAY, GL_TEXTURE_3D};
     for (size_t i = 0; i < TARGETS.size(); ++i) {
         const GLenum target = TARGETS[i];
@@ -442,21 +430,6 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& 
             format_properties[i].emplace(format, properties);
         }
     }
-
-    const auto swizzle_table = Tegra::Texture::MakeSwizzleTable();
-    swizzle_table_buffer.Create();
-    glNamedBufferStorage(swizzle_table_buffer.handle, sizeof(swizzle_table), swizzle_table.data(),
-                         0);
-
-    OGLShader block_linear_unswizzle_2d_shader;
-    block_linear_unswizzle_2d_shader.Create(HostShaders::BLOCK_LINEAR_UNSWIZZLE_2D_COMP,
-                                            GL_COMPUTE_SHADER);
-    block_linear_unswizzle_2d_program.Create(true, false, block_linear_unswizzle_2d_shader.handle);
-
-    OGLShader block_linear_unswizzle_3d_shader;
-    block_linear_unswizzle_3d_shader.Create(HostShaders::BLOCK_LINEAR_UNSWIZZLE_3D_COMP,
-                                            GL_COMPUTE_SHADER);
-    block_linear_unswizzle_3d_program.Create(true, false, block_linear_unswizzle_3d_shader.handle);
 }
 
 TextureCacheRuntime::~TextureCacheRuntime() = default;
@@ -504,93 +477,13 @@ void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
 void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferMap& map,
                                                 size_t buffer_offset,
                                                 std::span<const SwizzleParameters> swizzles) {
-    using Tegra::Texture::GOB_SIZE_SHIFT;
-    using Tegra::Texture::GOB_SIZE_X;
-    using Tegra::Texture::GOB_SIZE_X_SHIFT;
-
-    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE_2D{32, 32, 1};
-    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE_3D{16, 8, 8};
-
-    static constexpr GLuint SWIZZLE_BUFFER_BINDING = 0;
-    static constexpr GLuint INPUT_BUFFER_BINDING = 1;
-    static constexpr GLuint OUTPUT_IMAGE_BINDING = 0;
-
-    static constexpr GLuint ORIGIN_LOC = 0;
-    static constexpr GLuint DESTINATION_LOC = 1;
-    static constexpr GLuint BYTES_PER_BLOCK_LOC = 2;
-    static constexpr GLuint LAYER_STRIDE_LOC = 3;
-    static constexpr GLuint SLICE_SIZE_LOC = 3;
-    static constexpr GLuint BLOCK_SIZE_LOC = 4;
-    static constexpr GLuint X_SHIFT_LOC = 5;
-    static constexpr GLuint BLOCK_HEIGHT_LOC = 6;
-    static constexpr GLuint BLOCK_HEIGHT_MASK_LOC = 7;
-    static constexpr GLuint BLOCK_DEPTH_LOC = 8;
-    static constexpr GLuint BLOCK_DEPTH_MASK_LOC = 9;
-
-    const u32 bytes_per_block = BytesPerBlock(image.info.format);
-    const u32 bytes_per_block_log2 = std::countr_zero(bytes_per_block);
-    const bool is_3d = image.info.type == VideoCommon::ImageType::e3D;
-    const VideoCommon::Extent3D workgroup_size = is_3d ? WORKGROUP_SIZE_3D : WORKGROUP_SIZE_2D;
-
-    glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_bytes);
-
-    if (is_3d) {
-        program_manager.BindCompute(block_linear_unswizzle_3d_program.handle);
-    } else {
-        program_manager.BindCompute(block_linear_unswizzle_2d_program.handle);
-    }
-
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SWIZZLE_BUFFER_BINDING, swizzle_table_buffer.handle);
-
-    glUniform3ui(ORIGIN_LOC, 0, 0, 0);     // TODO
-    glUniform3i(DESTINATION_LOC, 0, 0, 0); // TODO
-    glUniform1ui(BYTES_PER_BLOCK_LOC, bytes_per_block_log2);
-    if (!is_3d) {
-        glUniform1ui(LAYER_STRIDE_LOC, image.info.layer_stride);
-    }
-
-    for (const SwizzleParameters& swizzle : swizzles) {
-        const VideoCommon::Extent3D block = swizzle.block;
-        const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
-        const size_t offset = swizzle.buffer_offset + buffer_offset;
-
-        const u32 aligned_width = Common::AlignUp(num_tiles.width, workgroup_size.width);
-        const u32 aligned_height = Common::AlignUp(num_tiles.height, workgroup_size.height);
-        const u32 aligned_depth = Common::AlignUp(num_tiles.depth, workgroup_size.depth);
-        const u32 num_dispatches_x = aligned_width / workgroup_size.width;
-        const u32 num_dispatches_y = aligned_height / workgroup_size.height;
-        const u32 num_dispatches_z =
-            is_3d ? aligned_depth / workgroup_size.depth : image.info.resources.layers;
-
-        const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
-        const u32 stride = Common::AlignBits(num_tiles.width, stride_alignment) * bytes_per_block;
-
-        const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
-        const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block.height + block.depth);
-        const u32 slice_size = (gobs_in_x * num_tiles.height) << (block.height + block.depth);
-
-        const u32 block_height_mask = (1U << block.height) - 1;
-        const u32 block_depth_mask = (1U << block.depth) - 1;
-        const u32 x_shift = GOB_SIZE_SHIFT + block.height + block.depth;
-
-        if (is_3d) {
-            glUniform1ui(SLICE_SIZE_LOC, slice_size);
-        }
-        glUniform1ui(BLOCK_SIZE_LOC, block_size);
-        glUniform1ui(X_SHIFT_LOC, x_shift);
-        glUniform1ui(BLOCK_HEIGHT_LOC, block.height);
-        glUniform1ui(BLOCK_HEIGHT_MASK_LOC, block_height_mask);
-        if (is_3d) {
-            glUniform1ui(BLOCK_DEPTH_LOC, block.depth);
-            glUniform1ui(BLOCK_DEPTH_MASK_LOC, block_depth_mask);
-        }
-
-        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, INPUT_BUFFER_BINDING, map.Handle(), offset,
-                          image.guest_size_bytes - swizzle.buffer_offset);
-        glBindImageTexture(OUTPUT_IMAGE_BINDING, image.Handle(), swizzle.mipmap, GL_TRUE, 0,
-                           GL_WRITE_ONLY, StoreFormat(bytes_per_block));
-
-        glDispatchCompute(num_dispatches_x, num_dispatches_y, num_dispatches_z);
+    switch (image.info.type) {
+    case ImageType::e2D:
+        return util_shaders.BlockLinearUpload2D(image, map, buffer_offset, swizzles);
+    case ImageType::e3D:
+        return util_shaders.BlockLinearUpload3D(image, map, buffer_offset, swizzles);
+    case ImageType::Linear:
+        return util_shaders.PitchUpload(image, map, buffer_offset, swizzles);
     }
 }
 
@@ -598,15 +491,14 @@ void TextureCacheRuntime::InsertUploadMemoryBarrier() {
     glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
-FormatProperties TextureCacheRuntime::FormatInfo(VideoCommon::ImageType type,
-                                                 GLenum internal_format) const {
+FormatProperties TextureCacheRuntime::FormatInfo(ImageType type, GLenum internal_format) const {
     switch (type) {
-    case VideoCommon::ImageType::e1D:
+    case ImageType::e1D:
         return format_properties[0].at(internal_format);
-    case VideoCommon::ImageType::e2D:
-    case VideoCommon::ImageType::Linear:
+    case ImageType::e2D:
+    case ImageType::Linear:
         return format_properties[1].at(internal_format);
-    case VideoCommon::ImageType::e3D:
+    case ImageType::e3D:
         return format_properties[2].at(internal_format);
     }
     UNREACHABLE();
@@ -799,7 +691,7 @@ void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t b
     const void* const offset = reinterpret_cast<const void*>(copy.buffer_offset + buffer_offset);
 
     switch (info.type) {
-    case VideoCommon::ImageType::e1D:
+    case ImageType::e1D:
         if (is_compressed) {
             glCompressedTextureSubImage2D(texture.handle, copy.image_subresource.base_mipmap,
                                           copy.image_offset.x, copy.image_subresource.base_layer,
@@ -813,8 +705,8 @@ void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t b
                                 gl_format, gl_type, offset);
         }
         break;
-    case VideoCommon::ImageType::e2D:
-    case VideoCommon::ImageType::Linear:
+    case ImageType::e2D:
+    case ImageType::Linear:
         if (is_compressed) {
             glCompressedTextureSubImage3D(
                 texture.handle, copy.image_subresource.base_mipmap, copy.image_offset.x,
@@ -829,7 +721,7 @@ void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t b
                                 gl_format, gl_type, offset);
         }
         break;
-    case VideoCommon::ImageType::e3D:
+    case ImageType::e3D:
         if (is_compressed) {
             glCompressedTextureSubImage3D(
                 texture.handle, copy.image_subresource.base_mipmap, copy.image_offset.x,
@@ -862,18 +754,18 @@ void Image::CopyImageToBuffer(const VideoCommon::BufferImageCopy& copy, size_t b
     GLsizei depth = 1;
 
     switch (info.type) {
-    case VideoCommon::ImageType::e1D:
+    case ImageType::e1D:
         y_offset = copy.image_subresource.base_layer;
         height = copy.image_subresource.num_layers;
         break;
-    case VideoCommon::ImageType::e2D:
-    case VideoCommon::ImageType::Linear:
+    case ImageType::e2D:
+    case ImageType::Linear:
         y_offset = copy.image_offset.y;
         z_offset = copy.image_subresource.base_layer;
         height = copy.image_extent.height;
         depth = copy.image_subresource.num_layers;
         break;
-    case VideoCommon::ImageType::e3D:
+    case ImageType::e3D:
         y_offset = copy.image_offset.y;
         z_offset = copy.image_offset.z;
         height = copy.image_extent.height;
@@ -916,7 +808,7 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
         flatten_range.extent.layers = 1;
         [[fallthrough]];
     case ImageViewType::e2D:
-        if (image.info.type == VideoCommon::ImageType::e3D) {
+        if (image.info.type == ImageType::e3D) {
             // 2D and 2D array views on a 3D textures are used exclusively for render targets
             ASSERT(info.range.extent.mipmaps == 1);
             glGenTextures(1, handles.data());

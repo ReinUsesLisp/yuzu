@@ -10,6 +10,7 @@
 #include <glad/glad.h>
 
 #include "video_core/renderer_opengl/gl_resource_manager.h"
+#include "video_core/renderer_opengl/util_shaders.h"
 #include "video_core/texture_cache/texture_cache.h"
 
 namespace OpenGL {
@@ -96,18 +97,13 @@ private:
         GLenum map_flags;
     };
 
-    ProgramManager& program_manager;
     StateTracker& state_tracker;
+    UtilShaders util_shaders;
 
     std::array<std::unordered_map<GLenum, FormatProperties>, 3> format_properties;
 
     StagingBuffers upload_buffers{GL_MAP_WRITE_BIT, GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT};
     StagingBuffers download_buffers{GL_MAP_READ_BIT, GL_MAP_READ_BIT};
-
-    OGLBuffer swizzle_table_buffer;
-
-    OGLProgram block_linear_unswizzle_2d_program;
-    OGLProgram block_linear_unswizzle_3d_program;
 };
 
 class Image : public VideoCommon::ImageBase {
