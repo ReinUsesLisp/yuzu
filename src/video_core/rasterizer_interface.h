@@ -86,9 +86,6 @@ public:
     /// Notify the host renderer to wait for previous primitive and compute operations.
     virtual void WaitForIdle() = 0;
 
-    /// Notify the rasterizer to invalidate texture data cache
-    virtual void InvalidateTextureDataCache() = 0;
-
     /// Notify the rasterizer to invalidate the sampler descriptor table
     virtual void InvalidateSamplerDescriptorTable() = 0;
 

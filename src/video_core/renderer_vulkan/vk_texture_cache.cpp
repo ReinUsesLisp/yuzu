@@ -412,9 +412,6 @@ ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
 
 void TextureCacheRuntime::BlitImage(Image& dst, Image& src,
                                     const Tegra::Engines::Fermi2D::Config& copy) {
-    if (dst.info.format != src.info.format) {
-        LOG_INFO(Render_Vulkan, "Different formats");
-    }
     const VkImage src_image = src.Handle();
     const VkImage dst_image = dst.Handle();
     const VkImageAspectFlags aspect_mask = src.AspectMask();

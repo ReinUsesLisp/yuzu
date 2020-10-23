@@ -546,7 +546,6 @@ std::optional<size_t> TextureCacheRuntime::StagingBuffers::FindBuffer(size_t req
         if (buffer_size < requested_size || buffer_size >= smallest_buffer) {
             continue;
         }
-
         if (syncs[index].handle != 0) {
             GLint status;
             glGetSynciv(syncs[index].handle, GL_SYNC_STATUS, 1, nullptr, &status);
@@ -555,7 +554,6 @@ std::optional<size_t> TextureCacheRuntime::StagingBuffers::FindBuffer(size_t req
             }
             syncs[index].Release();
         }
-
         smallest_buffer = buffer_size;
         found = index;
     }

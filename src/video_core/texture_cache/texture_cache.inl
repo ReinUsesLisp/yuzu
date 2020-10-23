@@ -14,6 +14,7 @@
 
 #include <boost/container/small_vector.hpp>
 
+#include "video_core/texture_cache/formatter.h"
 #include "video_core/texture_cache/util.h"
 
 namespace VideoCommon {
@@ -39,16 +40,6 @@ void TextureCache<P>::ImplicitDescriptorInvalidations() {
 
     InvalidateImageDescriptorTable();
     InvalidateSamplerDescriptorTable();
-}
-
-template <class P>
-typename P::ImageView* TextureCache<P>::GetGraphicsImageView(size_t index) {
-    return &slot_image_views[tables_3d.image_views[index]];
-}
-
-template <class P>
-typename P::ImageView* TextureCache<P>::GetComputeImageView(size_t index) {
-    return &slot_image_views[tables_compute.image_views[index]];
 }
 
 template <class P>
@@ -122,7 +113,6 @@ void TextureCache<P>::WriteMemory(VAddr cpu_addr, size_t size) {
             return;
         }
         image.flags |= ImageFlagBits::CpuModified;
-        modified_images.push_back(image_id);
         UntrackImage(image);
     });
 }
@@ -177,10 +167,8 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits framebuffers, not images
         // TODO: Properly select this
-        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_image.info.format,
-                                          SubresourceRange{});
-        const ImageViewInfo src_view_info(ImageViewType::e2D, src_image.info.format,
-                                          SubresourceRange{});
+        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_info.format, SubresourceRange{});
+        const ImageViewInfo src_view_info(ImageViewType::e2D, src_info.format, SubresourceRange{});
         const ImageViewId dst_view_id = FindOrEmplaceImageView(dst_id, dst_view_info);
         const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
         // TODO: Apply mips
@@ -236,8 +224,6 @@ void TextureCache<P>::InvalidateDepthBuffer() {
 
 template <class P>
 void TextureCache<P>::InvalidateImageDescriptorTable() {
-    ++invalidation_tick;
-
     UpdateImageDescriptorTable(tables_3d, maxwell3d.regs.tic.Address(),
                                maxwell3d.regs.tic.limit + 1);
     UpdateImageDescriptorTable(tables_compute, kepler_compute.regs.tic.Address(),
@@ -250,14 +236,6 @@ void TextureCache<P>::InvalidateSamplerDescriptorTable() {
                                  maxwell3d.regs.tsc.limit + 1);
     UpdateSamplerDescriptorTable(tables_compute, kepler_compute.regs.tsc.Address(),
                                  kepler_compute.regs.tsc.limit + 1);
-}
-
-template <class P>
-void TextureCache<P>::InvalidateContents() {
-    for (const ImageId image_id : modified_images) {
-        UpdateImageContents(slot_images[image_id]);
-    }
-    modified_images.clear();
 }
 
 template <class P>
@@ -286,21 +264,10 @@ void TextureCache<P>::UpdateImageDescriptorTable(ClassDescriptorTables& tables,
                                                  GPUVAddr tic_address, size_t num_tics) {
     if (tic_address == 0) {
         tables.tic_entries.clear();
-        tables.image_views.clear();
         return;
     }
     tables.tic_entries.resize(num_tics);
-    tables.image_views.resize(num_tics);
     gpu_memory.ReadBlock(tic_address, tables.tic_entries.data(), num_tics * sizeof(TICEntry));
-
-    do {
-        has_deleted_images = false;
-
-        for (size_t index = num_tics; index--;) {
-            const ImageViewId image_view_id = FindImageView(tables.tic_entries[index]);
-            tables.image_views[index] = image_view_id;
-        }
-    } while (has_deleted_images);
 }
 
 template <class P>
@@ -385,7 +352,6 @@ ImageViewId TextureCache<P>::FindImageView(const TICEntry& config) {
     if (is_new) {
         image_view_id = CreateImageView(config);
     }
-    TouchImageView(image_view_id);
     return image_view_id;
 }
 
@@ -643,13 +609,6 @@ ImageViewId TextureCache<P>::FindOrEmplaceImageView(ImageId image_id, const Imag
 }
 
 template <class P>
-void TextureCache<P>::TouchImageView(ImageViewId image_view_id) {
-    ImageView& image_view = slot_image_views[image_view_id];
-    image_view.invalidation_tick = invalidation_tick;
-    slot_images[image_view.image_id].invalidation_tick = invalidation_tick;
-}
-
-template <class P>
 void TextureCache<P>::RegisterImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
@@ -717,9 +676,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
 
     const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
     if constexpr (ENABLE_VALIDATION) {
-        ReplaceRemovedInImageDescriptorTables(tables_3d, image_id, image_view_ids);
-        ReplaceRemovedInImageDescriptorTables(tables_compute, image_id, image_view_ids);
-
         std::ranges::replace(render_targets.color_buffer_ids, image_id, CORRUPT_ID);
         if (render_targets.depth_buffer_id == image_id) {
             render_targets.depth_buffer_id = CORRUPT_ID;
@@ -727,7 +683,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     }
     RemoveImageViewReferences(image_view_ids);
     RemoveFramebuffers(image_view_ids);
-    std::erase(modified_images, image_id);
 
     for (const ImageViewId image_view_id : image_view_ids) {
         sentenced_image_view.push_back(std::move(slot_image_views[image_view_id]));
@@ -743,14 +698,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     }
 
     has_deleted_images = true;
-}
-
-template <class P>
-void TextureCache<P>::ReplaceRemovedInImageDescriptorTables(
-    ClassDescriptorTables& tables, ImageId image, std::span<const ImageViewId> removed_views) {
-    for (const auto& removed_view : removed_views) {
-        std::ranges::replace(tables.image_views, removed_view, CORRUPT_ID);
-    }
 }
 
 template <class P>

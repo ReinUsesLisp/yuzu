@@ -65,9 +65,8 @@ class TextureCache {
 
     /// Descriptor table of a class
     struct ClassDescriptorTables {
-        std::vector<TICEntry> tic_entries;    ///< Image entries
-        std::vector<TSCEntry> tsc_entries;    ///< Sampler entries
-        std::vector<ImageViewId> image_views; ///< Strong image views matching @sa tic_entries
+        std::vector<TICEntry> tic_entries; ///< Image entries
+        std::vector<TSCEntry> tsc_entries; ///< Sampler entries
 
         std::vector<SamplerId> samplers;          ///< Samplers matching @sa tsc_entries
         std::vector<TSCEntry> stored_tsc_entries; ///< Sampler keys stored in @sa samplers
@@ -84,25 +83,30 @@ public:
         ++frame_no;
     }
 
-    /**
-     * Get the image view from the graphics descriptor table in the specified index
-     *
-     * @param index Index in elements of the image view
-     * @returns     Image view in the specified index
-     *
-     * @pre @a index is less than the size of the descriptor table
-     */
-    ImageView* GetGraphicsImageView(size_t index);
+    void FillImageViews(std::span<const TICEntry> entries, std::span<const u32> indices,
+                        std::span<ImageView*> image_views) {
+        const size_t num_indices = indices.size();
+        ASSERT(num_indices <= image_views.size());
+        do {
+            has_deleted_images = false;
+            for (size_t i = num_indices; i--;) {
+                const ImageViewId image_view_id = FindImageView(entries[indices[i]]);
+                ImageView* const image_view = &slot_image_views[image_view_id];
+                image_views[i] = image_view;
+                if (image_view_id != NULL_IMAGE_VIEW_ID) {
+                    UpdateImageContents(slot_images[image_view->image_id]);
+                }
+            }
+        } while (has_deleted_images);
+    }
 
-    /**
-     * Get the image view from the compute descriptor table in the specified index
-     *
-     * @param index Index in elements of the image view
-     * @returns     Image view in the specified index
-     *
-     * @pre @a index is less than the size of the descriptor table
-     */
-    ImageView* GetComputeImageView(size_t index);
+    void FillGraphicsImageViews(std::span<const u32> indices, std::span<ImageView*> image_views) {
+        FillImageViews(tables_3d.tic_entries, indices, image_views);
+    }
+
+    void FillComputeImageViews(std::span<const u32> indices, std::span<ImageView*> image_views) {
+        FillImageViews(tables_compute.tic_entries, indices, image_views);
+    }
 
     /**
      * Get the sampler from the graphics descriptor table in the specified index
@@ -139,7 +143,6 @@ public:
 
     /**
      * Mark images in a range as modified from the CPU
-     * @sa InvalidateContents will upload the memory to host
      *
      * @param cpu_addr Virtual CPU address where memory has been written
      * @param size     Size in bytes of the written memory
@@ -189,11 +192,6 @@ public:
     void InvalidateSamplerDescriptorTable();
 
     /**
-     * Flush the contents in guest memory to the cached host images
-     */
-    void InvalidateContents();
-
-    /**
      * Tries to find a cached image view in the given CPU address
      *
      * @param cpu_addr Virtual CPU address
@@ -224,13 +222,6 @@ private:
         }
     }
 
-    /**
-     * Update an image descriptor table
-     *
-     * @param tables      Container of the table to invalidate
-     * @param tic_address Address of the descriptor table
-     * @param num_tics    Number of entries in the descriptor table
-     */
     void UpdateImageDescriptorTable(ClassDescriptorTables& tables, GPUVAddr tic_address,
                                     size_t num_tics);
 
@@ -239,7 +230,7 @@ private:
      *
      * @param tables      Container of the table to invalidate
      * @param tsc_address Address of the descriptor table
-     * @param num_tics    Number of entries in the descriptor table
+     * @param num_tscs    Number of entries in the descriptor table
      */
     void UpdateSamplerDescriptorTable(ClassDescriptorTables& tables, GPUVAddr tsc_address,
                                       size_t num_tscs);
@@ -304,8 +295,6 @@ private:
 
     [[nodiscard]] ImageViewId FindOrEmplaceImageView(ImageId image_id, const ImageViewInfo& info);
 
-    void TouchImageView(ImageViewId image_view_id);
-
     /**
      * Register image in the page table
      *
@@ -325,9 +314,6 @@ private:
     void UntrackImage(Image& image);
 
     void DeleteImage(ImageId image);
-
-    void ReplaceRemovedInImageDescriptorTables(ClassDescriptorTables& tables, ImageId removed_image,
-                                               std::span<const ImageViewId> removed_views);
 
     void RemoveImageViewReferences(std::span<const ImageViewId> removed_views);
 
@@ -350,7 +336,6 @@ private:
 
     std::unordered_map<u64, std::vector<ImageId>> page_table;
 
-    u64 invalidation_tick = 0;
     bool has_deleted_images = false;
 
     SlotVector<Image> slot_images;
@@ -362,8 +347,6 @@ private:
     std::vector<Image> sentenced_images;
     std::vector<ImageView> sentenced_image_view;
     std::vector<Framebuffer> sentenced_framebuffers;
-
-    std::vector<ImageId> modified_images;
 
     std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
 };

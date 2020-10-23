@@ -7,11 +7,12 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <map>
 #include <memory>
 #include <optional>
 #include <tuple>
 #include <utility>
+
+#include <boost/container/static_vector.hpp>
 
 #include <glad/glad.h>
 
@@ -50,7 +51,7 @@ class MemoryManager;
 namespace OpenGL {
 
 struct ScreenInfo;
-struct DrawParameters;
+struct ShaderEntries;
 
 struct BindlessSSBO {
     GLuint64EXT address;
@@ -84,7 +85,6 @@ public:
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
-    void InvalidateTextureDataCache() override;
     void InvalidateSamplerDescriptorTable() override;
     void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;
@@ -111,6 +111,15 @@ public:
     }
 
 private:
+    static constexpr size_t MAX_TEXTURES = 192;
+    static constexpr size_t MAX_IMAGES = 48;
+    static constexpr size_t MAX_IMAGE_VIEWS = MAX_TEXTURES + MAX_IMAGES;
+
+    void BindComputeTextures(Shader* kernel);
+
+    void BindTextures(const ShaderEntries& entries, GLuint base_texture, GLuint base_image,
+                      size_t* image_view_index, size_t* texture_index, size_t* image_index);
+
     /// Configures the current constbuffers to use for the draw command.
     void SetupDrawConstBuffers(std::size_t stage_index, Shader* shader);
 
@@ -133,16 +142,16 @@ private:
                            size_t size, BindlessSSBO* ssbo);
 
     /// Configures the current textures to use for the draw command.
-    void SetupDrawTextures(std::size_t stage_index, Shader* shader);
+    void SetupDrawTextures(const Shader* shader, size_t stage_index);
 
     /// Configures the textures used in a compute shader.
-    void SetupComputeTextures(Shader* kernel);
+    void SetupComputeTextures(const Shader* kernel);
 
     /// Configures images in a graphics shader.
-    void SetupDrawImages(std::size_t stage_index, Shader* shader);
+    void SetupDrawImages(const Shader* shader, size_t stage_index);
 
     /// Configures images in a compute shader.
-    void SetupComputeImages(Shader* shader);
+    void SetupComputeImages(const Shader* shader);
 
     /// Syncs the viewport and depth range to match the guest state
     void SyncViewport();
@@ -217,9 +226,6 @@ private:
     /// End a transform feedback
     void EndTransformFeedback();
 
-    /// Check for extension that are not strictly required but are needed for correct emulation
-    void CheckExtensions();
-
     std::size_t CalculateVertexArraysSize() const;
 
     std::size_t CalculateIndexBufferSize() const;
@@ -254,9 +260,11 @@ private:
 
     VideoCommon::Shader::AsyncShaders async_shaders;
 
-    static constexpr std::size_t STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
-
-    GLint vertex_binding = 0;
+    boost::container::static_vector<u32, MAX_IMAGE_VIEWS> image_view_indices;
+    std::array<ImageView*, MAX_IMAGE_VIEWS> image_views;
+    boost::container::static_vector<GLuint, MAX_TEXTURES> sampler_handles;
+    std::array<GLuint, MAX_TEXTURES> texture_handles;
+    std::array<GLuint, MAX_IMAGES> image_handles;
 
     std::array<OGLBuffer, Tegra::Engines::Maxwell3D::Regs::NumTransformFeedbackBuffers>
         transform_feedback_buffers;
@@ -270,7 +278,7 @@ private:
     std::size_t current_cbuf = 0;
     OGLBuffer unified_uniform_buffer;
 
-    /// Number of commands queued to the OpenGL driver. Reseted on flush.
+    /// Number of commands queued to the OpenGL driver. Resetted on flush.
     std::size_t num_queued_commands = 0;
 
     u32 last_clip_distance_mask = 0;

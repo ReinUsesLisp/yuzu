@@ -11,7 +11,6 @@
 #include <vector>
 
 #include <boost/container/static_vector.hpp>
-#include <boost/functional/hash.hpp>
 
 #include "common/common_types.h"
 #include "video_core/rasterizer_accelerated.h"
@@ -48,52 +47,6 @@ namespace Vulkan {
 
 struct VKScreenInfo;
 
-using ImageViewsPack = boost::container::static_vector<VkImageView, Maxwell::NumRenderTargets + 1>;
-
-struct FramebufferCacheKey {
-    VkRenderPass renderpass{};
-    u32 width = 0;
-    u32 height = 0;
-    u32 layers = 0;
-    ImageViewsPack views;
-
-    std::size_t Hash() const noexcept {
-        std::size_t hash = 0;
-        boost::hash_combine(hash, static_cast<VkRenderPass>(renderpass));
-        for (const auto& view : views) {
-            boost::hash_combine(hash, static_cast<VkImageView>(view));
-        }
-        boost::hash_combine(hash, width);
-        boost::hash_combine(hash, height);
-        boost::hash_combine(hash, layers);
-        return hash;
-    }
-
-    bool operator==(const FramebufferCacheKey& rhs) const noexcept {
-        return std::tie(renderpass, views, width, height, layers) ==
-               std::tie(rhs.renderpass, rhs.views, rhs.width, rhs.height, rhs.layers);
-    }
-
-    bool operator!=(const FramebufferCacheKey& rhs) const noexcept {
-        return !operator==(rhs);
-    }
-};
-
-} // namespace Vulkan
-
-namespace std {
-
-template <>
-struct hash<Vulkan::FramebufferCacheKey> {
-    std::size_t operator()(const Vulkan::FramebufferCacheKey& k) const noexcept {
-        return k.Hash();
-    }
-};
-
-} // namespace std
-
-namespace Vulkan {
-
 class StateTracker;
 class BufferBindings;
 
@@ -128,7 +81,6 @@ public:
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
-    void InvalidateTextureDataCache() override;
     void InvalidateSamplerDescriptorTable() override;
     void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;
@@ -148,11 +100,17 @@ public:
     }
 
     /// Maximum supported size that a constbuffer can have in bytes.
-    static constexpr std::size_t MaxConstbufferSize = 0x10000;
+    static constexpr size_t MaxConstbufferSize = 0x10000;
     static_assert(MaxConstbufferSize % (4 * sizeof(float)) == 0,
                   "The maximum size of a constbuffer must be a multiple of the size of GLvec4");
 
 private:
+    static constexpr size_t MAX_TEXTURES = 192;
+    static constexpr size_t MAX_IMAGES = 48;
+    static constexpr size_t MAX_IMAGE_VIEWS = MAX_TEXTURES + MAX_IMAGES;
+
+    static constexpr VkDeviceSize DEFAULT_BUFFER_SIZE = 4 * sizeof(float);
+
     struct DrawParameters {
         void Draw(vk::CommandBuffer cmdbuf) const;
 
@@ -162,11 +120,6 @@ private:
         u32 num_vertices = 0;
         bool is_indexed = 0;
     };
-
-    using Texceptions = std::bitset<Maxwell::NumRenderTargets + 1>;
-
-    static constexpr std::size_t ZETA_TEXCEPTION_INDEX = 8;
-    static constexpr VkDeviceSize DEFAULT_BUFFER_SIZE = 4 * sizeof(float);
 
     void FlushWork();
 
@@ -228,9 +181,6 @@ private:
 
     void SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAddr address);
 
-    void SetupImage(ImageView* image_view, const ImageEntry& entry,
-                    VideoCommon::ImageViewType view_type);
-
     void UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateScissorsState(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateDepthBias(Tegra::Engines::Maxwell3D::Regs& regs);
@@ -247,16 +197,16 @@ private:
     void UpdateStencilOp(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateStencilTestEnable(Tegra::Engines::Maxwell3D::Regs& regs);
 
-    std::size_t CalculateGraphicsStreamBufferSize(bool is_indexed) const;
+    size_t CalculateGraphicsStreamBufferSize(bool is_indexed) const;
 
-    std::size_t CalculateComputeStreamBufferSize() const;
+    size_t CalculateComputeStreamBufferSize() const;
 
-    std::size_t CalculateVertexArraysSize() const;
+    size_t CalculateVertexArraysSize() const;
 
-    std::size_t CalculateIndexBufferSize() const;
+    size_t CalculateIndexBufferSize() const;
 
-    std::size_t CalculateConstBufferSize(const ConstBufferEntry& entry,
-                                         const Tegra::Engines::ConstBufferInfo& buffer) const;
+    size_t CalculateConstBufferSize(const ConstBufferEntry& entry,
+                                    const Tegra::Engines::ConstBufferInfo& buffer) const;
 
     VkBuffer DefaultBuffer();
 
@@ -290,6 +240,10 @@ private:
     VKMemoryCommit default_buffer_commit;
     vk::Event wfi_event;
     VideoCommon::Shader::AsyncShaders async_shaders;
+
+    boost::container::static_vector<u32, MAX_IMAGE_VIEWS> image_view_indices;
+    std::array<ImageView*, MAX_IMAGE_VIEWS> image_views;
+    boost::container::static_vector<VkSampler, MAX_TEXTURES> sampler_handles;
 
     u32 draw_counter = 0;
 };

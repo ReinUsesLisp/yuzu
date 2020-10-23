@@ -25,6 +25,7 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/engines/shader_type.h"
 #include "video_core/memory_manager.h"
+#include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_query_cache.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_cache.h"
@@ -56,14 +57,17 @@ MICROPROFILE_DEFINE(OpenGL_PrimitiveAssembly, "OpenGL", "Prim Asmbl", MP_RGB(255
 
 namespace {
 
-constexpr std::size_t NUM_CONST_BUFFERS_PER_STAGE = 18;
-constexpr std::size_t NUM_CONST_BUFFERS_BYTES_PER_STAGE =
+constexpr size_t NUM_CONST_BUFFERS_PER_STAGE = 18;
+constexpr size_t NUM_CONST_BUFFERS_BYTES_PER_STAGE =
     NUM_CONST_BUFFERS_PER_STAGE * Maxwell::MaxConstBufferSize;
-constexpr std::size_t TOTAL_CONST_BUFFER_BYTES =
+constexpr size_t TOTAL_CONST_BUFFER_BYTES =
     NUM_CONST_BUFFERS_BYTES_PER_STAGE * Maxwell::MaxShaderStage;
 
-constexpr std::size_t NUM_SUPPORTED_VERTEX_ATTRIBUTES = 16;
-constexpr std::size_t NUM_SUPPORTED_VERTEX_BINDINGS = 16;
+constexpr size_t NUM_SUPPORTED_VERTEX_ATTRIBUTES = 16;
+constexpr size_t NUM_SUPPORTED_VERTEX_BINDINGS = 16;
+
+constexpr size_t MAX_TEXTURES = 192;
+constexpr size_t MAX_IMAGES = 48;
 
 template <typename Engine, typename Entry>
 Tegra::Texture::TextureHandle TextureHandle(const Engine& engine, const Entry& entry,
@@ -89,7 +93,6 @@ std::size_t GetConstBufferSize(const Tegra::Engines::ConstBufferInfo& buffer,
     if (!entry.IsIndirect()) {
         return entry.GetSize();
     }
-
     if (buffer.size > Maxwell::MaxConstBufferSize) {
         LOG_WARNING(Render_OpenGL, "Indirect constbuffer size {} exceeds maximum {}", buffer.size,
                     Maxwell::MaxConstBufferSize);
@@ -139,6 +142,43 @@ void UpdateBindlessSSBOs(GLenum target, const BindlessSSBO* ssbos, size_t num_ss
                                     reinterpret_cast<const GLuint*>(ssbos));
 }
 
+ImageViewType ImageViewTypeFromEntry(const SamplerEntry& entry) {
+    if (entry.is_buffer) {
+        return ImageViewType::Buffer;
+    }
+    switch (entry.type) {
+    case Tegra::Shader::TextureType::Texture1D:
+        return entry.is_array ? ImageViewType::e1DArray : ImageViewType::e1D;
+    case Tegra::Shader::TextureType::Texture2D:
+        return entry.is_array ? ImageViewType::e2DArray : ImageViewType::e2D;
+    case Tegra::Shader::TextureType::Texture3D:
+        return ImageViewType::e3D;
+    case Tegra::Shader::TextureType::TextureCube:
+        return entry.is_array ? ImageViewType::CubeArray : ImageViewType::Cube;
+    }
+    UNREACHABLE();
+    return ImageViewType::e2D;
+}
+
+ImageViewType ImageViewTypeFromEntry(const ImageEntry& entry) {
+    switch (entry.type) {
+    case Tegra::Shader::ImageType::Texture1D:
+        return ImageViewType::e1D;
+    case Tegra::Shader::ImageType::Texture1DArray:
+        return ImageViewType::e1DArray;
+    case Tegra::Shader::ImageType::Texture2D:
+        return ImageViewType::e2D;
+    case Tegra::Shader::ImageType::Texture2DArray:
+        return ImageViewType::e2DArray;
+    case Tegra::Shader::ImageType::Texture3D:
+        return ImageViewType::e3D;
+    case Tegra::Shader::ImageType::TextureBuffer:
+        return ImageViewType::Buffer;
+    }
+    UNREACHABLE();
+    return ImageViewType::e2D;
+}
+
 } // Anonymous namespace
 
 RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window, Tegra::GPU& gpu_,
@@ -156,8 +196,6 @@ RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window, Tegra:
       buffer_cache(*this, gpu_memory, cpu_memory, device, stream_buffer, state_tracker),
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache),
       async_shaders(emu_window) {
-    CheckExtensions();
-
     unified_uniform_buffer.Create();
     glNamedBufferStorage(unified_uniform_buffer.handle, TOTAL_CONST_BUFFER_BYTES, nullptr, 0);
 
@@ -168,7 +206,6 @@ RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window, Tegra:
                                  nullptr, 0);
         }
     }
-
     if (device.UseAsynchronousShaders()) {
         async_shaders.AllocateWorkers();
     }
@@ -177,14 +214,6 @@ RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window, Tegra:
 RasterizerOpenGL::~RasterizerOpenGL() {
     if (device.UseAssemblyShaders()) {
         glDeleteBuffers(static_cast<GLsizei>(staging_cbufs.size()), staging_cbufs.data());
-    }
-}
-
-void RasterizerOpenGL::CheckExtensions() {
-    if (!GLAD_GL_ARB_texture_filter_anisotropic && !GLAD_GL_EXT_texture_filter_anisotropic) {
-        LOG_WARNING(
-            Render_OpenGL,
-            "Anisotropic filter is not supported! This can cause graphical issues in some games.");
     }
 }
 
@@ -314,6 +343,10 @@ void RasterizerOpenGL::SetupShaders() {
     MICROPROFILE_SCOPE(OpenGL_Shader);
     u32 clip_distances = 0;
 
+    std::array<Shader*, Maxwell::MaxShaderStage> shaders{};
+    image_view_indices.clear();
+    sampler_handles.clear();
+
     for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
         const auto& shader_config = maxwell3d.regs.shader_config[index];
         const auto program{static_cast<Maxwell::ShaderProgram>(index)};
@@ -332,7 +365,6 @@ void RasterizerOpenGL::SetupShaders() {
             }
             continue;
         }
-
         // Currently this stages are not supported in the OpenGL backend.
         // TODO(Blinkhawk): Port tesselation shaders from Vulkan to OpenGL
         if (program == Maxwell::ShaderProgram::TesselationControl ||
@@ -341,7 +373,6 @@ void RasterizerOpenGL::SetupShaders() {
         }
 
         Shader* const shader = shader_cache.GetStageProgram(program, async_shaders);
-
         const GLuint program_handle = shader->IsBuilt() ? shader->GetHandle() : 0;
         switch (program) {
         case Maxwell::ShaderProgram::VertexA:
@@ -357,14 +388,17 @@ void RasterizerOpenGL::SetupShaders() {
         default:
             UNIMPLEMENTED_MSG("Unimplemented shader index={}, enable={}, offset=0x{:08X}", index,
                               shader_config.enable.Value(), shader_config.offset);
+            break;
         }
 
         // Stage indices are 0 - 5
-        const std::size_t stage = index == 0 ? 0 : index - 1;
+        const size_t stage = index == 0 ? 0 : index - 1;
+        shaders[stage] = shader;
+
         SetupDrawConstBuffers(stage, shader);
         SetupDrawGlobalMemory(stage, shader);
-        SetupDrawTextures(stage, shader);
-        SetupDrawImages(stage, shader);
+        SetupDrawTextures(shader, stage);
+        SetupDrawImages(shader, stage);
 
         // Workaround for Intel drivers.
         // When a clip distance is enabled but not set in the shader it crops parts of the screen
@@ -378,9 +412,23 @@ void RasterizerOpenGL::SetupShaders() {
             ++index;
         }
     }
-
     SyncClipEnabled(clip_distances);
     maxwell3d.dirty.flags[Dirty::Shaders] = false;
+
+    const std::span indices_span(image_view_indices.data(), image_view_indices.size());
+    texture_cache.FillGraphicsImageViews(indices_span, image_views);
+
+    size_t image_view_index = 0;
+    size_t texture_index = 0;
+    size_t image_index = 0;
+    for (size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+        const Shader* const shader = shaders[stage];
+        if (shader) {
+            const auto base = device.GetBaseBindings(stage);
+            BindTextures(shader->GetEntries(), base.sampler, base.image, &image_view_index,
+                         &texture_index, &image_index);
+        }
+    }
 }
 
 std::size_t RasterizerOpenGL::CalculateVertexArraysSize() const {
@@ -613,15 +661,13 @@ void RasterizerOpenGL::DispatchCompute(GPUVAddr code_addr) {
     buffer_cache.Acquire();
     current_cbuf = 0;
 
-    auto kernel = shader_cache.GetComputeKernel(code_addr);
+    Shader* const kernel = shader_cache.GetComputeKernel(code_addr);
     program_manager.BindCompute(kernel->GetHandle());
 
-    SetupComputeTextures(kernel);
-    SetupComputeImages(kernel);
+    BindComputeTextures(kernel);
 
-    const std::size_t buffer_size =
-        Tegra::Engines::KeplerCompute::NumConstBuffers *
-        (Maxwell::MaxConstBufferSize + device.GetUniformBufferAlignment());
+    const size_t buffer_size = Tegra::Engines::KeplerCompute::NumConstBuffers *
+                               (Maxwell::MaxConstBufferSize + device.GetUniformBufferAlignment());
     buffer_cache.Map(buffer_size);
 
     SetupComputeConstBuffers(kernel);
@@ -740,10 +786,6 @@ void RasterizerOpenGL::WaitForIdle() {
                     GL_SHADER_STORAGE_BARRIER_BIT | GL_QUERY_BUFFER_BARRIER_BIT);
 }
 
-void RasterizerOpenGL::InvalidateTextureDataCache() {
-    texture_cache.InvalidateContents();
-}
-
 void RasterizerOpenGL::InvalidateSamplerDescriptorTable() {
     texture_cache.InvalidateSamplerDescriptorTable();
 }
@@ -781,21 +823,69 @@ bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     if (framebuffer_addr == 0) {
         return false;
     }
-
     MICROPROFILE_SCOPE(OpenGL_CacheManagement);
 
     ImageView* const image_view{texture_cache.TryFindFramebufferImageView(framebuffer_addr)};
     if (!image_view) {
         return false;
     }
-
     // Verify that the cached surface is the same size and format as the requested framebuffer
-    ASSERT_MSG(image_view->size.width == config.width, "Framebuffer width is different");
-    ASSERT_MSG(image_view->size.height == config.height, "Framebuffer height is different");
+    // ASSERT_MSG(image_view->size.width == config.width, "Framebuffer width is different");
+    // ASSERT_MSG(image_view->size.height == config.height, "Framebuffer height is different");
 
     screen_info.display_texture = image_view->Handle(ImageViewType::e2D);
     screen_info.display_srgb = VideoCore::Surface::IsPixelFormatSRGB(image_view->format);
     return true;
+}
+
+void RasterizerOpenGL::BindComputeTextures(Shader* kernel) {
+    image_view_indices.clear();
+    sampler_handles.clear();
+
+    SetupComputeTextures(kernel);
+    SetupComputeImages(kernel);
+
+    const std::span indices_span(image_view_indices.data(), image_view_indices.size());
+    texture_cache.FillComputeImageViews(indices_span, image_views);
+
+    size_t image_view_index = 0;
+    size_t texture_index = 0;
+    size_t image_index = 0;
+    BindTextures(kernel->GetEntries(), 0, 0, &image_view_index, &texture_index, &image_index);
+}
+
+void RasterizerOpenGL::BindTextures(const ShaderEntries& entries, GLuint base_texture,
+                                    GLuint base_image, size_t* image_view_index,
+                                    size_t* texture_index, size_t* image_index) {
+    const GLuint* const samplers = sampler_handles.data() + *texture_index;
+    const GLuint* const textures = texture_handles.data() + *texture_index;
+    const GLuint* const images = image_handles.data() + *image_index;
+
+    const size_t num_samplers = entries.samplers.size();
+    for (size_t unit = 0; unit < num_samplers; ++unit) {
+        const ImageView* const image_view = image_views[*image_view_index];
+        ++*image_view_index;
+
+        const GLuint handle = image_view->Handle(ImageViewTypeFromEntry(entries.samplers[unit]));
+        texture_handles[*texture_index] = handle;
+        ++*texture_index;
+    }
+    const size_t num_images = entries.images.size();
+    for (size_t unit = 0; unit < num_images; ++unit) {
+        const ImageView* const image_view = image_views[*image_view_index];
+        ++*image_view_index;
+
+        const GLuint handle = image_view->Handle(ImageViewTypeFromEntry(entries.images[unit]));
+        image_handles[*image_index] = handle;
+        ++*image_index;
+    }
+    if (num_samplers > 0) {
+        glBindSamplers(base_texture, static_cast<GLsizei>(num_samplers), samplers);
+        glBindTextures(base_texture, static_cast<GLsizei>(num_samplers), textures);
+    }
+    if (num_images > 0) {
+        glBindImageTextures(base_image, static_cast<GLsizei>(num_images), images);
+    }
 }
 
 void RasterizerOpenGL::SetupDrawConstBuffers(std::size_t stage_index, Shader* shader) {
@@ -902,7 +992,6 @@ void RasterizerOpenGL::SetupDrawGlobalMemory(std::size_t stage_index, Shader* sh
         GL_VERTEX_PROGRAM_NV,   GL_TESS_CONTROL_PROGRAM_NV, GL_TESS_EVALUATION_PROGRAM_NV,
         GL_GEOMETRY_PROGRAM_NV, GL_FRAGMENT_PROGRAM_NV,
     };
-
     const auto& cbufs{maxwell3d.state.shader_stages[stage_index]};
     const auto& entries{shader->GetEntries().global_memory_entries};
 
@@ -959,103 +1048,42 @@ void RasterizerOpenGL::SetupGlobalMemory(u32 binding, const GlobalMemoryEntry& e
     }
 }
 
-// ANONYMOUS
-ImageViewType ImageViewTypeFromEntry(const SamplerEntry& entry) {
-    if (entry.is_buffer) {
-        return ImageViewType::Buffer;
-    }
-    switch (entry.type) {
-    case Tegra::Shader::TextureType::Texture1D:
-        return entry.is_array ? ImageViewType::e1DArray : ImageViewType::e1D;
-    case Tegra::Shader::TextureType::Texture2D:
-        return entry.is_array ? ImageViewType::e2DArray : ImageViewType::e2D;
-    case Tegra::Shader::TextureType::Texture3D:
-        return ImageViewType::e3D;
-    case Tegra::Shader::TextureType::TextureCube:
-        return entry.is_array ? ImageViewType::CubeArray : ImageViewType::Cube;
-    }
-    UNREACHABLE();
-    return ImageViewType::e2D;
-}
-
-ImageViewType ImageViewTypeFromEntry(const ImageEntry& entry) {
-    switch (entry.type) {
-    case Tegra::Shader::ImageType::Texture1D:
-        return ImageViewType::e1D;
-    case Tegra::Shader::ImageType::Texture1DArray:
-        return ImageViewType::e1DArray;
-    case Tegra::Shader::ImageType::Texture2D:
-        return ImageViewType::e2D;
-    case Tegra::Shader::ImageType::Texture2DArray:
-        return ImageViewType::e2DArray;
-    case Tegra::Shader::ImageType::Texture3D:
-        return ImageViewType::e3D;
-    case Tegra::Shader::ImageType::TextureBuffer:
-        return ImageViewType::Buffer;
-    }
-    UNREACHABLE();
-    return ImageViewType::e2D;
-}
-
-void RasterizerOpenGL::SetupDrawTextures(std::size_t stage_index, Shader* shader) {
-    MICROPROFILE_SCOPE(OpenGL_Texture);
-    u32 binding = device.GetBaseBindings(stage_index).sampler;
+void RasterizerOpenGL::SetupDrawTextures(const Shader* shader, size_t stage_index) {
     for (const auto& entry : shader->GetEntries().samplers) {
         const auto shader_type = static_cast<ShaderType>(stage_index);
-        for (std::size_t index = 0; index < entry.size; ++index) {
+        for (size_t index = 0; index < entry.size; ++index) {
             const auto handle = TextureHandle(maxwell3d, entry, shader_type, index);
-
-            ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
-            glBindTextureUnit(binding, image_view->Handle(ImageViewTypeFromEntry(entry)));
-            if (!image_view->IsBuffer()) {
-                Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.tsc_id);
-                glBindSampler(binding, sampler->Handle());
-            }
-            ++binding;
+            const Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.tsc_id);
+            sampler_handles.push_back(sampler->Handle());
+            image_view_indices.push_back(handle.tic_id);
         }
     }
 }
 
-void RasterizerOpenGL::SetupComputeTextures(Shader* kernel) {
-    MICROPROFILE_SCOPE(OpenGL_Texture);
-    u32 binding = 0;
+void RasterizerOpenGL::SetupComputeTextures(const Shader* kernel) {
+    size_t texture_index = 0;
     for (const auto& entry : kernel->GetEntries().samplers) {
-        for (std::size_t i = 0; i < entry.size; ++i) {
+        for (size_t i = 0; i < entry.size; ++i) {
             const auto handle = TextureHandle(kepler_compute, entry, ShaderType::Compute, i);
-
-            ImageView* const image_view = texture_cache.GetComputeImageView(handle.tic_id);
-            glBindTextureUnit(binding, image_view->Handle(ImageViewTypeFromEntry(entry)));
-            if (!image_view->IsBuffer()) {
-                Sampler* const sampler = texture_cache.GetComputeSampler(handle.tsc_id);
-                glBindSampler(binding, sampler->Handle());
-            }
-            ++binding;
+            const Sampler* const sampler = texture_cache.GetComputeSampler(handle.tsc_id);
+            sampler_handles.push_back(sampler->Handle());
+            image_view_indices.push_back(handle.tic_id);
         }
     }
 }
 
-void RasterizerOpenGL::SetupDrawImages(std::size_t stage_index, Shader* shader) {
-    u32 binding = device.GetBaseBindings(stage_index).image;
+void RasterizerOpenGL::SetupDrawImages(const Shader* shader, size_t stage_index) {
     for (const auto& entry : shader->GetEntries().images) {
         const auto shader_type = static_cast<ShaderType>(stage_index);
         const auto handle = TextureHandle(maxwell3d, entry, shader_type);
-
-        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
-        glBindImageTexture(binding, image_view->Handle(ImageViewTypeFromEntry(entry)), 0, GL_TRUE,
-                           0, GL_READ_WRITE, image_view->Format());
-        ++binding;
+        image_view_indices.push_back(handle.tic_id);
     }
 }
 
-void RasterizerOpenGL::SetupComputeImages(Shader* shader) {
-    u32 binding = 0;
+void RasterizerOpenGL::SetupComputeImages(const Shader* shader) {
     for (const auto& entry : shader->GetEntries().images) {
         const auto handle = TextureHandle(kepler_compute, entry, ShaderType::Compute);
-
-        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.tic_id);
-        glBindImageTexture(binding, image_view->Handle(ImageViewTypeFromEntry(entry)), 0, GL_TRUE,
-                           0, GL_READ_WRITE, image_view->Format());
-        ++binding;
+        image_view_indices.push_back(handle.tic_id);
     }
 }
 

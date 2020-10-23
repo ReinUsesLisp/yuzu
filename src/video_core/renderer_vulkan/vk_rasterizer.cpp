@@ -58,9 +58,9 @@ MICROPROFILE_DEFINE(Vulkan_PipelineCache, "Vulkan", "Pipeline cache", MP_RGB(192
 
 namespace {
 
-constexpr auto ComputeShaderIndex = static_cast<std::size_t>(Tegra::Engines::ShaderType::Compute);
+constexpr auto COMPUTE_SHADER_INDEX = static_cast<size_t>(Tegra::Engines::ShaderType::Compute);
 
-VkViewport GetViewportState(const VKDevice& device, const Maxwell& regs, std::size_t index) {
+VkViewport GetViewportState(const VKDevice& device, const Maxwell& regs, size_t index) {
     const auto& src = regs.viewport_transform[index];
     const float width = src.scale_x * 2.0f;
     const float height = src.scale_y * 2.0f;
@@ -83,7 +83,7 @@ VkViewport GetViewportState(const VKDevice& device, const Maxwell& regs, std::si
     return viewport;
 }
 
-VkRect2D GetScissorState(const Maxwell& regs, std::size_t index) {
+VkRect2D GetScissorState(const Maxwell& regs, size_t index) {
     const auto& src = regs.scissor_test[index];
     VkRect2D scissor;
     if (src.enable) {
@@ -103,7 +103,7 @@ VkRect2D GetScissorState(const Maxwell& regs, std::size_t index) {
 std::array<GPUVAddr, Maxwell::MaxShaderProgram> GetShaderAddresses(
     const std::array<Shader*, Maxwell::MaxShaderProgram>& shaders) {
     std::array<GPUVAddr, Maxwell::MaxShaderProgram> addresses;
-    for (std::size_t i = 0; i < std::size(addresses); ++i) {
+    for (size_t i = 0; i < std::size(addresses); ++i) {
         addresses[i] = shaders[i] ? shaders[i]->GetGpuAddr() : 0;
     }
     return addresses;
@@ -163,7 +163,7 @@ bool HasToPreserveColorContents(bool is_clear, const Maxwell& regs) {
         return false;
     }
     // Then we have to confirm scissor testing clears the whole image
-    const std::size_t index = regs.clear_buffers.RT;
+    const size_t index = regs.clear_buffers.RT;
     const auto& scissor = regs.scissor_test[0];
     return scissor.min_x > 0 || scissor.min_y > 0 || scissor.max_x < regs.rt[index].width ||
            scissor.max_y < regs.rt[index].height;
@@ -188,7 +188,7 @@ bool HasToPreserveDepthContents(bool is_clear, const Maxwell& regs) {
            scissor.max_y < regs.zeta_height;
 }
 
-template <std::size_t N>
+template <size_t N>
 std::array<VkDeviceSize, N> ExpandStrides(const std::array<u16, N>& strides) {
     std::array<VkDeviceSize, N> expanded;
     std::copy(strides.begin(), strides.end(), expanded.begin());
@@ -230,6 +230,35 @@ ImageViewType ImageViewTypeFromEntry(const ImageEntry& entry) {
     }
     UNREACHABLE();
     return ImageViewType::e2D;
+}
+
+void PushImageDescriptors(const ShaderEntries& entries,
+                          VKUpdateDescriptorQueue& update_descriptor_queue, ImageView**& image_view,
+                          VkSampler*& sampler) {
+    size_t image_view_index = 0;
+    size_t sampler_index = 0;
+    for (const auto& entry : entries.uniform_texels) {
+        update_descriptor_queue.AddTexelBuffer((*image_view)->BufferView());
+        ++image_view;
+    }
+    for (const auto& entry : entries.samplers) {
+        update_descriptor_queue.AddSampledImage(
+            (*image_view)->Handle(ImageViewTypeFromEntry(entry)), *sampler);
+        ++image_view;
+        ++sampler;
+    }
+    for (const auto& entry : entries.storage_texels) {
+        update_descriptor_queue.AddTexelBuffer((*image_view)->BufferView());
+        ++image_view;
+    }
+    for (const auto& entry : entries.images) {
+        if (entry.is_written) {
+            // image_view->image->flags |= VideoCommon::ImageFlagBits::GpuModified;
+            LOG_WARNING(Render_Vulkan, "Writing to image");
+        }
+        update_descriptor_queue.AddImage((*image_view)->Handle(ImageViewTypeFromEntry(entry)));
+        ++image_view;
+    }
 }
 
 } // Anonymous namespace
@@ -327,7 +356,7 @@ public:
 private:
     // Some of these fields are intentionally left uninitialized to avoid initializing them twice.
     struct {
-        std::size_t num_buffers = 0;
+        size_t num_buffers = 0;
         std::array<VkBuffer, Maxwell::NumVertexArrays> buffers;
         std::array<VkDeviceSize, Maxwell::NumVertexArrays> offsets;
         std::array<VkDeviceSize, Maxwell::NumVertexArrays> sizes;
@@ -340,7 +369,7 @@ private:
         VkIndexType type;
     } index;
 
-    template <std::size_t N>
+    template <size_t N>
     void BindStatic(const VKDevice& device, VKScheduler& scheduler) const {
         if (device.IsExtExtendedDynamicStateSupported()) {
             if (index.buffer) {
@@ -357,7 +386,7 @@ private:
         }
     }
 
-    template <std::size_t N, bool is_indexed, bool has_extended_dynamic_state>
+    template <size_t N, bool is_indexed, bool has_extended_dynamic_state>
     void BindStatic(VKScheduler& scheduler) const {
         static_assert(N <= Maxwell::NumVertexArrays);
         if constexpr (N == 0) {
@@ -604,15 +633,26 @@ void RasterizerVulkan::DispatchCompute(GPUVAddr code_addr) {
     // Compute dispatches can't be executed inside a renderpass
     scheduler.RequestOutsideRenderPassOperationContext();
 
-    buffer_cache.Map(CalculateComputeStreamBufferSize());
-
     const auto& entries = pipeline.GetEntries();
-    SetupComputeConstBuffers(entries);
-    SetupComputeGlobalBuffers(entries);
     SetupComputeUniformTexels(entries);
     SetupComputeTextures(entries);
     SetupComputeStorageTexels(entries);
     SetupComputeImages(entries);
+
+    image_view_indices.clear();
+    sampler_handles.clear();
+
+    const std::span indices_span(image_view_indices.data(), image_view_indices.size());
+    texture_cache.FillComputeImageViews(indices_span, image_views);
+
+    buffer_cache.Map(CalculateComputeStreamBufferSize());
+
+    SetupComputeConstBuffers(entries);
+    SetupComputeGlobalBuffers(entries);
+
+    ImageView** first_image_view = image_views.data();
+    VkSampler* first_sampler = sampler_handles.data();
+    PushImageDescriptors(entries, update_descriptor_queue, first_image_view, first_sampler);
 
     buffer_cache.Unmap();
 
@@ -737,10 +777,6 @@ void RasterizerVulkan::WaitForIdle() {
     });
 }
 
-void RasterizerVulkan::InvalidateTextureDataCache() {
-    texture_cache.InvalidateContents();
-}
-
 void RasterizerVulkan::InvalidateSamplerDescriptorTable() {
     texture_cache.InvalidateSamplerDescriptorTable();
 }
@@ -833,7 +869,26 @@ RasterizerVulkan::DrawParameters RasterizerVulkan::SetupGeometry(FixedPipelineSt
 
 void RasterizerVulkan::SetupShaderDescriptors(
     const std::array<Shader*, Maxwell::MaxShaderProgram>& shaders) {
-    for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+    image_view_indices.clear();
+    sampler_handles.clear();
+    for (size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+        Shader* const shader = shaders[stage + 1];
+        if (!shader) {
+            continue;
+        }
+        const auto& entries = shader->GetEntries();
+        SetupGraphicsUniformTexels(entries, stage);
+        SetupGraphicsTextures(entries, stage);
+        SetupGraphicsStorageTexels(entries, stage);
+        SetupGraphicsImages(entries, stage);
+    }
+    const std::span indices_span(image_view_indices.data(), image_view_indices.size());
+    texture_cache.FillGraphicsImageViews(indices_span, image_views);
+
+    ImageView** image_view = image_views.data();
+    VkSampler* sampler = sampler_handles.data();
+
+    for (size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
         // Skip VertexA stage
         Shader* const shader = shaders[stage + 1];
         if (!shader) {
@@ -842,10 +897,7 @@ void RasterizerVulkan::SetupShaderDescriptors(
         const auto& entries = shader->GetEntries();
         SetupGraphicsConstBuffers(entries, stage);
         SetupGraphicsGlobalBuffers(entries, stage);
-        SetupGraphicsUniformTexels(entries, stage);
-        SetupGraphicsTextures(entries, stage);
-        SetupGraphicsStorageTexels(entries, stage);
-        SetupGraphicsImages(entries, stage);
+        PushImageDescriptors(entries, update_descriptor_queue, image_view, sampler);
     }
 }
 
@@ -917,7 +969,7 @@ void RasterizerVulkan::EndTransformFeedback() {
 void RasterizerVulkan::SetupVertexArrays(BufferBindings& buffer_bindings) {
     const auto& regs = maxwell3d.regs;
 
-    for (std::size_t index = 0; index < Maxwell::NumVertexArrays; ++index) {
+    for (size_t index = 0; index < Maxwell::NumVertexArrays; ++index) {
         const auto& vertex_array = regs.vertex_array[index];
         if (!vertex_array.IsEnabled()) {
             continue;
@@ -926,7 +978,7 @@ void RasterizerVulkan::SetupVertexArrays(BufferBindings& buffer_bindings) {
         const GPUVAddr end{regs.vertex_array_limit[index].LimitAddress()};
 
         ASSERT(end >= start);
-        const std::size_t size = end - start;
+        const size_t size = end - start;
         if (size == 0) {
             buffer_bindings.AddVertexBinding(DefaultBuffer(), 0, DEFAULT_BUFFER_SIZE, 0);
             continue;
@@ -987,7 +1039,7 @@ void RasterizerVulkan::SetupIndexBuffer(BufferBindings& buffer_bindings, DrawPar
     }
 }
 
-void RasterizerVulkan::SetupGraphicsConstBuffers(const ShaderEntries& entries, std::size_t stage) {
+void RasterizerVulkan::SetupGraphicsConstBuffers(const ShaderEntries& entries, size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_ConstBuffers);
     const auto& shader_stage = maxwell3d.state.shader_stages[stage];
     for (const auto& entry : entries.const_buffers) {
@@ -995,7 +1047,7 @@ void RasterizerVulkan::SetupGraphicsConstBuffers(const ShaderEntries& entries, s
     }
 }
 
-void RasterizerVulkan::SetupGraphicsGlobalBuffers(const ShaderEntries& entries, std::size_t stage) {
+void RasterizerVulkan::SetupGraphicsGlobalBuffers(const ShaderEntries& entries, size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_GlobalBuffers);
     const auto& cbufs{maxwell3d.state.shader_stages[stage]};
 
@@ -1005,52 +1057,49 @@ void RasterizerVulkan::SetupGraphicsGlobalBuffers(const ShaderEntries& entries, 
     }
 }
 
-void RasterizerVulkan::SetupGraphicsUniformTexels(const ShaderEntries& entries, std::size_t stage) {
+void RasterizerVulkan::SetupGraphicsUniformTexels(const ShaderEntries& entries, size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     const auto& regs = maxwell3d.regs;
     const bool via_header_index = regs.sampler_index == Maxwell::SamplerIndex::ViaHeaderIndex;
     for (const auto& entry : entries.uniform_texels) {
         const TextureHandle handle = GetTextureInfo(maxwell3d, via_header_index, entry, stage);
-        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.image);
-        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
+        image_view_indices.push_back(handle.image);
     }
 }
 
-void RasterizerVulkan::SetupGraphicsTextures(const ShaderEntries& entries, std::size_t stage) {
+void RasterizerVulkan::SetupGraphicsTextures(const ShaderEntries& entries, size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     const auto& regs = maxwell3d.regs;
     const bool via_header_index = regs.sampler_index == Maxwell::SamplerIndex::ViaHeaderIndex;
     for (const auto& entry : entries.samplers) {
-        for (std::size_t index = 0; index < entry.size; ++index) {
+        for (size_t index = 0; index < entry.size; ++index) {
             const TextureHandle handle =
                 GetTextureInfo(maxwell3d, via_header_index, entry, stage, index);
-            ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.image);
+            image_view_indices.push_back(handle.image);
+
             Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.sampler);
-            update_descriptor_queue.AddSampledImage(
-                image_view->Handle(ImageViewTypeFromEntry(entry)), sampler->Handle());
+            sampler_handles.push_back(sampler->Handle());
         }
     }
 }
 
-void RasterizerVulkan::SetupGraphicsStorageTexels(const ShaderEntries& entries, std::size_t stage) {
+void RasterizerVulkan::SetupGraphicsStorageTexels(const ShaderEntries& entries, size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     const auto& regs = maxwell3d.regs;
     const bool via_header_index = regs.sampler_index == Maxwell::SamplerIndex::ViaHeaderIndex;
     for (const auto& entry : entries.storage_texels) {
         const TextureHandle handle = GetTextureInfo(maxwell3d, via_header_index, entry, stage);
-        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.image);
-        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
+        image_view_indices.push_back(handle.image);
     }
 }
 
-void RasterizerVulkan::SetupGraphicsImages(const ShaderEntries& entries, std::size_t stage) {
+void RasterizerVulkan::SetupGraphicsImages(const ShaderEntries& entries, size_t stage) {
     MICROPROFILE_SCOPE(Vulkan_Images);
     const auto& regs = maxwell3d.regs;
     const bool via_header_index = regs.sampler_index == Maxwell::SamplerIndex::ViaHeaderIndex;
     for (const auto& entry : entries.images) {
         const TextureHandle handle = GetTextureInfo(maxwell3d, via_header_index, entry, stage);
-        ImageView* const image_view = texture_cache.GetGraphicsImageView(handle.image);
-        SetupImage(image_view, entry, ImageViewTypeFromEntry(entry));
+        image_view_indices.push_back(handle.image);
     }
 }
 
@@ -1060,11 +1109,12 @@ void RasterizerVulkan::SetupComputeConstBuffers(const ShaderEntries& entries) {
     for (const auto& entry : entries.const_buffers) {
         const auto& config = launch_desc.const_buffer_config[entry.GetIndex()];
         const std::bitset<8> mask = launch_desc.const_buffer_enable_mask.Value();
-        SetupConstBuffer(entry, Tegra::Engines::ConstBufferInfo{
-                                    .address = config.Address(),
-                                    .size = config.size,
-                                    .enabled = mask[entry.GetIndex()],
-                                });
+        const Tegra::Engines::ConstBufferInfo info{
+            .address = config.Address(),
+            .size = config.size,
+            .enabled = mask[entry.GetIndex()],
+        };
+        SetupConstBuffer(entry, info);
     }
 }
 
@@ -1082,9 +1132,8 @@ void RasterizerVulkan::SetupComputeUniformTexels(const ShaderEntries& entries) {
     const bool via_header_index = kepler_compute.launch_description.linked_tsc;
     for (const auto& entry : entries.uniform_texels) {
         const TextureHandle handle =
-            GetTextureInfo(kepler_compute, via_header_index, entry, ComputeShaderIndex);
-        ImageView* const image_view = texture_cache.GetComputeImageView(handle.image);
-        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
+            GetTextureInfo(kepler_compute, via_header_index, entry, COMPUTE_SHADER_INDEX);
+        image_view_indices.push_back(handle.image);
     }
 }
 
@@ -1092,13 +1141,13 @@ void RasterizerVulkan::SetupComputeTextures(const ShaderEntries& entries) {
     MICROPROFILE_SCOPE(Vulkan_Textures);
     const bool via_header_index = kepler_compute.launch_description.linked_tsc;
     for (const auto& entry : entries.samplers) {
-        for (std::size_t index = 0; index < entry.size; ++index) {
-            const TextureHandle handle =
-                GetTextureInfo(kepler_compute, via_header_index, entry, ComputeShaderIndex, index);
-            ImageView* const image_view = texture_cache.GetComputeImageView(handle.image);
+        for (size_t index = 0; index < entry.size; ++index) {
+            const TextureHandle handle = GetTextureInfo(kepler_compute, via_header_index, entry,
+                                                        COMPUTE_SHADER_INDEX, index);
+            image_view_indices.push_back(handle.image);
+
             Sampler* const sampler = texture_cache.GetComputeSampler(handle.sampler);
-            update_descriptor_queue.AddSampledImage(
-                image_view->Handle(ImageViewTypeFromEntry(entry)), sampler->Handle());
+            sampler_handles.push_back(sampler->Handle());
         }
     }
 }
@@ -1108,9 +1157,8 @@ void RasterizerVulkan::SetupComputeStorageTexels(const ShaderEntries& entries) {
     const bool via_header_index = kepler_compute.launch_description.linked_tsc;
     for (const auto& entry : entries.storage_texels) {
         const TextureHandle handle =
-            GetTextureInfo(kepler_compute, via_header_index, entry, ComputeShaderIndex);
-        ImageView* const image_view = texture_cache.GetComputeImageView(handle.image);
-        update_descriptor_queue.AddTexelBuffer(image_view->BufferView());
+            GetTextureInfo(kepler_compute, via_header_index, entry, COMPUTE_SHADER_INDEX);
+        image_view_indices.push_back(handle.image);
     }
 }
 
@@ -1119,9 +1167,8 @@ void RasterizerVulkan::SetupComputeImages(const ShaderEntries& entries) {
     const bool via_header_index = kepler_compute.launch_description.linked_tsc;
     for (const auto& entry : entries.images) {
         const TextureHandle handle =
-            GetTextureInfo(kepler_compute, via_header_index, entry, ComputeShaderIndex);
-        ImageView* const image_view = texture_cache.GetComputeImageView(handle.image);
-        SetupImage(image_view, entry, ImageViewTypeFromEntry(entry));
+            GetTextureInfo(kepler_compute, via_header_index, entry, COMPUTE_SHADER_INDEX);
+        image_view_indices.push_back(handle.image);
     }
 }
 
@@ -1132,10 +1179,8 @@ void RasterizerVulkan::SetupConstBuffer(const ConstBufferEntry& entry,
         update_descriptor_queue.AddBuffer(DefaultBuffer(), 0, DEFAULT_BUFFER_SIZE);
         return;
     }
-
     // Align the size to avoid bad std140 interactions
-    const std::size_t size =
-        Common::AlignUp(CalculateConstBufferSize(entry, buffer), 4 * sizeof(float));
+    const size_t size = Common::AlignUp(CalculateConstBufferSize(entry, buffer), 4 * sizeof(float));
     ASSERT(size <= MaxConstbufferSize);
 
     const auto info =
@@ -1152,7 +1197,7 @@ void RasterizerVulkan::SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAdd
         // because Vulkan doesn't like empty buffers.
         // Note: Do *not* use DefaultBuffer() here, storage buffers can be written breaking the
         // default buffer.
-        static constexpr std::size_t dummy_size = 4;
+        static constexpr size_t dummy_size = 4;
         const auto info = buffer_cache.GetEmptyBuffer(dummy_size);
         update_descriptor_queue.AddBuffer(info.handle, info.offset, dummy_size);
         return;
@@ -1161,15 +1206,6 @@ void RasterizerVulkan::SetupGlobalBuffer(const GlobalBufferEntry& entry, GPUVAdd
     const auto info = buffer_cache.UploadMemory(
         actual_addr, size, device.GetStorageBufferAlignment(), entry.IsWritten());
     update_descriptor_queue.AddBuffer(info.handle, info.offset, size);
-}
-
-void RasterizerVulkan::SetupImage(ImageView* image_view, const ImageEntry& entry,
-                                  ImageViewType view_type) {
-    if (entry.is_written) {
-        UNREACHABLE();
-        // image_view->image->flags |= VideoCommon::ImageFlagBits::GpuModified;
-    }
-    update_descriptor_queue.AddImage(image_view->Handle(view_type));
 }
 
 void RasterizerVulkan::UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs) {
@@ -1363,8 +1399,8 @@ void RasterizerVulkan::UpdateStencilTestEnable(Tegra::Engines::Maxwell3D::Regs& 
     });
 }
 
-std::size_t RasterizerVulkan::CalculateGraphicsStreamBufferSize(bool is_indexed) const {
-    std::size_t size = CalculateVertexArraysSize();
+size_t RasterizerVulkan::CalculateGraphicsStreamBufferSize(bool is_indexed) const {
+    size_t size = CalculateVertexArraysSize();
     if (is_indexed) {
         size = Common::AlignUp(size, 4) + CalculateIndexBufferSize();
     }
@@ -1372,15 +1408,15 @@ std::size_t RasterizerVulkan::CalculateGraphicsStreamBufferSize(bool is_indexed)
     return size;
 }
 
-std::size_t RasterizerVulkan::CalculateComputeStreamBufferSize() const {
+size_t RasterizerVulkan::CalculateComputeStreamBufferSize() const {
     return Tegra::Engines::KeplerCompute::NumConstBuffers *
            (Maxwell::MaxConstBufferSize + device.GetUniformBufferAlignment());
 }
 
-std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
+size_t RasterizerVulkan::CalculateVertexArraysSize() const {
     const auto& regs = maxwell3d.regs;
 
-    std::size_t size = 0;
+    size_t size = 0;
     for (u32 index = 0; index < Maxwell::NumVertexArrays; ++index) {
         // This implementation assumes that all attributes are used in the shader.
         const GPUVAddr start{regs.vertex_array[index].StartAddress()};
@@ -1392,12 +1428,12 @@ std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
     return size;
 }
 
-std::size_t RasterizerVulkan::CalculateIndexBufferSize() const {
-    return static_cast<std::size_t>(maxwell3d.regs.index_array.count) *
-           static_cast<std::size_t>(maxwell3d.regs.index_array.FormatSizeInBytes());
+size_t RasterizerVulkan::CalculateIndexBufferSize() const {
+    return static_cast<size_t>(maxwell3d.regs.index_array.count) *
+           static_cast<size_t>(maxwell3d.regs.index_array.FormatSizeInBytes());
 }
 
-std::size_t RasterizerVulkan::CalculateConstBufferSize(
+size_t RasterizerVulkan::CalculateConstBufferSize(
     const ConstBufferEntry& entry, const Tegra::Engines::ConstBufferInfo& buffer) const {
     if (entry.IsIndirect()) {
         // Buffer is accessed indirectly, so upload the entire thing
@@ -1412,7 +1448,6 @@ VkBuffer RasterizerVulkan::DefaultBuffer() {
     if (default_buffer) {
         return *default_buffer;
     }
-
     default_buffer = device.GetLogical().CreateBuffer({
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .pNext = nullptr,
