@@ -19,6 +19,7 @@
 #include "core/settings.h"
 #include "video_core/engines/kepler_compute.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/renderer_vulkan/blit_image.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
@@ -457,10 +458,11 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window, Tegra:
       state_tracker{state_tracker_}, scheduler{scheduler_}, stream_buffer(device, scheduler),
       staging_pool(device, memory_manager, scheduler), descriptor_pool(device, scheduler),
       update_descriptor_queue(device, scheduler),
+      blit_image(device, scheduler, state_tracker, descriptor_pool),
       quad_array_pass(device, scheduler, descriptor_pool, staging_pool, update_descriptor_queue),
       quad_indexed_pass(device, scheduler, descriptor_pool, staging_pool, update_descriptor_queue),
       uint8_pass(device, scheduler, descriptor_pool, staging_pool, update_descriptor_queue),
-      texture_cache_runtime{device, scheduler, memory_manager, staging_pool},
+      texture_cache_runtime{device, scheduler, memory_manager, staging_pool, blit_image},
       texture_cache(texture_cache_runtime, *this, maxwell3d, kepler_compute, gpu_memory),
       pipeline_cache(*this, gpu, maxwell3d, kepler_compute, gpu_memory, device, scheduler,
                      descriptor_pool, update_descriptor_queue),
@@ -803,7 +805,7 @@ void RasterizerVulkan::TickFrame() {
 bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
                                              const Tegra::Engines::Fermi2D::Surface& dst,
                                              const Tegra::Engines::Fermi2D::Config& copy_config) {
-    texture_cache.BlitImage(src, dst, copy_config);
+    texture_cache.BlitImage(dst, src, copy_config);
     return true;
 }
 

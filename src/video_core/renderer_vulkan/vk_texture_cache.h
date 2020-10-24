@@ -23,8 +23,10 @@ class VKDevice;
 class VKScheduler;
 class VKStagingBufferPool;
 
+class BlitImage;
 class Image;
 class ImageView;
+class Framebuffer;
 
 struct RenderPassKey {
     constexpr auto operator<=>(const RenderPassKey&) const noexcept = default;
@@ -70,6 +72,7 @@ struct TextureCacheRuntime {
     VKScheduler& scheduler;
     VKMemoryManager& memory_manager;
     VKStagingBufferPool& staging_buffer_pool;
+    BlitImage& blit_image;
     std::unordered_map<RenderPassKey, vk::RenderPass> renderpass_cache;
 
     [[nodiscard]] ImageBufferMap MapUploadBuffer(size_t size);
@@ -79,7 +82,7 @@ struct TextureCacheRuntime {
         return MapUploadBuffer(size);
     }
 
-    void BlitImage(Image& dst, Image& src, const Tegra::Engines::Fermi2D::Config& copy);
+    void BlitImage(Framebuffer* dst, ImageView& src, const Tegra::Engines::Fermi2D::Config& copy);
 
     void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
 

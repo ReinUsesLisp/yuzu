@@ -15,6 +15,7 @@
 #include "common/common_types.h"
 #include "video_core/rasterizer_accelerated.h"
 #include "video_core/rasterizer_interface.h"
+#include "video_core/renderer_vulkan/blit_image.h"
 #include "video_core/renderer_vulkan/fixed_pipeline_state.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
@@ -225,6 +226,7 @@ private:
     VKStagingBufferPool staging_pool;
     VKDescriptorPool descriptor_pool;
     VKUpdateDescriptorQueue update_descriptor_queue;
+    BlitImage blit_image;
     QuadArrayPass quad_array_pass;
     QuadIndexedPass quad_indexed_pass;
     Uint8Pass uint8_pass;

@@ -4,6 +4,8 @@ set(SHADER_FILES
     opengl_present.frag
     opengl_present.vert
     pitch_unswizzle.comp
+    vulkan_blit_color_float.frag
+    vulkan_blit_color_float.vert
     vulkan_present.frag
     vulkan_present.vert
     vulkan_quad_array.comp

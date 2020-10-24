@@ -45,6 +45,9 @@ public:
     /// Construct an empty span.
     constexpr Span() noexcept = default;
 
+    /// Construct an empty span
+    constexpr Span(std::nullptr_t) noexcept {}
+
     /// Construct a span from a single element.
     constexpr Span(const T& value) noexcept : ptr{&value}, num{1} {}
 
@@ -995,6 +998,13 @@ public:
     void PushConstants(VkPipelineLayout layout, VkShaderStageFlags flags, u32 offset, u32 size,
                        const void* values) const noexcept {
         dld->vkCmdPushConstants(handle, layout, flags, offset, size, values);
+    }
+
+    template <typename T>
+    void PushConstants(VkPipelineLayout layout, VkShaderStageFlags flags,
+                       const T& data) const noexcept {
+        static_assert(std::is_trivially_copyable_v<T>, "<data> is not trivially copyable");
+        dld->vkCmdPushConstants(handle, layout, flags, 0, static_cast<u32>(sizeof(T)), &data);
     }
 
     void SetViewport(u32 first, Span<VkViewport> viewports) const noexcept {
