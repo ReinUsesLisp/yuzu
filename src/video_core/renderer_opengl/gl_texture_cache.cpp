@@ -930,9 +930,9 @@ void AttachTexture(GLuint fbo, GLenum attachment, const ImageView* image_view) {
     }
 }
 
-Framebuffer::Framebuffer(TextureCacheRuntime&, std::span<ImageView*, NUM_RT> color_buffers,
-                         ImageView* depth_buffer, std::array<u8, NUM_RT> draw_buffers,
-                         VideoCommon::Extent2D size) {
+Framebuffer::Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Image>&,
+                         std::span<ImageView*, NUM_RT> color_buffers, ImageView* depth_buffer,
+                         std::array<u8, NUM_RT> draw_buffers, VideoCommon::Extent2D size) {
     // Bind to READ_FRAMEBUFFER to stop Nvidia's driver from creating an EXT_framebuffer instead of
     // a core framebuffer. EXT framebuffer attachments have to match in size and can be shared
     // across contexts. yuzu doesn't share framebuffers across contexts and we need attachments with

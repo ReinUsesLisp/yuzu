@@ -518,7 +518,7 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
         return;
     }
 
-    scheduler.RequestRenderpass(key.renderpass, framebuffer->Handle(), framebuffer->RenderArea());
+    scheduler.RequestRenderpass(framebuffer);
     scheduler.BindGraphicsPipeline(pipeline->GetHandle());
 
     UpdateDynamicStates();
@@ -560,9 +560,9 @@ void RasterizerVulkan::Clear() {
     }
 
     texture_cache.UpdateRenderTargets();
-    Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
+    const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
     const VkExtent2D render_area = framebuffer->RenderArea();
-    scheduler.RequestRenderpass(framebuffer->RenderPass(), framebuffer->Handle(), render_area);
+    scheduler.RequestRenderpass(framebuffer);
 
     VkClearRect clear_rect{
         .rect = GetScissorState(regs, 0),

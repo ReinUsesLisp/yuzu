@@ -100,8 +100,8 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer(const RenderTargets& ke
                            [this](ImageViewId id) { return id ? &slot_image_views[id] : nullptr; });
     ImageView* const depth_buffer =
         key.depth_buffer_id ? &slot_image_views[key.depth_buffer_id] : nullptr;
-    framebuffer =
-        slot_framebuffers.insert(runtime, color_buffers, depth_buffer, key.draw_buffers, key.size);
+    framebuffer = slot_framebuffers.insert(runtime, slot_images, color_buffers, depth_buffer,
+                                           key.draw_buffers, key.size);
 
     return &slot_framebuffers[framebuffer];
 }
@@ -164,29 +164,31 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     Image& src_image = slot_images[src_id];
     dst_image.flags |= ImageFlagBits::GpuModified;
 
+    // TODO: Properly select this
+    const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_info.format, SubresourceRange{});
+    const ImageViewId dst_view_id = FindOrEmplaceImageView(dst_id, dst_view_info);
+    const Extent3D dst_extent = dst_image.info.size; // TODO: Apply mips
+    const RenderTargets dst_targets{
+        .color_buffer_ids = {dst_view_id},
+        .size = {dst_extent.width, dst_extent.height},
+    };
+    Framebuffer* const dst_framebuffer = GetFramebuffer(dst_targets);
+
+    // TODO: Properly select this
+    const ImageViewInfo src_view_info(ImageViewType::e2D, src_info.format, SubresourceRange{});
+    const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
+
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits framebuffers, not images
-        // TODO: Properly select this
-        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_info.format, SubresourceRange{});
-        const ImageViewInfo src_view_info(ImageViewType::e2D, src_info.format, SubresourceRange{});
-        const ImageViewId dst_view_id = FindOrEmplaceImageView(dst_id, dst_view_info);
-        const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
-        // TODO: Apply mips
-        const Extent3D dst_extent = dst_image.info.size;
-        const Extent3D src_extent = src_image.info.size;
-        const RenderTargets dst_targets{
-            .color_buffer_ids = {dst_view_id},
-            .size = {.width = dst_extent.width, .height = dst_extent.height},
-        };
-        const RenderTargets src_targets{
+        const Extent3D src_extent = src_image.info.size; // TODO: Apply mips
+        Framebuffer* const src_framebuffer = GetFramebuffer(RenderTargets{
             .color_buffer_ids = {src_view_id},
-            .size = {.width = src_extent.width, .height = src_extent.height},
-        };
-        Framebuffer* const dst_framebuffer = GetFramebuffer(dst_targets);
-        Framebuffer* const src_framebuffer = GetFramebuffer(src_targets);
+            .size = {src_extent.width, src_extent.height},
+        });
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
-        runtime.BlitImage(dst_image, src_image, copy);
+        ImageView& src_view = slot_image_views[src_view_id];
+        runtime.BlitImage(dst_framebuffer, src_view, copy);
     }
 }
 

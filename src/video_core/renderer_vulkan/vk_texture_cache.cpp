@@ -338,6 +338,21 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     }
 }
 
+[[nodiscard]] constexpr VkImageSubresourceRange ImageSubresourceRange(
+    VkImageAspectFlags aspect_mask, const VideoCommon::SubresourceRange& range) {
+    return VkImageSubresourceRange{
+        .aspectMask = aspect_mask,
+        .baseMipLevel = range.base.mipmap,
+        .levelCount = range.extent.mipmaps,
+        .baseArrayLayer = range.base.layer,
+        .layerCount = range.extent.layers,
+    };
+}
+
+[[nodiscard]] constexpr VkImageSubresourceRange ImageSubresourceRange(const ImageView* image_view) {
+    return ImageSubresourceRange(ImageAspectMask(image_view->format), image_view->range);
+}
+
 [[nodiscard]] constexpr SwizzleSource SwapRedGreen(SwizzleSource value) {
     switch (value) {
     case SwizzleSource::R:
@@ -588,14 +603,7 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
                 .b = ComponentSwizzle(swizzle[2]),
                 .a = ComponentSwizzle(swizzle[3]),
             },
-        .subresourceRange =
-            {
-                .aspectMask = ImageViewAspectMask(info),
-                .baseMipLevel = info.range.base.mipmap,
-                .levelCount = info.range.extent.mipmaps,
-                .baseArrayLayer = info.range.base.layer,
-                .layerCount = info.range.extent.layers,
-            },
+        .subresourceRange = ImageSubresourceRange(ImageViewAspectMask(info), info.range),
     };
     const vk::Device& device = runtime.device.GetLogical();
     const auto create = [this, &device, &create_info](VideoCommon::ImageViewType type,
@@ -689,23 +697,28 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
     });
 }
 
-Framebuffer::Framebuffer(TextureCacheRuntime& runtime, std::span<ImageView*, NUM_RT> color_buffers,
-                         ImageView* depth_buffer, std::array<u8, NUM_RT> draw_buffers,
-                         VideoCommon::Extent2D size) {
+Framebuffer::Framebuffer(TextureCacheRuntime& runtime,
+                         const VideoCommon::SlotVector<Image>& slot_images,
+                         std::span<ImageView*, NUM_RT> color_buffers, ImageView* depth_buffer,
+                         std::array<u8, NUM_RT> draw_buffers, VideoCommon::Extent2D size) {
     std::vector<VkAttachmentDescription> descriptions;
     std::vector<VkImageView> attachments;
     RenderPassKey renderpass_key{};
     u32 num_layers = 0;
 
     for (size_t index = 0; index < NUM_RT; ++index) {
-        if (const ImageView* const image_view = color_buffers[index]; image_view) {
-            descriptions.push_back(AttachmentDescription(runtime.device, image_view));
-            attachments.push_back(image_view->RenderTarget());
-            renderpass_key.color_formats[index] = image_view->format;
-            num_layers = std::max(num_layers, image_view->range.extent.layers);
-        } else {
+        const ImageView* const image_view = color_buffers[index];
+        if (!image_view) {
             renderpass_key.color_formats[index] = PixelFormat::Invalid;
+            continue;
         }
+        descriptions.push_back(AttachmentDescription(runtime.device, image_view));
+        attachments.push_back(image_view->RenderTarget());
+        renderpass_key.color_formats[index] = image_view->format;
+        num_layers = std::max(num_layers, image_view->range.extent.layers);
+        images[num_images] = slot_images[image_view->image_id].Handle();
+        image_ranges[num_images] = ImageSubresourceRange(image_view);
+        ++num_images;
     }
 
     const size_t num_colors = attachments.size();
@@ -716,6 +729,9 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime, std::span<ImageView*, NUM
         attachments.push_back(depth_buffer->RenderTarget());
         renderpass_key.depth_format = depth_buffer->format;
         num_layers = std::max(num_layers, depth_buffer->range.extent.layers);
+        images[num_images] = slot_images[depth_buffer->image_id].Handle();
+        image_ranges[num_images] = ImageSubresourceRange(depth_buffer);
+        ++num_images;
     } else {
         renderpass_key.depth_format = PixelFormat::Invalid;
     }

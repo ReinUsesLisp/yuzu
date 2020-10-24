@@ -172,9 +172,9 @@ private:
 
 class Framebuffer {
 public:
-    explicit Framebuffer(TextureCacheRuntime&, std::span<ImageView*, NUM_RT> color_buffers,
-                         ImageView* depth_buffer, std::array<u8, NUM_RT> draw_buffers,
-                         VideoCommon::Extent2D size);
+    explicit Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Image>& slot_images,
+                         std::span<ImageView*, NUM_RT> color_buffers, ImageView* depth_buffer,
+                         std::array<u8, NUM_RT> draw_buffers, VideoCommon::Extent2D size);
 
     [[nodiscard]] VkFramebuffer Handle() const noexcept {
         return *framebuffer;
@@ -192,11 +192,26 @@ public:
         return num_color_buffers;
     }
 
+    [[nodiscard]] u32 NumImages() const noexcept {
+        return num_images;
+    }
+
+    [[nodiscard]] const std::array<VkImage, 9>& Images() const noexcept {
+        return images;
+    }
+
+    [[nodiscard]] const std::array<VkImageSubresourceRange, 9>& ImageRanges() const noexcept {
+        return image_ranges;
+    }
+
 private:
     vk::Framebuffer framebuffer;
-    VkRenderPass renderpass;
-    VkExtent2D render_area;
-    u32 num_color_buffers;
+    VkRenderPass renderpass{};
+    VkExtent2D render_area{};
+    u32 num_color_buffers = 0;
+    u32 num_images = 0;
+    std::array<VkImage, 9> images{};
+    std::array<VkImageSubresourceRange, 9> image_ranges{};
 };
 
 struct TextureCacheParams {

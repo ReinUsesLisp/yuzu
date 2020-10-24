@@ -17,6 +17,7 @@
 namespace Vulkan {
 
 class CommandPool;
+class Framebuffer;
 class MasterSemaphore;
 class StateTracker;
 class VKDevice;
@@ -52,8 +53,7 @@ public:
     void DispatchWork();
 
     /// Requests to begin a renderpass.
-    void RequestRenderpass(VkRenderPass renderpass, VkFramebuffer framebuffer,
-                           VkExtent2D render_area);
+    void RequestRenderpass(const Framebuffer* framebuffer);
 
     /// Requests the current executino context to be able to execute operations only allowed outside
     /// of a renderpass.
@@ -70,12 +70,11 @@ public:
     /// Send work to a separate thread.
     template <typename T>
     void Record(T&& command) {
-        command(current_cmdbuf);
-        /*if (chunk->Record(command)) {
+        if (chunk->Record(command)) {
             return;
         }
         DispatchWork();
-        (void)chunk->Record(command);*/
+        (void)chunk->Record(command);
     }
 
     /// Returns the master timeline semaphore.
@@ -193,6 +192,11 @@ private:
     std::thread worker_thread;
 
     State state;
+
+    u32 num_renderpass_images = 0;
+    std::array<VkImage, 9> renderpass_images{};
+    std::array<VkImageSubresourceRange, 9> renderpass_image_ranges{};
+
     Common::SPSCQueue<std::unique_ptr<CommandChunk>> chunk_queue;
     Common::SPSCQueue<std::unique_ptr<CommandChunk>> chunk_reserve;
     std::mutex mutex;

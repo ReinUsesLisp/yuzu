@@ -235,31 +235,31 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
         const VkClearValue clear_color{
             .color = {.float32 = {0.0f, 0.0f, 0.0f, 0.0f}},
         };
-
-        VkRenderPassBeginInfo renderpass_bi;
-        renderpass_bi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderpass_bi.pNext = nullptr;
-        renderpass_bi.renderPass = renderpass;
-        renderpass_bi.framebuffer = framebuffer;
-        renderpass_bi.renderArea.offset.x = 0;
-        renderpass_bi.renderArea.offset.y = 0;
-        renderpass_bi.renderArea.extent = size;
-        renderpass_bi.clearValueCount = 1;
-        renderpass_bi.pClearValues = &clear_color;
-
-        VkViewport viewport;
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(size.width);
-        viewport.height = static_cast<float>(size.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-
-        VkRect2D scissor;
-        scissor.offset.x = 0;
-        scissor.offset.y = 0;
-        scissor.extent = size;
-
+        const VkRenderPassBeginInfo renderpass_bi{
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .pNext = nullptr,
+            .renderPass = renderpass,
+            .framebuffer = framebuffer,
+            .renderArea =
+                {
+                    .offset = {0, 0},
+                    .extent = size,
+                },
+            .clearValueCount = 1,
+            .pClearValues = &clear_color,
+        };
+        const VkViewport viewport{
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<float>(size.width),
+            .height = static_cast<float>(size.height),
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f,
+        };
+        const VkRect2D scissor{
+            .offset = {0, 0},
+            .extent = size,
+        };
         cmdbuf.BeginRenderPass(renderpass_bi, VK_SUBPASS_CONTENTS_INLINE);
         cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         cmdbuf.SetViewport(0, viewport);
