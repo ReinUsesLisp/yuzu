@@ -155,18 +155,16 @@ template <class P>
 void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
-    static constexpr auto SEARCH_OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
-    const ImageInfo dst_info(dst);
-    const ImageInfo src_info(src);
-    const ImageId dst_id = FindOrInsertImage(dst_info, dst.Address(), SEARCH_OPTIONS);
-    const ImageId src_id = FindOrInsertImage(src_info, src.Address(), SEARCH_OPTIONS);
-    Image& dst_image = slot_images[dst_id];
-    Image& src_image = slot_images[src_id];
+    const BlitImages images = GetBlitImages(dst, src);
+    ImageBase& dst_image = slot_images[images.dst_id];
+    const ImageBase& src_image = slot_images[images.src_id];
     dst_image.flags |= ImageFlagBits::GpuModified;
 
-    // TODO: Properly select this
-    const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_info.format, SubresourceRange{});
-    const ImageViewId dst_view_id = FindOrEmplaceImageView(dst_id, dst_view_info);
+    const std::optional dst_base = dst_image.FindSubresourceFromAddress(dst.Address());
+    UNIMPLEMENTED_IF(dst_base->mipmap != 0);
+    const SubresourceRange dst_range{.base = dst_base.value(), .extent = {1, 1}};
+    const ImageViewInfo dst_view_info(ImageViewType::e2D, images.dst_format, dst_range);
+    const ImageViewId dst_view_id = FindOrEmplaceImageView(images.dst_id, dst_view_info);
     const Extent3D dst_extent = dst_image.info.size; // TODO: Apply mips
     const RenderTargets dst_targets{
         .color_buffer_ids = {dst_view_id},
@@ -174,9 +172,11 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     };
     Framebuffer* const dst_framebuffer = GetFramebuffer(dst_targets);
 
-    // TODO: Properly select this
-    const ImageViewInfo src_view_info(ImageViewType::e2D, src_info.format, SubresourceRange{});
-    const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
+    const std::optional src_base = src_image.FindSubresourceFromAddress(src.Address());
+    const SubresourceRange src_range{.base = src_base.value(), .extent = {1, 1}};
+    UNIMPLEMENTED_IF(src_base->mipmap != 0);
+    const ImageViewInfo src_view_info(ImageViewType::e2D, images.src_format, src_range);
+    const ImageViewId src_view_id = FindOrEmplaceImageView(images.src_id, src_view_info);
 
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits framebuffers, not images
@@ -187,8 +187,9 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
         });
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
+        ImageView& dst_view = slot_image_views[dst_view_id];
         ImageView& src_view = slot_image_views[src_view_id];
-        runtime.BlitImage(dst_framebuffer, src_view, copy);
+        runtime.BlitImage(dst_framebuffer, dst_view, src_view, copy);
     }
 }
 
@@ -377,6 +378,15 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
 template <class P>
 ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
                                            RelaxedOptions options) {
+    if (const ImageId image_id = FindImage(info, gpu_addr, options); image_id) {
+        return image_id;
+    }
+    return InsertImage(info, gpu_addr, options);
+}
+
+template <class P>
+ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                   RelaxedOptions options) {
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
     if (!cpu_addr) {
         return ImageId{};
@@ -394,25 +404,23 @@ ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_a
                 image_id = existing_image_id;
                 return true;
             }
-        } else {
-            if (IsSubresource(info, existing_image, gpu_addr, options)) {
-                image_id = existing_image_id;
-                return true;
-            }
+        } else if (IsSubresource(info, existing_image, gpu_addr, options)) {
+            image_id = existing_image_id;
+            return true;
         }
         return false;
     });
-    if (image_id) {
-        return image_id;
-    }
-    return InsertImage(info, gpu_addr, *cpu_addr, options);
+    return image_id;
 }
 
 template <class P>
-ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr new_gpu_addr,
-                                     VAddr new_cpu_addr, RelaxedOptions options) {
-    const ImageId image_id = ResolveImageOverlaps(info, new_gpu_addr, new_cpu_addr, options);
+ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                     RelaxedOptions options) {
+    const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
+    ASSERT_MSG(cpu_addr, "Tried to insert an image to an invalid gpu_addr=0x{:x}", gpu_addr);
+    const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, options);
     const Image& image = slot_images[image_id];
+    // Using "image.gpu_addr" instead of "gpu_addr" is important because it might be different
     const auto [it, is_new] = image_allocs_table.try_emplace(image.gpu_addr);
     if (is_new) {
         it->second = slot_image_allocs.insert();
@@ -468,6 +476,41 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
     }
     RegisterImage(new_image_id);
     return new_image_id;
+}
+
+template <class P>
+typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
+    const Tegra::Engines::Fermi2D::Surface& dst, const Tegra::Engines::Fermi2D::Surface& src) {
+    static constexpr auto FIND_OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
+    const GPUVAddr dst_addr = dst.Address();
+    const GPUVAddr src_addr = src.Address();
+    ImageInfo dst_info(dst);
+    ImageInfo src_info(src);
+    ImageId dst_id;
+    ImageId src_id;
+    do {
+        has_deleted_images = false;
+        dst_id = FindImage(dst_info, dst_addr, FIND_OPTIONS);
+        src_id = FindImage(src_info, src_addr, FIND_OPTIONS);
+        const ImageBase* const dst_image = dst_id ? &slot_images[dst_id] : nullptr;
+        const ImageBase* const src_image = src_id ? &slot_images[src_id] : nullptr;
+        DeduceBlitImages(dst_info, src_info, dst_image, src_image);
+        if (GetFormatType(dst_info.format) != GetFormatType(src_info.format)) {
+            continue;
+        }
+        if (!dst_id) {
+            dst_id = InsertImage(dst_info, dst_addr, RelaxedOptions::Size);
+        }
+        if (!src_id) {
+            src_id = InsertImage(src_info, src_addr, RelaxedOptions::Size);
+        }
+    } while (has_deleted_images);
+    return BlitImages{
+        .dst_id = dst_id,
+        .src_id = src_id,
+        .dst_format = dst_info.format,
+        .src_format = src_info.format,
+    };
 }
 
 template <class P>

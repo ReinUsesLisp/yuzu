@@ -17,6 +17,7 @@ class VKScheduler;
 class StateTracker;
 
 class Framebuffer;
+class ImageView;
 
 struct BlitImagePipelineKey {
     constexpr auto operator<=>(const BlitImagePipelineKey&) const noexcept = default;
@@ -31,7 +32,7 @@ public:
                        VKDescriptorPool& descriptor_pool);
     ~BlitImage();
 
-    void Invoke(const Framebuffer* dst_framebuffer, VkImageView src_image_view,
+    void Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
                 const Tegra::Engines::Fermi2D::Config& config);
 
 private:

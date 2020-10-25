@@ -18,6 +18,7 @@
 
 namespace Vulkan {
 
+using Tegra::Engines::Fermi2D;
 using Tegra::Texture::SwizzleSource;
 using Tegra::Texture::TextureMipmapFilter;
 using VideoCore::Surface::IsPixelFormatASTC;
@@ -338,7 +339,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     }
 }
 
-[[nodiscard]] constexpr VkImageSubresourceRange ImageSubresourceRange(
+[[nodiscard]] constexpr VkImageSubresourceRange MakeSubresourceRange(
     VkImageAspectFlags aspect_mask, const VideoCommon::SubresourceRange& range) {
     return VkImageSubresourceRange{
         .aspectMask = aspect_mask,
@@ -349,8 +350,17 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
-[[nodiscard]] constexpr VkImageSubresourceRange ImageSubresourceRange(const ImageView* image_view) {
-    return ImageSubresourceRange(ImageAspectMask(image_view->format), image_view->range);
+[[nodiscard]] VkImageSubresourceRange MakeSubresourceRange(const ImageView* image_view) {
+    return MakeSubresourceRange(ImageAspectMask(image_view->format), image_view->range);
+}
+
+[[nodiscard]] VkImageSubresourceLayers MakeSubresourceLayers(const ImageView* image_view) {
+    return VkImageSubresourceLayers{
+        .aspectMask = ImageAspectMask(image_view->format),
+        .mipLevel = image_view->range.base.mipmap,
+        .baseArrayLayer = image_view->range.base.layer,
+        .layerCount = image_view->range.extent.layers,
+    };
 }
 
 [[nodiscard]] constexpr SwizzleSource SwapRedGreen(SwizzleSource value) {
@@ -416,6 +426,36 @@ void CopyBufferToImage(vk::CommandBuffer cmdbuf, VkBuffer src_buffer, VkImage im
                            write_barrier);
 }
 
+[[nodiscard]] VkImageBlit MakeImageBlit(const Fermi2D::Config& copy,
+                                        const VkImageSubresourceLayers& dst_layers,
+                                        const VkImageSubresourceLayers& src_layers) {
+    // Using an aggregate constructor here generates an internal compiler error on MSVC
+    VkImageBlit result;
+    result.srcSubresource = src_layers;
+    result.srcOffsets[0] = {
+        .x = copy.src_x0,
+        .y = copy.src_y0,
+        .z = 0,
+    };
+    result.srcOffsets[1] = {
+        .x = copy.src_x1,
+        .y = copy.src_y1,
+        .z = 1,
+    };
+    result.dstSubresource = dst_layers;
+    result.dstOffsets[0] = {
+        .x = copy.dst_x0,
+        .y = copy.dst_y0,
+        .z = 0,
+    };
+    result.dstOffsets[1] = {
+        .x = copy.dst_x1,
+        .y = copy.dst_y1,
+        .z = 1,
+    };
+    return result;
+}
+
 } // Anonymous namespace
 
 ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
@@ -426,10 +466,28 @@ ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
     };
 }
 
-void TextureCacheRuntime::BlitImage(Framebuffer* dst, ImageView& src,
-                                    const Tegra::Engines::Fermi2D::Config& copy) {
-    const VkImageView src_image_view = src.Handle(VideoCommon::ImageViewType::e2D);
-    blit_image.Invoke(dst, src_image_view, copy);
+void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst, ImageView& src,
+                                    const Fermi2D::Config& copy) {
+    const VkImageAspectFlags aspect_mask = ImageAspectMask(src.format);
+    ASSERT(aspect_mask == ImageAspectMask(dst.format));
+    if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT) {
+        blit_image.Invoke(dst_framebuffer, src, copy);
+        return;
+    }
+    ASSERT(src.format == dst.format);
+    ASSERT(copy.operation == Fermi2D::Operation::SrcCopy);
+    const VkImage dst_image = dst.ImageHandle();
+    const VkImage src_image = src.ImageHandle();
+    const VkImageSubresourceLayers dst_layers = MakeSubresourceLayers(&dst);
+    const VkImageSubresourceLayers src_layers = MakeSubresourceLayers(&src);
+    scheduler.Record(
+        [copy, dst_image, src_image, dst_layers, src_layers](vk::CommandBuffer cmdbuf) {
+            // TODO: Barriers
+            const bool is_linear = copy.filter == Fermi2D::Filter::Bilinear;
+            const VkFilter filter = is_linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+            cmdbuf.BlitImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, VK_IMAGE_LAYOUT_GENERAL,
+                             MakeImageBlit(copy, dst_layers, src_layers), filter);
+        });
 }
 
 void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
@@ -603,7 +661,7 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
                 .b = ComponentSwizzle(swizzle[2]),
                 .a = ComponentSwizzle(swizzle[3]),
             },
-        .subresourceRange = ImageSubresourceRange(ImageViewAspectMask(info), info.range),
+        .subresourceRange = MakeSubresourceRange(ImageViewAspectMask(info), info.range),
     };
     const vk::Device& device = runtime.device.GetLogical();
     const auto create = [this, &device, &create_info](VideoCommon::ImageViewType type,
@@ -717,7 +775,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime,
         renderpass_key.color_formats[index] = image_view->format;
         num_layers = std::max(num_layers, image_view->range.extent.layers);
         images[num_images] = slot_images[image_view->image_id].Handle();
-        image_ranges[num_images] = ImageSubresourceRange(image_view);
+        image_ranges[num_images] = MakeSubresourceRange(image_view);
         ++num_images;
     }
 
@@ -730,7 +788,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime,
         renderpass_key.depth_format = depth_buffer->format;
         num_layers = std::max(num_layers, depth_buffer->range.extent.layers);
         images[num_images] = slot_images[depth_buffer->image_id].Handle();
-        image_ranges[num_images] = ImageSubresourceRange(depth_buffer);
+        image_ranges[num_images] = MakeSubresourceRange(depth_buffer);
         ++num_images;
     } else {
         renderpass_key.depth_format = PixelFormat::Invalid;

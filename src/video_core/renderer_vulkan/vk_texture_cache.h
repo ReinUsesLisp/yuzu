@@ -82,7 +82,8 @@ struct TextureCacheRuntime {
         return MapUploadBuffer(size);
     }
 
-    void BlitImage(Framebuffer* dst, ImageView& src, const Tegra::Engines::Fermi2D::Config& copy);
+    void BlitImage(Framebuffer* dst_framebuffer, ImageView& dst, ImageView& src,
+                   const Tegra::Engines::Fermi2D::Config& copy);
 
     void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
 
@@ -146,6 +147,10 @@ public:
         return *buffer_view;
     }
 
+    [[nodiscard]] VkImage ImageHandle() const noexcept {
+        return image_handle;
+    }
+
     [[nodiscard]] VkImageView RenderTarget() const noexcept {
         return render_target;
     }
@@ -153,6 +158,7 @@ public:
 private:
     std::array<vk::ImageView, VideoCommon::NUM_IMAGE_VIEW_TYPES> image_views;
     vk::BufferView buffer_view;
+    VkImage image_handle = VK_NULL_HANDLE;
     VkImageView render_target = VK_NULL_HANDLE;
 };
 

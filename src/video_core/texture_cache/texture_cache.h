@@ -42,6 +42,7 @@ using Tegra::Texture::SwizzleSource;
 using Tegra::Texture::TextureType;
 using Tegra::Texture::TICEntry;
 using Tegra::Texture::TSCEntry;
+using VideoCore::Surface::GetFormatType;
 using VideoCore::Surface::IsCopyCompatible;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
@@ -70,6 +71,13 @@ class TextureCache {
 
         std::vector<SamplerId> samplers;          ///< Samplers matching @sa tsc_entries
         std::vector<TSCEntry> stored_tsc_entries; ///< Sampler keys stored in @sa samplers
+    };
+
+    struct BlitImages {
+        ImageId dst_id;
+        ImageId src_id;
+        PixelFormat dst_format;
+        PixelFormat src_format;
     };
 
 public:
@@ -249,11 +257,17 @@ private:
     [[nodiscard]] ImageId FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
                                             RelaxedOptions options = RelaxedOptions{});
 
-    [[nodiscard]] ImageId InsertImage(const ImageInfo& info, GPUVAddr new_gpu_addr,
-                                      VAddr new_cpu_addr, RelaxedOptions options);
+    [[nodiscard]] ImageId FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                    RelaxedOptions options);
+
+    [[nodiscard]] ImageId InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                      RelaxedOptions options);
 
     [[nodiscard]] ImageId ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gpu_addr,
                                                VAddr cpu_addr, RelaxedOptions options);
+
+    [[nodiscard]] BlitImages GetBlitImages(const Tegra::Engines::Fermi2D::Surface& dst,
+                                           const Tegra::Engines::Fermi2D::Surface& src);
 
     /**
      * Find or create if necessary a sampler with the given properties

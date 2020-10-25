@@ -158,7 +158,7 @@ BlitImage::BlitImage(const VKDevice& device_, VKScheduler& scheduler_, StateTrac
 
 BlitImage::~BlitImage() = default;
 
-void BlitImage::Invoke(const Framebuffer* dst_framebuffer, VkImageView src_image_view,
+void BlitImage::Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
                        const Tegra::Engines::Fermi2D::Config& config) {
     const bool is_linear = config.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
     const BlitImagePipelineKey key{
@@ -166,12 +166,12 @@ void BlitImage::Invoke(const Framebuffer* dst_framebuffer, VkImageView src_image
         .operation = config.operation,
     };
     const VkPipelineLayout layout = *pipeline_layout;
+    const VkImageView src_view = src_image_view.RenderTarget();
     const VkSampler sampler = is_linear ? *linear_sampler : *nearest_sampler;
     const VkPipeline pipeline = FindOrEmplacePipeline(key);
     const VkDescriptorSet descriptor_set = descriptor_allocator.Commit();
-    scheduler.RequestRenderpass(key.renderpass, dst_framebuffer->Handle(),
-                                dst_framebuffer->RenderArea());
-    scheduler.Record([pipeline, layout, sampler, config, src_image_view, descriptor_set,
+    scheduler.RequestRenderpass(dst_framebuffer);
+    scheduler.Record([pipeline, layout, sampler, config, src_view, descriptor_set,
                       &device = device](vk::CommandBuffer cmdbuf) {
         const VkOffset2D offset{
             .x = std::min(config.dst_x0, config.dst_x1),
@@ -200,7 +200,7 @@ void BlitImage::Invoke(const Framebuffer* dst_framebuffer, VkImageView src_image
         };
         const VkDescriptorImageInfo image_info{
             .sampler = sampler,
-            .imageView = src_image_view,
+            .imageView = src_view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
         const VkWriteDescriptorSet write_descriptor_set{
@@ -217,6 +217,7 @@ void BlitImage::Invoke(const Framebuffer* dst_framebuffer, VkImageView src_image
         };
         device.GetLogical().UpdateDescriptorSets(write_descriptor_set, nullptr);
 
+        // TODO: Barriers
         cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, descriptor_set,
                                   nullptr);

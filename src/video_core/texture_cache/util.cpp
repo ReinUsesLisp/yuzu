@@ -47,6 +47,7 @@ using VideoCore::Surface::IsCopyCompatible;
 using VideoCore::Surface::IsViewCompatible;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
+using VideoCore::Surface::SurfaceType;
 
 constexpr u32 CONVERTED_BYTES_PER_BLOCK = BytesPerBlock(PixelFormat::A8B8G8R8_UNORM);
 
@@ -1185,6 +1186,22 @@ std::optional<SubresourceBase> FindSubresource(const ImageInfo& candidate, const
 bool IsSubresource(const ImageInfo& candidate, const ImageBase& image, GPUVAddr candidate_addr,
                    RelaxedOptions options) {
     return FindSubresource(candidate, image, candidate_addr, options).has_value();
+}
+
+void DeduceBlitImages(ImageInfo& dst_info, ImageInfo& src_info, const ImageBase* dst,
+                      const ImageBase* src) {
+    if (src && GetFormatType(src->info.format) != SurfaceType::ColorTexture) {
+        src_info.format = src->info.format;
+    }
+    if (dst && GetFormatType(dst->info.format) != SurfaceType::ColorTexture) {
+        dst_info.format = dst->info.format;
+    }
+    if (!dst && src && GetFormatType(src->info.format) != SurfaceType::ColorTexture) {
+        dst_info.format = src->info.format;
+    }
+    if (!src && dst && GetFormatType(dst->info.format) != SurfaceType::ColorTexture) {
+        src_info.format = src->info.format;
+    }
 }
 
 using P = PixelFormat;

@@ -100,4 +100,7 @@ void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const Ima
 [[nodiscard]] bool IsSubresource(const ImageInfo& candidate, const ImageBase& image,
                                  GPUVAddr candidate_addr, RelaxedOptions options);
 
+void DeduceBlitImages(ImageInfo& dst_info, ImageInfo& src_info, const ImageBase* dst,
+                      const ImageBase* src);
+
 } // namespace VideoCommon

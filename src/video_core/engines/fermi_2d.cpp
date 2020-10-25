@@ -50,7 +50,7 @@ void Fermi2D::Blit() {
     UNIMPLEMENTED_IF_MSG(regs.clip_enable != 0, "Clipped blit enabled");
 
     const auto& args = regs.pixels_from_memory;
-    const Config config = {
+    const Config config{
         .operation = regs.operation,
         .filter = args.sample_mode.filter,
         .dst_x0 = args.dst_x0,
