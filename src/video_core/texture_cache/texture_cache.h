@@ -300,13 +300,6 @@ private:
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func);
 
-    /**
-     * Setup an image immediately created before calling this method
-     */
-    [[nodiscard]] ImageId CreateNewImage(const ImageInfo& info, GPUVAddr gpu_addr, VAddr cpu_addr);
-
-    void InitializeNewImage(ImageId image_id);
-
     [[nodiscard]] ImageViewId FindOrEmplaceImageView(ImageId image_id, const ImageViewInfo& info);
 
     /**

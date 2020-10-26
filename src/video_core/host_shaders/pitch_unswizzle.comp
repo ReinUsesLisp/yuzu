@@ -39,14 +39,14 @@ UNIFORM(3) uint pitch;
 END_PUSH_CONSTANTS
 
 #if HAS_EXTENDED_TYPES
-layout(binding = BINDING_INPUT_BUFFER, std430) buffer InputBufferU8 { uint8_t u8data[]; };
-layout(binding = BINDING_INPUT_BUFFER, std430) buffer InputBufferU16 { uint16_t u16data[]; };
+layout(binding = BINDING_INPUT_BUFFER, std430) readonly buffer InputBufferU8 { uint8_t u8data[]; };
+layout(binding = BINDING_INPUT_BUFFER, std430) readonly buffer InputBufferU16 { uint16_t u16data[]; };
 #endif
-layout(binding = BINDING_INPUT_BUFFER, std430) buffer InputBufferU32 { uint u32data[]; };
-layout(binding = BINDING_INPUT_BUFFER, std430) buffer InputBufferU64 { uvec2 u64data[]; };
-layout(binding = BINDING_INPUT_BUFFER, std430) buffer InputBufferU128 { uvec4 u128data[]; };
+layout(binding = BINDING_INPUT_BUFFER, std430) readonly buffer InputBufferU32 { uint u32data[]; };
+layout(binding = BINDING_INPUT_BUFFER, std430) readonly buffer InputBufferU64 { uvec2 u64data[]; };
+layout(binding = BINDING_INPUT_BUFFER, std430) readonly buffer InputBufferU128 { uvec4 u128data[]; };
 
-layout(binding = BINDING_OUTPUT_IMAGE) uniform writeonly uimage2D output_image;
+layout(binding = BINDING_OUTPUT_IMAGE) writeonly uniform uimage2D output_image;
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 

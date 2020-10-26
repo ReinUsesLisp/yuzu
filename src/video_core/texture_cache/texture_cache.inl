@@ -628,21 +628,6 @@ void TextureCache<P>::ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& f
 }
 
 template <class P>
-ImageId TextureCache<P>::CreateNewImage(const ImageInfo& info, GPUVAddr gpu_addr, VAddr cpu_addr) {
-    const ImageId image_id = slot_images.insert(runtime, info, gpu_addr, cpu_addr);
-    InitializeNewImage(image_id);
-    return image_id;
-}
-
-template <class P>
-void TextureCache<P>::InitializeNewImage(ImageId image_id) {
-    // Memory of new images has to be uploaded because there was no track of them before
-    UpdateImageContents(slot_images[image_id]);
-    // Track memory stores and reads for this image
-    RegisterImage(image_id);
-}
-
-template <class P>
 ImageViewId TextureCache<P>::FindOrEmplaceImageView(ImageId image_id, const ImageViewInfo& info) {
     Image& image = slot_images[image_id];
     if (const ImageViewId image_view_id = image.FindView(info); image_view_id) {

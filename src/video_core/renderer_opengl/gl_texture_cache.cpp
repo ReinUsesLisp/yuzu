@@ -156,6 +156,16 @@ constexpr std::array<FormatTuple, MaxPixelFormat> FORMAT_TABLE = {{
      GL_FLOAT_32_UNSIGNED_INT_24_8_REV}, // D32_FLOAT_S8_UINT
 }};
 
+constexpr std::array ACCELERATED_FORMATS{
+    GL_RGBA32F,   GL_RGBA16F,   GL_RG32F,    GL_RG16F,        GL_R11F_G11F_B10F, GL_R32F,
+    GL_R16F,      GL_RGBA32UI,  GL_RGBA16UI, GL_RGB10_A2UI,   GL_RGBA8UI,        GL_RG32UI,
+    GL_RG16UI,    GL_RG8UI,     GL_R32UI,    GL_R16UI,        GL_R8UI,           GL_RGBA32I,
+    GL_RGBA16I,   GL_RGBA8I,    GL_RG32I,    GL_RG16I,        GL_RG8I,           GL_R32I,
+    GL_R16I,      GL_R8I,       GL_RGBA16,   GL_RGB10_A2,     GL_RGBA8,          GL_RG16,
+    GL_RG8,       GL_R16,       GL_R8,       GL_RGBA16_SNORM, GL_RGBA8_SNORM,    GL_RG16_SNORM,
+    GL_RG8_SNORM, GL_R16_SNORM, GL_R8_SNORM,
+};
+
 const FormatTuple& GetFormatTuple(PixelFormat pixel_format) {
     ASSERT(static_cast<size_t>(pixel_format) < FORMAT_TABLE.size());
     return FORMAT_TABLE[static_cast<size_t>(pixel_format)];
@@ -339,6 +349,9 @@ bool CanBeAccelerated(const TextureCacheRuntime& runtime, const VideoCommon::Ima
     const GLenum internal_format = GetFormatTuple(info.format).internal_format;
     const auto& format_info = runtime.FormatInfo(info.type, internal_format);
     if (format_info.is_compressed) {
+        return false;
+    }
+    if (std::ranges::find(ACCELERATED_FORMATS, internal_format) == ACCELERATED_FORMATS.end()) {
         return false;
     }
     if (format_info.compatibility_by_size) {
