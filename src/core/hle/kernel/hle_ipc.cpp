@@ -293,15 +293,15 @@ std::vector<u8> HLERequestContext::ReadBuffer(std::size_t buffer_index) const {
                            BufferDescriptorA()[buffer_index].Size()};
 
     if (is_buffer_a) {
-        // ASSERT_OR_EXECUTE_MSG(
-        //     BufferDescriptorA().size() > buffer_index, { return buffer; },
-        //     "BufferDescriptorA invalid buffer_index {}", buffer_index);
+        ASSERT_OR_EXECUTE_MSG(
+            BufferDescriptorA().size() > buffer_index, { return buffer; },
+            "BufferDescriptorA invalid buffer_index {}", buffer_index);
         buffer.resize(BufferDescriptorA()[buffer_index].Size());
         memory.ReadBlock(BufferDescriptorA()[buffer_index].Address(), buffer.data(), buffer.size());
     } else {
-        // ASSERT_OR_EXECUTE_MSG(
-        //     BufferDescriptorX().size() > buffer_index, { return buffer; },
-        //     "BufferDescriptorX invalid buffer_index {}", buffer_index);
+        ASSERT_OR_EXECUTE_MSG(
+            BufferDescriptorX().size() > buffer_index, { return buffer; },
+            "BufferDescriptorX invalid buffer_index {}", buffer_index);
         buffer.resize(BufferDescriptorX()[buffer_index].Size());
         memory.ReadBlock(BufferDescriptorX()[buffer_index].Address(), buffer.data(), buffer.size());
     }
