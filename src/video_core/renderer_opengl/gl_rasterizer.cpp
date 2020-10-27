@@ -1061,7 +1061,6 @@ void RasterizerOpenGL::SetupDrawTextures(const Shader* shader, size_t stage_inde
 }
 
 void RasterizerOpenGL::SetupComputeTextures(const Shader* kernel) {
-    size_t texture_index = 0;
     for (const auto& entry : kernel->GetEntries().samplers) {
         for (size_t i = 0; i < entry.size; ++i) {
             const auto handle = TextureHandle(kepler_compute, entry, ShaderType::Compute, i);

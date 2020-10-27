@@ -71,7 +71,7 @@ void TextureCache<P>::UpdateRenderTargets() {
         UpdateImageContents(image);
     }
     for (size_t index = 0; index < NUM_RT; ++index) {
-        render_targets.draw_buffers[index] = maxwell3d.regs.rt_control.GetMap(index);
+        render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d.regs.rt_control.GetMap(index));
     }
     render_targets.size = Extent2D{
         maxwell3d.regs.render_area.width,
@@ -168,6 +168,7 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     const Extent3D dst_extent = dst_image.info.size; // TODO: Apply mips
     const RenderTargets dst_targets{
         .color_buffer_ids = {dst_view_id},
+        .depth_buffer_id = ImageViewId{},
         .size = {dst_extent.width, dst_extent.height},
     };
     Framebuffer* const dst_framebuffer = GetFramebuffer(dst_targets);
@@ -183,6 +184,7 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
         const Extent3D src_extent = src_image.info.size; // TODO: Apply mips
         Framebuffer* const src_framebuffer = GetFramebuffer(RenderTargets{
             .color_buffer_ids = {src_view_id},
+            .depth_buffer_id = ImageViewId{},
             .size = {src_extent.width, src_extent.height},
         });
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
@@ -195,14 +197,15 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
 
 template <class P>
 void TextureCache<P>::InvalidateColorBuffer(size_t index) {
-    ImageView*& color_buffer = render_targets.color_buffers[index];
-    color_buffer = FindColorBuffer(index);
-    if (!color_buffer) {
+    ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
+    color_buffer_id = FindColorBuffer(index);
+    if (!color_buffer_id) {
         LOG_ERROR(HW_GPU, "Invalidating invalid color buffer in index={}", index);
         return;
     }
     // When invalidating a color buffer, the old contents are no longer relevant
-    Image& image = slot_images[color_buffer->image];
+    ImageView& color_buffer = slot_image_views[color_buffer_id];
+    Image& image = slot_images[color_buffer.image_id];
     image.flags &= ~ImageFlagBits::CpuModified;
     image.flags &= ~ImageFlagBits::GpuModified;
 
@@ -211,18 +214,19 @@ void TextureCache<P>::InvalidateColorBuffer(size_t index) {
 
 template <class P>
 void TextureCache<P>::InvalidateDepthBuffer() {
-    ImageViewId& depth_buffer_id = render_targets.depth_buffer;
+    ImageViewId& depth_buffer_id = render_targets.depth_buffer_id;
     depth_buffer_id = FindDepthBuffer();
     if (!depth_buffer_id) {
         LOG_ERROR(HW_GPU, "Invalidating invalid depth buffer");
         return;
     }
     // When invalidating the depth buffer, the old contents are no longer relevant
+    ImageView& depth_buffer = slot_image_views[depth_buffer_id];
     Image& image = slot_images[slot_image_views[depth_buffer_id].image_id];
     image.flags &= ~ImageFlagBits::CpuModified;
     image.flags &= ~ImageFlagBits::GpuModified;
 
-    runtime.InvalidateDepthBuffer(depth_buffer_id);
+    runtime.InvalidateDepthBuffer(depth_buffer);
 }
 
 template <class P>

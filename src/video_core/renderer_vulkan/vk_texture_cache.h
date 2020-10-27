@@ -23,7 +23,7 @@ class VKDevice;
 class VKScheduler;
 class VKStagingBufferPool;
 
-class BlitImage;
+class BlitImageHelper;
 class Image;
 class ImageView;
 class Framebuffer;
@@ -72,7 +72,7 @@ struct TextureCacheRuntime {
     VKScheduler& scheduler;
     VKMemoryManager& memory_manager;
     VKStagingBufferPool& staging_buffer_pool;
-    BlitImage& blit_image;
+    BlitImageHelper& blit_image;
     std::unordered_map<RenderPassKey, vk::RenderPass> renderpass_cache;
 
     [[nodiscard]] ImageBufferMap MapUploadBuffer(size_t size);

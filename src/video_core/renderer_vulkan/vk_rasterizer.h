@@ -226,7 +226,7 @@ private:
     VKStagingBufferPool staging_pool;
     VKDescriptorPool descriptor_pool;
     VKUpdateDescriptorQueue update_descriptor_queue;
-    BlitImage blit_image;
+    BlitImageHelper blit_image;
     QuadArrayPass quad_array_pass;
     QuadIndexedPass quad_indexed_pass;
     Uint8Pass uint8_pass;

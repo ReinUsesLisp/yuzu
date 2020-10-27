@@ -136,6 +136,11 @@ public:
         BitField<24, 8, u32> a;
     };
 
+    struct Point {
+        u32 x;
+        u32 y;
+    };
+
     enum class PatternSelect : u32 {
         MonoChrome8x8 = 0,
         MonoChrome64x1 = 1,
@@ -231,7 +236,7 @@ public:
                 INSERT_UNION_PADDING_WORDS(0x14);
                 u32 prim_point_xy;
                 INSERT_UNION_PADDING_WORDS(0x7);
-                std::array<std::pair<u32, u32>, 0x40> prim_point;
+                std::array<Point, 0x40> prim_point;
             } render_solid;
             struct {
                 u32 data_type;

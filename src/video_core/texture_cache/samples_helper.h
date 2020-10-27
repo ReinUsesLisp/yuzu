@@ -11,7 +11,7 @@
 
 namespace VideoCommon {
 
-[[nodiscard]] std::pair<int, int> Samples(int num_samples) {
+[[nodiscard]] inline std::pair<int, int> Samples(int num_samples) {
     switch (num_samples) {
     case 1:
         return {1, 1};
@@ -28,7 +28,7 @@ namespace VideoCommon {
     return {1, 1};
 }
 
-[[nodiscard]] int NumSamples(Tegra::Texture::MsaaMode msaa_mode) {
+[[nodiscard]] inline int NumSamples(Tegra::Texture::MsaaMode msaa_mode) {
     using Tegra::Texture::MsaaMode;
     switch (msaa_mode) {
     case MsaaMode::Msaa1x1:

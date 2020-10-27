@@ -308,6 +308,8 @@ std::string NameView(const VideoCommon::ImageViewBase& image_view) {
         return fmt::format("1DArray {}{}|{}", size.width, mipmap, num_layers);
     case ImageViewType::e2DArray:
         return fmt::format("2DArray {}x{}{}|{}", size.width, size.height, mipmap, num_layers);
+    case ImageViewType::CubeArray:
+        return fmt::format("CubeArray {}x{}{}|{}", size.width, size.height, mipmap, num_layers);
     case ImageViewType::Rect:
         return fmt::format("Rect {}x{}{}", size.width, size.height, mipmap);
     case ImageViewType::Buffer:
@@ -407,6 +409,22 @@ bool CanBeAccelerated(const TextureCacheRuntime& runtime, const VideoCommon::Ima
     }
 }
 
+void AttachTexture(GLuint fbo, GLenum attachment, const ImageView* image_view) {
+    if (!image_view->Is3D()) {
+        const GLuint texture = image_view->DefaultHandle();
+        glNamedFramebufferTexture(fbo, attachment, texture, 0);
+        return;
+    }
+    const GLuint texture = image_view->Handle(ImageViewType::e3D);
+    if (image_view->range.extent.layers > 1) {
+        // TODO: OpenGL doesn't support rendering to a fixed number of slices
+        glNamedFramebufferTexture(fbo, attachment, texture, 0);
+    } else {
+        const u32 slice = image_view->range.base.layer;
+        glNamedFramebufferTextureLayer(fbo, attachment, texture, 0, slice);
+    }
+}
+
 } // Anonymous namespace
 
 ImageBufferMap::ImageBufferMap(GLuint handle_, u8* map, size_t size, OGLSync* sync_)
@@ -497,6 +515,9 @@ void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferM
         return util_shaders.BlockLinearUpload3D(image, map, buffer_offset, swizzles);
     case ImageType::Linear:
         return util_shaders.PitchUpload(image, map, buffer_offset, swizzles);
+    default:
+        UNREACHABLE();
+        break;
     }
 }
 
@@ -509,12 +530,14 @@ FormatProperties TextureCacheRuntime::FormatInfo(ImageType type, GLenum internal
     case ImageType::e1D:
         return format_properties[0].at(internal_format);
     case ImageType::e2D:
+    case ImageType::Rect:
     case ImageType::Linear:
         return format_properties[1].at(internal_format);
     case ImageType::e3D:
         return format_properties[2].at(internal_format);
+    default:
+        UNREACHABLE();
     }
-    UNREACHABLE();
 }
 
 TextureCacheRuntime::StagingBuffers::StagingBuffers(GLenum storage_flags_, GLenum map_flags_)
@@ -924,23 +947,6 @@ Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {
 
     const std::string name = fmt::format("Sampler 0x{:x}", std::hash<TSCEntry>{}(config));
     glObjectLabel(GL_SAMPLER, handle, static_cast<GLsizei>(name.size()), name.data());
-}
-
-// ANONYMOUS
-void AttachTexture(GLuint fbo, GLenum attachment, const ImageView* image_view) {
-    if (!image_view->Is3D()) {
-        const GLuint texture = image_view->DefaultHandle();
-        glNamedFramebufferTexture(fbo, attachment, texture, 0);
-        return;
-    }
-    const GLuint texture = image_view->Handle(ImageViewType::e3D);
-    if (image_view->range.extent.layers > 1) {
-        // TODO: OpenGL doesn't support rendering to a fixed number of slices
-        glNamedFramebufferTexture(fbo, attachment, texture, 0);
-    } else {
-        const u32 slice = image_view->range.base.layer;
-        glNamedFramebufferTextureLayer(fbo, attachment, texture, 0, slice);
-    }
 }
 
 Framebuffer::Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Image>&,

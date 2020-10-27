@@ -13,7 +13,8 @@ set(SHADER_FILES
     vulkan_uint8.comp
 )
 
-set(GLSL_FLAGS "-Os")
+# set(GLSL_FLAGS "-Os")
+set(GLSL_FLAGS "")
 
 set(SHADER_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/include)
 set(SHADER_DIR ${SHADER_INCLUDE}/video_core/host_shaders)

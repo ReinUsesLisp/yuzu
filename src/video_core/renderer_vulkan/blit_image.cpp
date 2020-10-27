@@ -144,8 +144,8 @@ constexpr VkPipelineLayoutCreateInfo PipelineLayoutCreateInfo(
 
 } // Anonymous namespace
 
-BlitImage::BlitImage(const VKDevice& device_, VKScheduler& scheduler_, StateTracker& state_tracker_,
-                     VKDescriptorPool& descriptor_pool)
+BlitImageHelper::BlitImageHelper(const VKDevice& device_, VKScheduler& scheduler_,
+                                 StateTracker& state_tracker_, VKDescriptorPool& descriptor_pool)
     : device{device_}, scheduler{scheduler_}, state_tracker{state_tracker_},
       set_layout(device.GetLogical().CreateDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_CREATE_INFO)),
       descriptor_allocator(descriptor_pool, *set_layout),
@@ -156,10 +156,10 @@ BlitImage::BlitImage(const VKDevice& device_, VKScheduler& scheduler_, StateTrac
       pipeline_layout(device.GetLogical().CreatePipelineLayout(
           PipelineLayoutCreateInfo(set_layout.address()))) {}
 
-BlitImage::~BlitImage() = default;
+BlitImageHelper::~BlitImageHelper() = default;
 
-void BlitImage::Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
-                       const Tegra::Engines::Fermi2D::Config& config) {
+void BlitImageHelper::Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
+                             const Tegra::Engines::Fermi2D::Config& config) {
     const bool is_linear = config.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
     const BlitImagePipelineKey key{
         .renderpass = dst_framebuffer->RenderPass(),
@@ -186,6 +186,8 @@ void BlitImage::Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_
             .y = static_cast<float>(offset.y),
             .width = static_cast<float>(extent.width),
             .height = static_cast<float>(extent.height),
+            .minDepth = 0.0f,
+            .maxDepth = 0.0f,
         };
         // TODO: Support scissored blits
         const VkRect2D scissor{
@@ -230,7 +232,7 @@ void BlitImage::Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_
     state_tracker.InvalidateScissors();
 }
 
-VkPipeline BlitImage::FindOrEmplacePipeline(const BlitImagePipelineKey& key) {
+VkPipeline BlitImageHelper::FindOrEmplacePipeline(const BlitImagePipelineKey& key) {
     const auto it = std::ranges::find(keys, key);
     if (it != keys.end()) {
         return *pipelines[std::distance(keys.begin(), it)];

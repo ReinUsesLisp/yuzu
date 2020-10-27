@@ -97,10 +97,8 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
 
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
         const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block.height + block.depth);
-        const u32 slice_size = (gobs_in_x * num_tiles.height) << (block.height + block.depth);
 
         const u32 block_height_mask = (1U << block.height) - 1;
-        const u32 block_depth_mask = (1U << block.depth) - 1;
         const u32 x_shift = GOB_SIZE_SHIFT + block.height + block.depth;
 
         glUniform1ui(LOC_BLOCK_SIZE, block_size);

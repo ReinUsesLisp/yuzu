@@ -170,6 +170,7 @@ template <u32 GOB_EXTENT>
     case ImageType::Rect:
         return true;
     case ImageType::e1D:
+    case ImageType::Buffer:
         return false;
     }
     UNREACHABLE_MSG("Invalid image type={}", static_cast<int>(type));
@@ -190,29 +191,6 @@ template <u32 GOB_EXTENT>
     }
     UNREACHABLE_MSG("Invalid number of samples={}", num_samples);
     return {1, 1};
-}
-
-[[nodiscard]] int NumSamples(MsaaMode msaa_mode) {
-    switch (msaa_mode) {
-    case MsaaMode::Msaa1x1:
-        return 1;
-    case MsaaMode::Msaa2x1:
-    case MsaaMode::Msaa2x1_D3D:
-        return 2;
-    case MsaaMode::Msaa2x2:
-    case MsaaMode::Msaa2x2_VC4:
-    case MsaaMode::Msaa2x2_VC12:
-        return 4;
-    case MsaaMode::Msaa4x2:
-    case MsaaMode::Msaa4x2_D3D:
-    case MsaaMode::Msaa4x2_VC8:
-    case MsaaMode::Msaa4x2_VC24:
-        return 8;
-    case MsaaMode::Msaa4x4:
-        return 16;
-    }
-    UNREACHABLE_MSG("Invalid MSAA mode={}", static_cast<int>(msaa_mode));
-    return 1;
 }
 
 [[nodiscard]] constexpr Extent2D DefaultBlockSize(PixelFormat format) {
@@ -547,6 +525,77 @@ template <u32 GOB_EXTENT>
     return num_slices;
 }
 
+void SwizzlePitchLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
+                             const ImageInfo& info, const BufferImageCopy& copy,
+                             std::span<const u8> memory) {
+    ASSERT(copy.image_offset.z == 0);
+    ASSERT(copy.image_extent.depth == 1);
+    ASSERT(copy.image_subresource.base_mipmap == 0);
+    ASSERT(copy.image_subresource.base_layer == 0);
+    ASSERT(copy.image_subresource.num_layers == 1);
+
+    const u32 bytes_per_block = BytesPerBlock(info.format);
+    const u32 row_length = copy.image_extent.width * bytes_per_block;
+    const u32 guest_offset_x = copy.image_offset.x * bytes_per_block;
+
+    for (u32 line = 0; line < copy.image_extent.height; ++line) {
+        const u32 host_offset_y = line * info.pitch;
+        const u32 guest_offset_y = (copy.image_offset.y + line) * info.pitch;
+        const u32 guest_offset = guest_offset_x + guest_offset_y;
+        gpu_memory.WriteBlockUnsafe(gpu_addr + guest_offset, memory.data() + host_offset_y,
+                                    row_length);
+    }
+}
+
+void SwizzleBlockLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
+                             const ImageInfo& info, const BufferImageCopy& copy,
+                             std::span<const u8> input) {
+    const Extent3D size = info.size;
+    const LevelInfo level_info = MakeLevelInfo(info);
+    const Extent2D tile_size = DefaultBlockSize(info.format);
+    const u32 bytes_per_block = BytesPerBlock(info.format);
+
+    const u32 mipmap = copy.image_subresource.base_mipmap;
+    const Extent3D level_size = AdjustMipSize(size, mipmap);
+    const u32 num_blocks_per_layer = NumBlocks(level_size, tile_size);
+    const u32 host_bytes_per_layer = num_blocks_per_layer * bytes_per_block;
+
+    UNIMPLEMENTED_IF(info.tile_width_spacing > 0);
+
+    UNIMPLEMENTED_IF(copy.image_offset.x != 0);
+    UNIMPLEMENTED_IF(copy.image_offset.y != 0);
+    UNIMPLEMENTED_IF(copy.image_offset.z != 0);
+    UNIMPLEMENTED_IF(copy.image_extent != level_size);
+
+    const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
+    const Extent3D block = AdjustMipBlockSize(num_tiles, level_info.block, mipmap);
+
+    size_t host_offset = copy.buffer_offset;
+
+    const u32 num_mipmaps = info.resources.mipmaps;
+    const std::array sizes = CalculateLevelSizes(level_info, num_mipmaps);
+    size_t guest_offset = std::reduce(sizes.begin(), sizes.begin() + mipmap, 0);
+    const size_t layer_stride =
+        AlignLayerSize(std::reduce(sizes.begin(), sizes.begin() + num_mipmaps, 0), size,
+                       level_info.block, tile_size.height, info.tile_width_spacing);
+    const size_t subresource_size = sizes[mipmap];
+
+    const auto dst_data = std::make_unique<u8[]>(subresource_size);
+    const std::span<u8> dst(dst_data.get(), subresource_size);
+
+    for (u32 layer = 0; layer < info.resources.layers; ++layer) {
+        const std::span<const u8> src = input.subspan(host_offset);
+        SwizzleTexture(dst, src, bytes_per_block, num_tiles.width, num_tiles.height,
+                       num_tiles.depth, block.height, block.depth);
+
+        gpu_memory.WriteBlockUnsafe(gpu_addr + guest_offset, dst.data(), dst.size_bytes());
+
+        host_offset += host_bytes_per_layer;
+        guest_offset += layer_stride;
+    }
+    ASSERT(host_offset - copy.buffer_offset == copy.buffer_size);
+}
+
 } // Anonymous namespace
 
 u32 CalculateGuestSizeInBytes(const ImageInfo& info) noexcept {
@@ -660,7 +709,7 @@ u32 CalculateLevelStrideAlignment(const ImageInfo& info, u32 level) {
     const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
     const Extent3D block = AdjustMipBlockSize(num_tiles, info.block, level);
     const u32 bpp_log2 = BytesPerBlockLog2(info.format);
-    return StrideAlignment(num_tiles, info.block, bpp_log2, info.tile_width_spacing);
+    return StrideAlignment(num_tiles, block, bpp_log2, info.tile_width_spacing);
 }
 
 PixelFormat PixelFormatFromTIC(const TICEntry& config) noexcept {
@@ -943,79 +992,6 @@ std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info) {
         guest_offset += CalculateLevelSize(level_info, mipmap);
     }
     return params;
-}
-
-/*static*/
-void SwizzlePitchLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
-                             const ImageInfo& info, const BufferImageCopy& copy,
-                             std::span<const u8> memory) {
-    ASSERT(copy.image_offset.z == 0);
-    ASSERT(copy.image_extent.depth == 1);
-    ASSERT(copy.image_subresource.base_mipmap == 0);
-    ASSERT(copy.image_subresource.base_layer == 0);
-    ASSERT(copy.image_subresource.num_layers == 1);
-
-    const u32 bytes_per_block = BytesPerBlock(info.format);
-    const u32 row_length = copy.image_extent.width * bytes_per_block;
-    const u32 guest_offset_x = copy.image_offset.x * bytes_per_block;
-
-    for (u32 line = 0; line < copy.image_extent.height; ++line) {
-        const u32 host_offset_y = line * info.pitch;
-        const u32 guest_offset_y = (copy.image_offset.y + line) * info.pitch;
-        const u32 guest_offset = guest_offset_x + guest_offset_y;
-        gpu_memory.WriteBlockUnsafe(gpu_addr + guest_offset, memory.data() + host_offset_y,
-                                    row_length);
-    }
-}
-
-/*static*/
-void SwizzleBlockLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr,
-                             const ImageInfo& info, const BufferImageCopy& copy,
-                             std::span<const u8> input) {
-    const Extent3D size = info.size;
-    const LevelInfo level_info = MakeLevelInfo(info);
-    const Extent2D tile_size = DefaultBlockSize(info.format);
-    const u32 bytes_per_block = BytesPerBlock(info.format);
-
-    const u32 mipmap = copy.image_subresource.base_mipmap;
-    const Extent3D level_size = AdjustMipSize(size, mipmap);
-    const u32 num_blocks_per_layer = NumBlocks(level_size, tile_size);
-    const u32 host_bytes_per_layer = num_blocks_per_layer * bytes_per_block;
-
-    UNIMPLEMENTED_IF(info.tile_width_spacing > 0);
-
-    UNIMPLEMENTED_IF(copy.image_offset.x != 0);
-    UNIMPLEMENTED_IF(copy.image_offset.y != 0);
-    UNIMPLEMENTED_IF(copy.image_offset.z != 0);
-    UNIMPLEMENTED_IF(copy.image_extent != level_size);
-
-    const Extent3D num_tiles = AdjustTileSize(level_size, tile_size);
-    const Extent3D block = AdjustMipBlockSize(num_tiles, level_info.block, mipmap);
-
-    size_t host_offset = copy.buffer_offset;
-
-    const u32 num_mipmaps = info.resources.mipmaps;
-    const std::array sizes = CalculateLevelSizes(level_info, num_mipmaps);
-    size_t guest_offset = std::reduce(sizes.begin(), sizes.begin() + mipmap, 0);
-    const size_t layer_stride =
-        AlignLayerSize(std::reduce(sizes.begin(), sizes.begin() + num_mipmaps, 0), size,
-                       level_info.block, tile_size.height, info.tile_width_spacing);
-    const size_t subresource_size = sizes[mipmap];
-
-    const auto dst_data = std::make_unique<u8[]>(subresource_size);
-    const std::span<u8> dst(dst_data.get(), subresource_size);
-
-    for (u32 layer = 0; layer < info.resources.layers; ++layer) {
-        const std::span<const u8> src = input.subspan(host_offset);
-        SwizzleTexture(dst, src, bytes_per_block, num_tiles.width, num_tiles.height,
-                       num_tiles.depth, block.height, block.depth);
-
-        gpu_memory.WriteBlockUnsafe(gpu_addr + guest_offset, dst.data(), dst.size_bytes());
-
-        host_offset += host_bytes_per_layer;
-        guest_offset += layer_stride;
-    }
-    ASSERT(host_offset - copy.buffer_offset == copy.buffer_size);
 }
 
 void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const ImageInfo& info,

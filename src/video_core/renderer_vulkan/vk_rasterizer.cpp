@@ -146,49 +146,6 @@ TextureHandle GetTextureInfo(const Engine& engine, bool via_header_index, const 
     return TextureHandle(engine.AccessConstBuffer32(shader_type, buffer, offset), via_header_index);
 }
 
-/// @brief Determine if an attachment to be updated has to preserve contents
-/// @param is_clear True when a clear is being executed
-/// @param regs 3D registers
-/// @return True when the contents have to be preserved
-bool HasToPreserveColorContents(bool is_clear, const Maxwell& regs) {
-    if (!is_clear) {
-        return true;
-    }
-    // First we have to make sure all clear masks are enabled.
-    if (!regs.clear_buffers.R || !regs.clear_buffers.G || !regs.clear_buffers.B ||
-        !regs.clear_buffers.A) {
-        return true;
-    }
-    // If scissors are disabled, the whole screen is cleared
-    if (!regs.clear_flags.scissor) {
-        return false;
-    }
-    // Then we have to confirm scissor testing clears the whole image
-    const size_t index = regs.clear_buffers.RT;
-    const auto& scissor = regs.scissor_test[0];
-    return scissor.min_x > 0 || scissor.min_y > 0 || scissor.max_x < regs.rt[index].width ||
-           scissor.max_y < regs.rt[index].height;
-}
-
-/// @brief Determine if an attachment to be updated has to preserve contents
-/// @param is_clear True when a clear is being executed
-/// @param regs 3D registers
-/// @return True when the contents have to be preserved
-bool HasToPreserveDepthContents(bool is_clear, const Maxwell& regs) {
-    // If we are not clearing, the contents have to be preserved
-    if (!is_clear) {
-        return true;
-    }
-    // For depth stencil clears we only have to confirm scissor test covers the whole image
-    if (!regs.clear_flags.scissor) {
-        return false;
-    }
-    // Make sure the clear cover the whole image
-    const auto& scissor = regs.scissor_test[0];
-    return scissor.min_x > 0 || scissor.min_y > 0 || scissor.max_x < regs.zeta_width ||
-           scissor.max_y < regs.zeta_height;
-}
-
 template <size_t N>
 std::array<VkDeviceSize, N> ExpandStrides(const std::array<u16, N>& strides) {
     std::array<VkDeviceSize, N> expanded;
@@ -236,9 +193,7 @@ ImageViewType ImageViewTypeFromEntry(const ImageEntry& entry) {
 void PushImageDescriptors(const ShaderEntries& entries,
                           VKUpdateDescriptorQueue& update_descriptor_queue, ImageView**& image_view,
                           VkSampler*& sampler) {
-    size_t image_view_index = 0;
-    size_t sampler_index = 0;
-    for (const auto& entry : entries.uniform_texels) {
+    for ([[maybe_unused]] const auto& entry : entries.uniform_texels) {
         update_descriptor_queue.AddTexelBuffer((*image_view)->BufferView());
         ++image_view;
     }
@@ -248,7 +203,7 @@ void PushImageDescriptors(const ShaderEntries& entries,
         ++image_view;
         ++sampler;
     }
-    for (const auto& entry : entries.storage_texels) {
+    for ([[maybe_unused]] const auto& entry : entries.storage_texels) {
         update_descriptor_queue.AddTexelBuffer((*image_view)->BufferView());
         ++image_view;
     }

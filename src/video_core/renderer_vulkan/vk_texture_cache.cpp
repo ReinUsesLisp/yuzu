@@ -65,6 +65,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         return VK_IMAGE_TYPE_2D;
     case VideoCommon::ImageType::e3D:
         return VK_IMAGE_TYPE_3D;
+    case VideoCommon::ImageType::Buffer:
+        break;
     }
     UNREACHABLE_MSG("Invalid image type={}", static_cast<int>(type));
     return {};
@@ -719,10 +721,13 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
     const auto& device = runtime.device;
     const bool arbitrary_borders = runtime.device.IsExtCustomBorderColorSupported();
     const std::array<float, 4> color = tsc.BorderColor();
+    // C++20 bit_cast
+    VkClearColorValue border_color;
+    std::memcpy(&border_color, &color, sizeof(color));
     const VkSamplerCustomBorderColorCreateInfoEXT border{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT,
         .pNext = nullptr,
-        .customBorderColor = std::bit_cast<VkClearColorValue>(color),
+        .customBorderColor = border_color,
         .format = VK_FORMAT_UNDEFINED,
     };
     const VkSamplerReductionModeCreateInfoEXT reduction_ci{

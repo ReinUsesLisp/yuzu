@@ -26,11 +26,11 @@ struct BlitImagePipelineKey {
     Tegra::Engines::Fermi2D::Operation operation;
 };
 
-class BlitImage {
+class BlitImageHelper {
 public:
-    explicit BlitImage(const VKDevice& device, VKScheduler& scheduler, StateTracker& state_tracker,
-                       VKDescriptorPool& descriptor_pool);
-    ~BlitImage();
+    explicit BlitImageHelper(const VKDevice& device, VKScheduler& scheduler,
+                             StateTracker& state_tracker, VKDescriptorPool& descriptor_pool);
+    ~BlitImageHelper();
 
     void Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
                 const Tegra::Engines::Fermi2D::Config& config);
