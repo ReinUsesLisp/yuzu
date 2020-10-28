@@ -404,7 +404,8 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
             const bool strict_size = False(options & RelaxedOptions::Size) &&
                                      True(existing_image.flags & ImageFlagBits::Strong);
             const ImageInfo& existing = existing_image.info;
-            if (existing.type == info.type && existing.pitch == info.pitch &&
+            if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
+                existing.pitch == info.pitch &&
                 IsPitchLinearSameSize(existing, info, strict_size) &&
                 IsViewCompatible(existing.format, info.format)) {
                 image_id = existing_image_id;
