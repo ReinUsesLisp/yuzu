@@ -71,7 +71,8 @@ void TextureCache<P>::UpdateRenderTargets() {
         UpdateImageContents(image);
     }
     for (size_t index = 0; index < NUM_RT; ++index) {
-        render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d.regs.rt_control.GetMap(index));
+        render_targets.draw_buffers[index] =
+            static_cast<u8>(maxwell3d.regs.rt_control.GetMap(index));
     }
     render_targets.size = Extent2D{
         maxwell3d.regs.render_area.width,
@@ -182,11 +183,12 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits framebuffers, not images
         const Extent3D src_extent = src_image.info.size; // TODO: Apply mips
-        Framebuffer* const src_framebuffer = GetFramebuffer(RenderTargets{
+        const RenderTargets dst_key{
             .color_buffer_ids = {src_view_id},
             .depth_buffer_id = ImageViewId{},
             .size = {src_extent.width, src_extent.height},
-        });
+        };
+        Framebuffer* const src_framebuffer = GetFramebuffer(dst_key);
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
         ImageView& dst_view = slot_image_views[dst_view_id];
