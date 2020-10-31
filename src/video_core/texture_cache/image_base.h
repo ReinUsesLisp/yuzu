@@ -29,13 +29,18 @@ DECLARE_ENUM_FLAG_OPERATORS(ImageFlagBits)
 
 struct ImageViewInfo;
 
+struct AliasedImage {
+    ImageCopy copy;
+    ImageId id;
+};
+
 struct ImageBase {
-    explicit ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_);
+    explicit ImageBase(const ImageInfo& info, GPUVAddr gpu_addr, VAddr cpu_addr);
 
     [[nodiscard]] bool Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noexcept;
 
     [[nodiscard]] std::optional<SubresourceBase> FindSubresourceFromAddress(
-        GPUVAddr rhs_addr) const noexcept;
+        GPUVAddr other_addr) const noexcept;
 
     [[nodiscard]] ImageViewId FindView(const ImageViewInfo& info) const noexcept;
 
@@ -46,13 +51,12 @@ struct ImageBase {
     u32 guest_size_bytes = 0;
     u32 unswizzled_size_bytes = 0;
     u32 converted_size_bytes = 0;
+    ImageFlagBits flags = ImageFlagBits::CpuModified;
 
     GPUVAddr gpu_addr = 0;
     VAddr cpu_addr = 0;
     VAddr cpu_addr_end = 0;
 
-    ImageFlagBits flags = ImageFlagBits::CpuModified;
-    u64 invalidation_tick = 0;
     u64 modification_tick = 0;
 
     std::array<u32, MAX_MIPMAP> mipmap_offsets{};
@@ -62,10 +66,14 @@ struct ImageBase {
 
     std::vector<u32> slice_offsets;
     std::vector<SubresourceBase> slice_subresources;
+
+    std::vector<AliasedImage> aliased_images;
 };
 
 struct ImageAllocBase {
     std::vector<ImageId> images;
 };
+
+void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_id);
 
 } // namespace VideoCommon

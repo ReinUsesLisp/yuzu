@@ -951,8 +951,8 @@ std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info) {
     return copies;
 }
 
-Extent3D MipmapSize(const ImageInfo& info, u32 mipmap) {
-    return AdjustMipSize(info.size, mipmap);
+Extent3D MipSize(Extent3D size, u32 mipmap) {
+    return AdjustMipSize(size, mipmap);
 }
 
 Extent3D MipBlockSize(const ImageInfo& info, u32 mipmap) {

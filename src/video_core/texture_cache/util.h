@@ -67,7 +67,7 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
 
 [[nodiscard]] std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info);
 
-[[nodiscard]] Extent3D MipmapSize(const ImageInfo& info, u32 mipmap);
+[[nodiscard]] Extent3D MipSize(Extent3D size, u32 mipmap);
 
 [[nodiscard]] Extent3D MipBlockSize(const ImageInfo& info, u32 mipmap);
 

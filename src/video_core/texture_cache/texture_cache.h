@@ -102,7 +102,9 @@ public:
                 ImageView* const image_view = &slot_image_views[image_view_id];
                 image_views[i] = image_view;
                 if (image_view_id != NULL_IMAGE_VIEW_ID) {
-                    UpdateImageContents(slot_images[image_view->image_id]);
+                    Image& image = slot_images[image_view->image_id];
+                    UpdateImageContents(image);
+                    SynchronizeAliases(image);
                 }
             }
         } while (has_deleted_images);
@@ -264,7 +266,7 @@ private:
                                       RelaxedOptions options);
 
     [[nodiscard]] ImageId ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gpu_addr,
-                                               VAddr cpu_addr, RelaxedOptions options);
+                                               VAddr cpu_addr);
 
     [[nodiscard]] BlitImages GetBlitImages(const Tegra::Engines::Fermi2D::Surface& dst,
                                            const Tegra::Engines::Fermi2D::Surface& src);
@@ -356,6 +358,25 @@ private:
     std::vector<Framebuffer> sentenced_framebuffers;
 
     std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
+
+    u64 modification_tick = 0;
+
+    // TODO: Move these to the inl file
+    void MarkModification(ImageBase& image) noexcept {
+        image.flags |= ImageFlagBits::GpuModified;
+        image.modification_tick = ++modification_tick;
+    }
+
+    void SynchronizeAliases(Image& image) {
+        for (const AliasedImage& aliased : image.aliased_images) {
+            Image& aliased_image = slot_images[aliased.id];
+            // TODO: sort
+            if (image.modification_tick < aliased_image.modification_tick) {
+                const std::span<const ImageCopy> copy_span(&aliased.copy, 1);
+                runtime.CopyImage(image, aliased_image, copy_span);
+            }
+        }
+    }
 };
 
 } // namespace VideoCommon

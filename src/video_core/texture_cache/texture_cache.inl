@@ -60,15 +60,17 @@ void TextureCache<P>::UpdateRenderTargets() {
         color_buffer_id = FindColorBuffer(index);
         if (color_buffer_id) {
             Image& image = slot_images[slot_image_views[color_buffer_id].image_id];
-            image.flags |= ImageFlagBits::GpuModified;
             UpdateImageContents(image);
+            SynchronizeAliases(image);
+            MarkModification(image);
         }
     }
     render_targets.depth_buffer_id = FindDepthBuffer();
     if (render_targets.depth_buffer_id) {
         Image& image = slot_images[slot_image_views[render_targets.depth_buffer_id].image_id];
-        image.flags |= ImageFlagBits::GpuModified;
         UpdateImageContents(image);
+        SynchronizeAliases(image);
+        MarkModification(image);
     }
     for (size_t index = 0; index < NUM_RT; ++index) {
         render_targets.draw_buffers[index] =
@@ -223,11 +225,11 @@ void TextureCache<P>::InvalidateDepthBuffer() {
         return;
     }
     // When invalidating the depth buffer, the old contents are no longer relevant
-    ImageView& depth_buffer = slot_image_views[depth_buffer_id];
-    Image& image = slot_images[slot_image_views[depth_buffer_id].image_id];
+    ImageBase& image = slot_images[slot_image_views[depth_buffer_id].image_id];
     image.flags &= ~ImageFlagBits::CpuModified;
     image.flags &= ~ImageFlagBits::GpuModified;
 
+    ImageView& depth_buffer = slot_image_views[depth_buffer_id];
     runtime.InvalidateDepthBuffer(depth_buffer);
 }
 
@@ -256,7 +258,7 @@ typename P::ImageView* TextureCache<P>::TryFindFramebufferImageView(VAddr cpu_ad
     }
     const auto& image_ids = it->second;
     for (const ImageId image_id : image_ids) {
-        const Image& image = slot_images[image_id];
+        const ImageBase& image = slot_images[image_id];
         if (image.cpu_addr != cpu_addr) {
             continue;
         }
@@ -399,24 +401,25 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
     }
     ImageId image_id;
     const size_t size = CalculateGuestSizeInBytes(info);
-    ForEachImageInRegion(*cpu_addr, size, [&](ImageId existing_image_id, Image& existing_image) {
-        if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear) {
-            const bool strict_size = False(options & RelaxedOptions::Size) &&
-                                     True(existing_image.flags & ImageFlagBits::Strong);
-            const ImageInfo& existing = existing_image.info;
-            if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
-                existing.pitch == info.pitch &&
-                IsPitchLinearSameSize(existing, info, strict_size) &&
-                IsViewCompatible(existing.format, info.format)) {
+    ForEachImageInRegion(
+        *cpu_addr, size, [&](ImageId existing_image_id, ImageBase& existing_image) {
+            if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear) {
+                const bool strict_size = False(options & RelaxedOptions::Size) &&
+                                         True(existing_image.flags & ImageFlagBits::Strong);
+                const ImageInfo& existing = existing_image.info;
+                if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
+                    existing.pitch == info.pitch &&
+                    IsPitchLinearSameSize(existing, info, strict_size) &&
+                    IsViewCompatible(existing.format, info.format)) {
+                    image_id = existing_image_id;
+                    return true;
+                }
+            } else if (IsSubresource(info, existing_image, gpu_addr, options)) {
                 image_id = existing_image_id;
                 return true;
             }
-        } else if (IsSubresource(info, existing_image, gpu_addr, options)) {
-            image_id = existing_image_id;
-            return true;
-        }
-        return false;
-    });
+            return false;
+        });
     return image_id;
 }
 
@@ -425,7 +428,7 @@ ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
                                      RelaxedOptions options) {
     const std::optional<VAddr> cpu_addr = gpu_memory.GpuToCpuAddress(gpu_addr);
     ASSERT_MSG(cpu_addr, "Tried to insert an image to an invalid gpu_addr=0x{:x}", gpu_addr);
-    const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr, options);
+    const ImageId image_id = ResolveImageOverlaps(info, gpu_addr, *cpu_addr);
     const Image& image = slot_images[image_id];
     // Using "image.gpu_addr" instead of "gpu_addr" is important because it might be different
     const auto [it, is_new] = image_allocs_table.try_emplace(image.gpu_addr);
@@ -438,34 +441,39 @@ ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
 
 template <class P>
 ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gpu_addr,
-                                              VAddr cpu_addr, RelaxedOptions options) {
+                                              VAddr cpu_addr) {
     ImageInfo new_info = info;
     const size_t size_bytes = CalculateGuestSizeInBytes(new_info);
     std::vector<ImageId> overlap_ids;
-    if (new_info.type != ImageType::Linear) {
-        ForEachImageInRegion(cpu_addr, size_bytes, [&](ImageId overlap_id, Image& overlap) {
-            if (overlap.info.type == ImageType::Linear) {
-                return;
+    std::vector<ImageId> aliased_ids;
+    ForEachImageInRegion(cpu_addr, size_bytes, [&](ImageId overlap_id, ImageBase& overlap) {
+        if (new_info.type == ImageType::Linear) {
+            // TODO: Move this out of the loop
+            return;
+        }
+        if (overlap.info.type == ImageType::Linear) {
+            return;
+        }
+        if (!IsLayerStrideCompatible(new_info, overlap.info)) {
+            return;
+        }
+        if (!IsCopyCompatible(overlap.info.format, new_info.format)) {
+            return;
+        }
+        const auto solution = ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap, true);
+        if (!solution) {
+            const ImageBase new_image_base(new_info, gpu_addr, cpu_addr);
+            if (IsSubresource(overlap.info, new_image_base, overlap.gpu_addr,
+                              RelaxedOptions::Size)) {
+                aliased_ids.push_back(overlap_id);
             }
-            if (!IsLayerStrideCompatible(new_info, overlap.info)) {
-                return;
-            }
-            if (!IsCopyCompatible(overlap.info.format, new_info.format)) {
-                return;
-            }
-            const bool strict_size = False(options & RelaxedOptions::Size) &&
-                                     True(overlap.flags & ImageFlagBits::Strong);
-            const std::optional solution =
-                ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap, strict_size);
-            if (!solution) {
-                return;
-            }
-            gpu_addr = solution->gpu_addr;
-            cpu_addr = solution->cpu_addr;
-            new_info.resources = solution->resources;
-            overlap_ids.push_back(overlap_id);
-        });
-    }
+            return;
+        }
+        gpu_addr = solution->gpu_addr;
+        cpu_addr = solution->cpu_addr;
+        new_info.resources = solution->resources;
+        overlap_ids.push_back(overlap_id);
+    });
     const ImageId new_image_id = slot_images.insert(runtime, new_info, gpu_addr, cpu_addr);
     Image& new_image = slot_images[new_image_id];
 
@@ -481,6 +489,11 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
         UnregisterImage(overlap_id);
         DeleteImage(overlap_id);
     }
+    for (const ImageId aliased_id : aliased_ids) {
+        ImageBase& aliased = slot_images[aliased_id];
+        ImageBase& new_image_base = new_image;
+        AddImageAlias(new_image_base, aliased, new_image_id, aliased_id);
+    }
     RegisterImage(new_image_id);
     return new_image_id;
 }
@@ -488,7 +501,7 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
 template <class P>
 typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
     const Tegra::Engines::Fermi2D::Surface& dst, const Tegra::Engines::Fermi2D::Surface& src) {
-    static constexpr auto FIND_OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
+    static constexpr auto FIND_OPTIONS = RelaxedOptions::Format;
     const GPUVAddr dst_addr = dst.Address();
     const GPUVAddr src_addr = src.Address();
     ImageInfo dst_info(dst);
@@ -506,10 +519,10 @@ typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
             continue;
         }
         if (!dst_id) {
-            dst_id = InsertImage(dst_info, dst_addr, RelaxedOptions::Size);
+            dst_id = InsertImage(dst_info, dst_addr, RelaxedOptions{});
         }
         if (!src_id) {
-            src_id = InsertImage(src_info, src_addr, RelaxedOptions::Size);
+            src_id = InsertImage(src_info, src_addr, RelaxedOptions{});
         }
     } while (has_deleted_images);
     return BlitImages{
@@ -572,7 +585,7 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
 
 template <class P>
 ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr) {
-    const ImageId image_id = FindOrInsertImage(info, gpu_addr, RelaxedOptions::Size);
+    const ImageId image_id = FindOrInsertImage(info, gpu_addr, RelaxedOptions{});
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
@@ -647,7 +660,7 @@ ImageViewId TextureCache<P>::FindOrEmplaceImageView(ImageId image_id, const Imag
 
 template <class P>
 void TextureCache<P>::RegisterImage(ImageId image_id) {
-    Image& image = slot_images[image_id];
+    ImageBase& image = slot_images[image_id];
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
                "Trying to register an already registered image");
     image.flags |= ImageFlagBits::Registered;
@@ -693,7 +706,7 @@ void TextureCache<P>::UntrackImage(Image& image) {
 
 template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id) {
-    Image& image = slot_images[image_id];
+    ImageBase& image = slot_images[image_id];
     const GPUVAddr gpu_addr = image.gpu_addr;
     const auto alloc_it = image_allocs_table.find(gpu_addr);
     if (alloc_it == image_allocs_table.end()) {
@@ -720,6 +733,16 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     }
     RemoveImageViewReferences(image_view_ids);
     RemoveFramebuffers(image_view_ids);
+
+    for (const AliasedImage& alias : image.aliased_images) {
+        ImageBase& other_image = slot_images[alias.id];
+        [[maybe_unused]] const size_t num_removed_aliases =
+            std::erase_if(other_image.aliased_images, [image_id](const AliasedImage& other_alias) {
+                return other_alias.id == image_id;
+            });
+        ASSERT_MSG(num_removed_aliases == 1, "Invalid number of removed aliases: {}",
+                   num_removed_aliases);
+    }
 
     for (const ImageViewId image_view_id : image_view_ids) {
         sentenced_image_view.push_back(std::move(slot_image_views[image_view_id]));
