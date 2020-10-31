@@ -23,7 +23,7 @@ set(HOST_SHADERS_INCLUDE ${SHADER_INCLUDE} PARENT_SCOPE)
 set(INPUT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/source_shader.h.in)
 set(HEADER_GENERATOR ${CMAKE_CURRENT_SOURCE_DIR}/StringShaderHeader.cmake)
 
-foreach(FILENAME IN ITEMS ${SHADER_SOURCES})
+foreach(FILENAME IN ITEMS ${SHADER_FILES})
     string(REPLACE "." "_" SHADER_NAME ${FILENAME})
     set(SOURCE_FILE ${CMAKE_CURRENT_SOURCE_DIR}/${FILENAME})
     # Skip generating source headers on Vulkan exclusive files
@@ -62,5 +62,5 @@ add_custom_target(host_shaders
     DEPENDS
         ${SHADER_HEADERS}
     SOURCES
-        ${SHADER_SOURCES}
+        ${SHADER_FILES}
 )
