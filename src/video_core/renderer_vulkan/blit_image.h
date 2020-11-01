@@ -32,11 +32,22 @@ public:
                              StateTracker& state_tracker, VKDescriptorPool& descriptor_pool);
     ~BlitImageHelper();
 
-    void Invoke(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
-                const Tegra::Engines::Fermi2D::Config& config);
+    void BlitColor(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
+                   const Tegra::Engines::Fermi2D::Config& config);
+
+    void ConvertD32ToR32(const Framebuffer* dst_framebuffer, const ImageView& src_image_view);
+
+    void ConvertR32ToD32(const Framebuffer* dst_framebuffer, const ImageView& src_image_view);
 
 private:
+    void Convert(VkPipeline pipeline, const Framebuffer* dst_framebuffer,
+                 const ImageView& src_image_view);
+
     [[nodiscard]] VkPipeline FindOrEmplacePipeline(const BlitImagePipelineKey& key);
+
+    [[nodiscard]] VkPipeline ConvertD32ToR32Pipeline(VkRenderPass renderpass);
+
+    [[nodiscard]] VkPipeline ConvertR32ToD32Pipeline(VkRenderPass renderpass);
 
     const VKDevice& device;
     VKScheduler& scheduler;
@@ -44,14 +55,18 @@ private:
 
     vk::DescriptorSetLayout set_layout;
     DescriptorAllocator descriptor_allocator;
-    vk::ShaderModule vertex_shader;
-    vk::ShaderModule fragment_shader;
+    vk::ShaderModule full_screen_vert;
+    vk::ShaderModule blit_color_to_color_frag;
+    vk::ShaderModule convert_d32_to_r32_frag;
+    vk::ShaderModule convert_r32_to_d32_frag;
     vk::Sampler linear_sampler;
     vk::Sampler nearest_sampler;
     vk::PipelineLayout pipeline_layout;
 
     std::vector<BlitImagePipelineKey> keys;
     std::vector<vk::Pipeline> pipelines;
+    vk::Pipeline convert_d32_to_r32_pipeline;
+    vk::Pipeline convert_r32_to_d32_pipeline;
 };
 
 } // namespace Vulkan

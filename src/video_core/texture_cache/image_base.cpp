@@ -114,7 +114,7 @@ void ImageBase::InsertView(const ImageViewInfo& info, ImageViewId image_view_id)
 }
 
 void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_id) {
-    static constexpr auto OPTIONS = RelaxedOptions::Size;
+    static constexpr auto OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
     if (lhs.gpu_addr > rhs.gpu_addr) {
         // If lhs is not on the left, flip them
         return AddImageAlias(rhs, lhs, rhs_id, lhs_id);
@@ -161,11 +161,11 @@ void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_i
         .extent = size,
     };
     const AliasedImage lhs_alias{
-        .copy = to_lhs_copy,
+        .copies = {to_lhs_copy},
         .id = rhs_id,
     };
     const AliasedImage rhs_alias{
-        .copy = to_rhs_copy,
+        .copies = {to_rhs_copy},
         .id = lhs_id,
     };
     ASSERT_MSG(ValidateCopy(to_lhs_copy, lhs.info, rhs.info), "Invalid RHS to LHS copy");

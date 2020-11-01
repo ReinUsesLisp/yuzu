@@ -732,7 +732,6 @@ ImageViewType RenderTargetImageViewType(const ImageInfo& info) noexcept {
 
 std::vector<ImageCopy> MakeShrinkImageCopies(const ImageInfo& dst, const ImageInfo& src,
                                              SubresourceBase base) {
-    ASSERT(IsCopyCompatible(dst.format, src.format));
     ASSERT(dst.resources.mipmaps >= src.resources.mipmaps);
 
     const bool is_dst_3d = dst.type == ImageType::e3D;
@@ -1077,8 +1076,18 @@ bool IsPitchLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs, bool stri
 std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr gpu_addr,
                                             VAddr cpu_addr, const ImageBase& overlap,
                                             bool strict_size) {
-    ASSERT(new_info.type != ImageType::Linear);
-    ASSERT(overlap.info.type != ImageType::Linear);
+    if (new_info.type == ImageType::Linear) {
+        return std::nullopt;
+    }
+    if (overlap.info.type == ImageType::Linear) {
+        return std::nullopt;
+    }
+    if (!IsLayerStrideCompatible(new_info, overlap.info)) {
+        return std::nullopt;
+    }
+    if (!IsViewCompatible(overlap.info.format, new_info.format)) {
+        return std::nullopt;
+    }
     if (gpu_addr == overlap.gpu_addr) {
         const std::optional solution = ResolveOverlapEqualAddress(new_info, overlap, strict_size);
         if (!solution) {
@@ -1089,11 +1098,12 @@ std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr 
             .cpu_addr = cpu_addr,
             .resources = *solution,
         };
-    } else if (overlap.gpu_addr > gpu_addr) {
-        return ResolveOverlapRightAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
-    } else { // overlap.gpu_addr < gpu_addr
-        return ResolveOverlapLeftAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
     }
+    if (overlap.gpu_addr > gpu_addr) {
+        return ResolveOverlapRightAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
+    }
+    // if overlap.gpu_addr < gpu_addr
+    return ResolveOverlapLeftAddress(new_info, gpu_addr, cpu_addr, overlap, strict_size);
 }
 
 bool IsLayerStrideCompatible(const ImageInfo& lhs, const ImageInfo& rhs) {

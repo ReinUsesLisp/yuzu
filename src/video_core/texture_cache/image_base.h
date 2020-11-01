@@ -30,7 +30,7 @@ DECLARE_ENUM_FLAG_OPERATORS(ImageFlagBits)
 struct ImageViewInfo;
 
 struct AliasedImage {
-    ImageCopy copy;
+    std::vector<ImageCopy> copies;
     ImageId id;
 };
 

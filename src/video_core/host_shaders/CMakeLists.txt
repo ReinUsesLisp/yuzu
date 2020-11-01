@@ -1,11 +1,13 @@
 set(SHADER_FILES
     block_linear_unswizzle_2d.comp
     block_linear_unswizzle_3d.comp
+    convert_d32_float_to_r32_float.frag
+    convert_r32_float_to_d32_float.frag
+    full_screen_triangle.vert
     opengl_present.frag
     opengl_present.vert
     pitch_unswizzle.comp
     vulkan_blit_color_float.frag
-    vulkan_blit_color_float.vert
     vulkan_present.frag
     vulkan_present.vert
     vulkan_quad_array.comp

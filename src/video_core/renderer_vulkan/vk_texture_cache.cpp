@@ -473,7 +473,7 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
     const VkImageAspectFlags aspect_mask = ImageAspectMask(src.format);
     ASSERT(aspect_mask == ImageAspectMask(dst.format));
     if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT) {
-        blit_image.Invoke(dst_framebuffer, src, copy);
+        blit_image_helper.BlitColor(dst_framebuffer, src, copy);
         return;
     }
     ASSERT(src.format == dst.format);
@@ -492,10 +492,36 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
         });
 }
 
+void TextureCacheRuntime::ConvertImage(Framebuffer* dst, ImageView& dst_view, ImageView& src_view) {
+    switch (dst_view.format) {
+    case PixelFormat::R32_FLOAT:
+        switch (src_view.format) {
+        case PixelFormat::D32_FLOAT:
+            return blit_image_helper.ConvertD32ToR32(dst, src_view);
+        default:
+            break;
+        }
+        break;
+    case PixelFormat::D32_FLOAT:
+        switch (src_view.format) {
+        case PixelFormat::R32_FLOAT:
+            return blit_image_helper.ConvertR32ToD32(dst, src_view);
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented format copy from {} to {}", src_view.format, dst_view.format);
+}
+
 void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
                                     std::span<const VideoCommon::ImageCopy> copies) {
     std::vector<VkImageCopy> vk_copies(copies.size());
     const VkImageAspectFlags aspect_mask = dst.AspectMask();
+    ASSERT(aspect_mask == src.AspectMask());
+
     std::ranges::transform(copies, vk_copies.begin(), [aspect_mask](const auto& copy) {
         return MakeImageCopy(copy, aspect_mask);
     });

@@ -72,7 +72,7 @@ struct TextureCacheRuntime {
     VKScheduler& scheduler;
     VKMemoryManager& memory_manager;
     VKStagingBufferPool& staging_buffer_pool;
-    BlitImageHelper& blit_image;
+    BlitImageHelper& blit_image_helper;
     std::unordered_map<RenderPassKey, vk::RenderPass> renderpass_cache;
 
     [[nodiscard]] ImageBufferMap MapUploadBuffer(size_t size);
@@ -86,6 +86,8 @@ struct TextureCacheRuntime {
                    const Tegra::Engines::Fermi2D::Config& copy);
 
     void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
+
+    void ConvertImage(Framebuffer* dst, ImageView& dst_view, ImageView& src_view);
 
     [[nodiscard]] bool CanAccelerateImageUpload(Image&) const noexcept {
         return false;

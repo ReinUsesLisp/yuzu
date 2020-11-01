@@ -66,6 +66,10 @@ public:
 
     void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
 
+    void ConvertImage(Framebuffer* dst, ImageView& dst_view, ImageView& src_view) {
+        UNIMPLEMENTED();
+    }
+
     void BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
                          const Tegra::Engines::Fermi2D::Config& copy);
 

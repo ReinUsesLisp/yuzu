@@ -21,8 +21,8 @@ using VideoCore::Surface::PixelFormat;
 struct ImageViewInfo {
     explicit ImageViewInfo() noexcept = default;
     explicit ImageViewInfo(const TICEntry& config) noexcept;
-    explicit ImageViewInfo(ImageViewType type_, PixelFormat format_,
-                           SubresourceRange range_ = {}) noexcept;
+    explicit ImageViewInfo(ImageViewType type, PixelFormat format,
+                           SubresourceRange range = {}) noexcept;
 
     constexpr auto operator<=>(const ImageViewInfo&) const noexcept = default;
 

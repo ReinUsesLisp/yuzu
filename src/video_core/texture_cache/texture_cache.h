@@ -47,6 +47,7 @@ using VideoCore::Surface::IsCopyCompatible;
 using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
+using VideoCore::Surface::SurfaceType;
 
 template <class P>
 class TextureCache {
@@ -102,9 +103,9 @@ public:
                 ImageView* const image_view = &slot_image_views[image_view_id];
                 image_views[i] = image_view;
                 if (image_view_id != NULL_IMAGE_VIEW_ID) {
-                    Image& image = slot_images[image_view->image_id];
-                    UpdateImageContents(image);
-                    SynchronizeAliases(image);
+                    const ImageId image_id = image_view->image_id;
+                    UpdateImageContents(slot_images[image_id]);
+                    SynchronizeAliases(image_id);
                 }
             }
         } while (has_deleted_images);
@@ -328,6 +329,15 @@ private:
 
     void RemoveFramebuffers(std::span<const ImageViewId> removed_views);
 
+    void MarkModification(ImageBase& image) noexcept;
+
+    void SynchronizeAliases(ImageId image_id);
+
+    void CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies);
+
+    [[nodiscard]] std::pair<Framebuffer*, ImageViewId> RenderTargetFromImage(
+        ImageId, const ImageViewInfo& view_info);
+
     Runtime& runtime;
     VideoCore::RasterizerInterface& rasterizer;
     Tegra::Engines::Maxwell3D& maxwell3d;
@@ -360,23 +370,6 @@ private:
     std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
 
     u64 modification_tick = 0;
-
-    // TODO: Move these to the inl file
-    void MarkModification(ImageBase& image) noexcept {
-        image.flags |= ImageFlagBits::GpuModified;
-        image.modification_tick = ++modification_tick;
-    }
-
-    void SynchronizeAliases(Image& image) {
-        for (const AliasedImage& aliased : image.aliased_images) {
-            Image& aliased_image = slot_images[aliased.id];
-            // TODO: sort
-            if (image.modification_tick < aliased_image.modification_tick) {
-                const std::span<const ImageCopy> copy_span(&aliased.copy, 1);
-                runtime.CopyImage(image, aliased_image, copy_span);
-            }
-        }
-    }
 };
 
 } // namespace VideoCommon

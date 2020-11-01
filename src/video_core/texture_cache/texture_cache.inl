@@ -59,17 +59,19 @@ void TextureCache<P>::UpdateRenderTargets() {
         ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
         color_buffer_id = FindColorBuffer(index);
         if (color_buffer_id) {
-            Image& image = slot_images[slot_image_views[color_buffer_id].image_id];
+            const ImageId image_id = slot_image_views[color_buffer_id].image_id;
+            Image& image = slot_images[image_id];
             UpdateImageContents(image);
-            SynchronizeAliases(image);
+            SynchronizeAliases(image_id);
             MarkModification(image);
         }
     }
     render_targets.depth_buffer_id = FindDepthBuffer();
     if (render_targets.depth_buffer_id) {
-        Image& image = slot_images[slot_image_views[render_targets.depth_buffer_id].image_id];
+        const ImageId image_id = slot_image_views[render_targets.depth_buffer_id].image_id;
+        Image& image = slot_images[image_id];
         UpdateImageContents(image);
-        SynchronizeAliases(image);
+        SynchronizeAliases(image_id);
         MarkModification(image);
     }
     for (size_t index = 0; index < NUM_RT; ++index) {
@@ -161,38 +163,26 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     const BlitImages images = GetBlitImages(dst, src);
     ImageBase& dst_image = slot_images[images.dst_id];
     const ImageBase& src_image = slot_images[images.src_id];
+    // TODO: Synchronize
     dst_image.flags |= ImageFlagBits::GpuModified;
 
+    // TODO: Deduplicate
     const std::optional dst_base = dst_image.FindSubresourceFromAddress(dst.Address());
-    UNIMPLEMENTED_IF(dst_base->mipmap != 0);
     const SubresourceRange dst_range{.base = dst_base.value(), .extent = {1, 1}};
     const ImageViewInfo dst_view_info(ImageViewType::e2D, images.dst_format, dst_range);
-    const ImageViewId dst_view_id = FindOrEmplaceImageView(images.dst_id, dst_view_info);
-    const Extent3D dst_extent = dst_image.info.size; // TODO: Apply mips
-    const RenderTargets dst_targets{
-        .color_buffer_ids = {dst_view_id},
-        .depth_buffer_id = ImageViewId{},
-        .size = {dst_extent.width, dst_extent.height},
-    };
-    Framebuffer* const dst_framebuffer = GetFramebuffer(dst_targets);
+    const auto [dst_framebuffer, dst_view_id] = RenderTargetFromImage(images.dst_id, dst_view_info);
 
     const std::optional src_base = src_image.FindSubresourceFromAddress(src.Address());
     const SubresourceRange src_range{.base = src_base.value(), .extent = {1, 1}};
-    UNIMPLEMENTED_IF(src_base->mipmap != 0);
     const ImageViewInfo src_view_info(ImageViewType::e2D, images.src_format, src_range);
-    const ImageViewId src_view_id = FindOrEmplaceImageView(images.src_id, src_view_info);
+    const auto [src_framebuffer, src_view_id] = RenderTargetFromImage(images.src_id, src_view_info);
 
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits framebuffers, not images
-        const Extent3D src_extent = src_image.info.size; // TODO: Apply mips
-        const RenderTargets dst_key{
-            .color_buffer_ids = {src_view_id},
-            .depth_buffer_id = ImageViewId{},
-            .size = {src_extent.width, src_extent.height},
-        };
-        Framebuffer* const src_framebuffer = GetFramebuffer(dst_key);
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
+        // Vulkan can blit images, but it lacks format reinterpretations
+        // Provide a framebuffer in case its necessary
         ImageView& dst_view = slot_image_views[dst_view_id];
         ImageView& src_view = slot_image_views[src_view_id];
         runtime.BlitImage(dst_framebuffer, dst_view, src_view, copy);
@@ -447,32 +437,19 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
     std::vector<ImageId> overlap_ids;
     std::vector<ImageId> aliased_ids;
     ForEachImageInRegion(cpu_addr, size_bytes, [&](ImageId overlap_id, ImageBase& overlap) {
-        if (new_info.type == ImageType::Linear) {
-            // TODO: Move this out of the loop
-            return;
-        }
-        if (overlap.info.type == ImageType::Linear) {
-            return;
-        }
-        if (!IsLayerStrideCompatible(new_info, overlap.info)) {
-            return;
-        }
-        if (!IsCopyCompatible(overlap.info.format, new_info.format)) {
-            return;
-        }
         const auto solution = ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap, true);
-        if (!solution) {
-            const ImageBase new_image_base(new_info, gpu_addr, cpu_addr);
-            if (IsSubresource(overlap.info, new_image_base, overlap.gpu_addr,
-                              RelaxedOptions::Size)) {
-                aliased_ids.push_back(overlap_id);
-            }
+        if (solution) {
+            gpu_addr = solution->gpu_addr;
+            cpu_addr = solution->cpu_addr;
+            new_info.resources = solution->resources;
+            overlap_ids.push_back(overlap_id);
             return;
         }
-        gpu_addr = solution->gpu_addr;
-        cpu_addr = solution->cpu_addr;
-        new_info.resources = solution->resources;
-        overlap_ids.push_back(overlap_id);
+        static constexpr auto options = RelaxedOptions::Size | RelaxedOptions::Format;
+        const ImageBase new_image_base(new_info, gpu_addr, cpu_addr);
+        if (IsSubresource(overlap.info, new_image_base, overlap.gpu_addr, options)) {
+            aliased_ids.push_back(overlap_id);
+        }
     });
     const ImageId new_image_id = slot_images.insert(runtime, new_info, gpu_addr, cpu_addr);
     Image& new_image = slot_images[new_image_id];
@@ -784,6 +761,87 @@ void TextureCache<P>::RemoveFramebuffers(std::span<const ImageViewId> removed_vi
             ++it;
         }
     }
+}
+
+template <class P>
+void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
+    image.flags |= ImageFlagBits::GpuModified;
+    image.modification_tick = ++modification_tick;
+}
+
+template <class P>
+void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
+    const ImageBase& image = slot_images[image_id];
+    for (const AliasedImage& aliased : image.aliased_images) {
+        Image& aliased_image = slot_images[aliased.id];
+        // TODO: sort
+        if (image.modification_tick < aliased_image.modification_tick) {
+            CopyImage(image_id, aliased.id, aliased.copies);
+        }
+    }
+}
+
+template <class P>
+void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies) {
+    Image& dst = slot_images[dst_id];
+    Image& src = slot_images[src_id];
+    const auto dst_format_type = GetFormatType(dst.info.format);
+    const auto src_format_type = GetFormatType(src.info.format);
+    if (src_format_type == dst_format_type) {
+        return runtime.CopyImage(dst, src, copies);
+    }
+    UNIMPLEMENTED_IF(dst.info.type != ImageType::e2D);
+    UNIMPLEMENTED_IF(src.info.type != ImageType::e2D);
+    for (const ImageCopy& copy : copies) {
+        UNIMPLEMENTED_IF(copy.dst_subresource.num_layers != 1);
+        UNIMPLEMENTED_IF(copy.src_subresource.num_layers != 1);
+        UNIMPLEMENTED_IF(copy.src_offset != Offset3D{});
+        UNIMPLEMENTED_IF(copy.dst_offset != Offset3D{});
+
+        const SubresourceBase dst_base{
+            .mipmap = copy.dst_subresource.base_mipmap,
+            .layer = copy.dst_subresource.base_layer,
+        };
+        const SubresourceBase src_base{
+            .mipmap = copy.src_subresource.base_mipmap,
+            .layer = copy.src_subresource.base_layer,
+        };
+        const SubresourceExtent dst_extent{.mipmaps = 1, .layers = 1};
+        const SubresourceExtent src_extent{.mipmaps = 1, .layers = 1};
+        const SubresourceRange dst_range{.base = dst_base, .extent = dst_extent};
+        const SubresourceRange src_range{.base = src_base, .extent = src_extent};
+        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst.info.format, dst_range);
+        const ImageViewInfo src_view_info(ImageViewType::e2D, src.info.format, src_range);
+        const auto [dst_framebuffer, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
+        const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
+        ImageView& dst_view = slot_image_views[dst_view_id];
+        ImageView& src_view = slot_image_views[src_view_id];
+        [[maybe_unused]] const Extent3D expected_size{
+            .width = std::min(dst_view.size.width, src_view.size.width),
+            .height = std::min(dst_view.size.height, src_view.size.height),
+            .depth = std::min(dst_view.size.depth, src_view.size.depth),
+        };
+        UNIMPLEMENTED_IF(copy.extent != expected_size);
+
+        runtime.ConvertImage(dst_framebuffer, dst_view, src_view);
+    }
+}
+
+template <class P>
+std::pair<typename P::Framebuffer*, ImageViewId> TextureCache<P>::RenderTargetFromImage(
+    ImageId image_id, const ImageViewInfo& view_info) {
+    const ImageViewId view_id = FindOrEmplaceImageView(image_id, view_info);
+    const ImageBase& image = slot_images[image_id];
+    const bool is_color = GetFormatType(image.info.format) == SurfaceType::ColorTexture;
+    const ImageViewId color_view_id = is_color ? view_id : ImageViewId{};
+    const ImageViewId depth_view_id = is_color ? ImageViewId{} : view_id;
+    const Extent3D extent = MipSize(image.info.size, view_info.range.base.mipmap);
+    Framebuffer* const framebuffer = GetFramebuffer(RenderTargets{
+        .color_buffer_ids = {color_view_id},
+        .depth_buffer_id = depth_view_id,
+        .size = {extent.width, extent.height},
+    });
+    return {framebuffer, view_id};
 }
 
 } // namespace VideoCommon
