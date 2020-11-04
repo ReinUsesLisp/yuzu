@@ -1076,12 +1076,8 @@ bool IsPitchLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs, bool stri
 std::optional<OverlapResult> ResolveOverlap(const ImageInfo& new_info, GPUVAddr gpu_addr,
                                             VAddr cpu_addr, const ImageBase& overlap,
                                             bool strict_size) {
-    if (new_info.type == ImageType::Linear) {
-        return std::nullopt;
-    }
-    if (overlap.info.type == ImageType::Linear) {
-        return std::nullopt;
-    }
+    ASSERT(new_info.type != ImageType::Linear);
+    ASSERT(overlap.info.type != ImageType::Linear);
     if (!IsLayerStrideCompatible(new_info, overlap.info)) {
         return std::nullopt;
     }

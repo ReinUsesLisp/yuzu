@@ -339,7 +339,8 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
     glTextureParameteriv(handle, GL_TEXTURE_SWIZZLE_RGBA, gl_swizzle.data());
 }
 
-bool CanBeAccelerated(const TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info) {
+[[nodiscard]] bool CanBeAccelerated(const TextureCacheRuntime& runtime,
+                                    const VideoCommon::ImageInfo& info) {
     switch (info.type) {
     case ImageType::e2D:
     case ImageType::e3D:

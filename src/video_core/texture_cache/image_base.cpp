@@ -4,15 +4,21 @@
 
 #include <algorithm>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "common/common_types.h"
+#include "video_core/surface.h"
+#include "video_core/texture_cache/formatter.h"
 #include "video_core/texture_cache/image_base.h"
 #include "video_core/texture_cache/image_view_info.h"
 #include "video_core/texture_cache/util.h"
 
-
 namespace VideoCommon {
+
+using VideoCore::Surface::DefaultBlockHeight;
+using VideoCore::Surface::DefaultBlockWidth;
+
 namespace {
 /// Returns the base layer and mip level offset
 [[nodiscard]] std::pair<u32, u32> LayerMipOffset(u32 diff, u32 layer_stride) {
@@ -115,64 +121,96 @@ void ImageBase::InsertView(const ImageViewInfo& info, ImageViewId image_view_id)
 
 void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_id) {
     static constexpr auto OPTIONS = RelaxedOptions::Size | RelaxedOptions::Format;
-    if (lhs.gpu_addr > rhs.gpu_addr) {
-        // If lhs is not on the left, flip them
-        return AddImageAlias(rhs, lhs, rhs_id, lhs_id);
+    const std::optional base = FindSubresource(rhs.info, lhs, rhs.gpu_addr, OPTIONS);
+    if (!base) {
+        LOG_ERROR(HW_GPU, "Image alias should have been flipped");
+        return;
     }
-    UNIMPLEMENTED_IF(rhs.info.resources.mipmaps != 1);
-
-    const SubresourceBase base = FindSubresource(rhs.info, lhs, rhs.gpu_addr, OPTIONS).value();
-    const Extent3D lhs_size = MipSize(lhs.info.size, base.mipmap);
-    const Extent3D rhs_size = rhs.info.size;
-    const Extent3D size{
-        .width = std::min(lhs_size.width, rhs_size.width),
-        .height = std::min(lhs_size.height, rhs_size.height),
-        .depth = std::min(lhs_size.depth, rhs_size.depth),
+    const PixelFormat lhs_format = lhs.info.format;
+    const PixelFormat rhs_format = rhs.info.format;
+    const Extent2D lhs_block{
+        .width = DefaultBlockWidth(lhs_format),
+        .height = DefaultBlockHeight(lhs_format),
     };
-    const bool is_lhs_3d = lhs.info.type == ImageType::e3D;
-    const bool is_rhs_3d = rhs.info.type == ImageType::e3D;
-    const Offset3D lhs_offset{0, 0, 0};
-    const Offset3D rhs_offset{0, 0, is_rhs_3d ? base.layer : 0};
-    const u32 lhs_layers = is_lhs_3d ? 1 : lhs.info.resources.layers - base.layer;
-    const u32 rhs_layers = is_rhs_3d ? 1 : rhs.info.resources.layers;
-    const u32 num_layers = std::min(lhs_layers, rhs_layers);
-    const SubresourceLayers lhs_subresource{
-        .base_mipmap = 0,
-        .base_layer = 0,
-        .num_layers = num_layers,
+    const Extent2D rhs_block{
+        .width = DefaultBlockWidth(rhs_format),
+        .height = DefaultBlockHeight(rhs_format),
     };
-    const SubresourceLayers rhs_subresource{
-        .base_mipmap = base.mipmap,
-        .base_layer = is_rhs_3d ? 0 : base.layer,
-        .num_layers = num_layers,
-    };
-    const ImageCopy to_lhs_copy{
-        .src_subresource = lhs_subresource,
-        .dst_subresource = rhs_subresource,
-        .src_offset = lhs_offset,
-        .dst_offset = rhs_offset,
-        .extent = size,
-    };
-    const ImageCopy to_rhs_copy{
-        .src_subresource = rhs_subresource,
-        .dst_subresource = lhs_subresource,
-        .src_offset = rhs_offset,
-        .dst_offset = lhs_offset,
-        .extent = size,
-    };
-    const AliasedImage lhs_alias{
-        .copies = {to_lhs_copy},
-        .id = rhs_id,
-    };
-    const AliasedImage rhs_alias{
-        .copies = {to_rhs_copy},
-        .id = lhs_id,
-    };
-    ASSERT_MSG(ValidateCopy(to_lhs_copy, lhs.info, rhs.info), "Invalid RHS to LHS copy");
-    ASSERT_MSG(ValidateCopy(to_rhs_copy, rhs.info, lhs.info), "Invalid LHS to RHS copy");
-
-    lhs.aliased_images.push_back(lhs_alias);
-    rhs.aliased_images.push_back(rhs_alias);
+    const bool is_lhs_compressed = lhs_block.width > 1 || lhs_block.height > 1;
+    const bool is_rhs_compressed = rhs_block.width > 1 || rhs_block.height > 1;
+    if (is_lhs_compressed && is_rhs_compressed) {
+        LOG_ERROR(HW_GPU, "Compressed to compressed image aliasing is not implemented");
+        return;
+    }
+    const u32 lhs_mips = lhs.info.resources.mipmaps;
+    const u32 rhs_mips = rhs.info.resources.mipmaps;
+    const u32 num_mips = std::min(lhs_mips - base->mipmap, rhs_mips);
+    AliasedImage lhs_alias;
+    AliasedImage rhs_alias;
+    lhs_alias.id = rhs_id;
+    rhs_alias.id = lhs_id;
+    lhs_alias.copies.reserve(num_mips);
+    rhs_alias.copies.reserve(num_mips);
+    for (u32 mip_level = 0; mip_level < num_mips; ++mip_level) {
+        Extent3D lhs_size = MipSize(lhs.info.size, base->mipmap + mip_level);
+        Extent3D rhs_size = MipSize(rhs.info.size, mip_level);
+        if (is_lhs_compressed) {
+            lhs_size.width /= lhs_block.width;
+            lhs_size.height /= lhs_block.height;
+        }
+        if (is_rhs_compressed) {
+            rhs_size.width /= rhs_block.width;
+            rhs_size.height /= rhs_block.height;
+        }
+        const Extent3D copy_size{
+            .width = std::min(lhs_size.width, rhs_size.width),
+            .height = std::min(lhs_size.height, rhs_size.height),
+            .depth = std::min(lhs_size.depth, rhs_size.depth),
+        };
+        if (copy_size.width == 0 || copy_size.height == 0) {
+            LOG_WARNING(HW_GPU, "Copy size is smaller than block size. Mip cannot be aliased.");
+            continue;
+        }
+        const bool is_lhs_3d = lhs.info.type == ImageType::e3D;
+        const bool is_rhs_3d = rhs.info.type == ImageType::e3D;
+        const Offset3D lhs_offset{0, 0, 0};
+        const Offset3D rhs_offset{0, 0, is_rhs_3d ? base->layer : 0};
+        const u32 lhs_layers = is_lhs_3d ? 1 : lhs.info.resources.layers - base->layer;
+        const u32 rhs_layers = is_rhs_3d ? 1 : rhs.info.resources.layers;
+        const u32 num_layers = std::min(lhs_layers, rhs_layers);
+        const SubresourceLayers lhs_subresource{
+            .base_mipmap = mip_level,
+            .base_layer = 0,
+            .num_layers = num_layers,
+        };
+        const SubresourceLayers rhs_subresource{
+            .base_mipmap = base->mipmap + mip_level,
+            .base_layer = is_rhs_3d ? 0 : base->layer,
+            .num_layers = num_layers,
+        };
+        [[maybe_unused]] const ImageCopy& to_lhs_copy = lhs_alias.copies.emplace_back(ImageCopy{
+            .src_subresource = lhs_subresource,
+            .dst_subresource = rhs_subresource,
+            .src_offset = lhs_offset,
+            .dst_offset = rhs_offset,
+            .extent = copy_size,
+        });
+        [[maybe_unused]] const ImageCopy& to_rhs_copy = rhs_alias.copies.emplace_back(ImageCopy{
+            .src_subresource = rhs_subresource,
+            .dst_subresource = lhs_subresource,
+            .src_offset = rhs_offset,
+            .dst_offset = lhs_offset,
+            .extent = copy_size,
+        });
+        ASSERT_MSG(ValidateCopy(to_lhs_copy, lhs.info, rhs.info), "Invalid RHS to LHS copy");
+        ASSERT_MSG(ValidateCopy(to_rhs_copy, rhs.info, lhs.info), "Invalid LHS to RHS copy");
+    }
+    ASSERT(lhs_alias.copies.empty() == rhs_alias.copies.empty());
+    if (lhs_alias.copies.empty()) {
+        return;
+    }
+    lhs.aliased_images.push_back(std::move(lhs_alias));
+    rhs.aliased_images.push_back(std::move(rhs_alias));
 }
 
 } // namespace VideoCommon

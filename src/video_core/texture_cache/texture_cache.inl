@@ -124,18 +124,28 @@ void TextureCache<P>::WriteMemory(VAddr cpu_addr, size_t size) {
 
 template <class P>
 void TextureCache<P>::DownloadMemory(VAddr cpu_addr, size_t size) {
-    ForEachImageInRegion(cpu_addr, size, [this](ImageId, Image& image) {
+    std::vector<ImageId> images;
+    ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
         if (False(image.flags & ImageFlagBits::GpuModified)) {
             return;
         }
         image.flags &= ~ImageFlagBits::GpuModified;
-
+        images.push_back(image_id);
+    });
+    if (images.empty()) {
+        return;
+    }
+    LOG_INFO(HW_GPU, "Download");
+    std::ranges::sort(images, [this](ImageId lhs, ImageId rhs) {
+        return slot_images[lhs].modification_tick < slot_images[rhs].modification_tick;
+    });
+    for (const ImageId image_id : images) {
+        Image& image = slot_images[image_id];
         auto map = runtime.MapDownloadBuffer(image.unswizzled_size_bytes);
         const auto copies = FullDownloadCopies(image.info);
         image.DownloadMemory(map, 0, copies);
         SwizzleImage(gpu_memory, image.gpu_addr, image.info, copies, map.Span());
-        LOG_INFO(HW_GPU, "Download");
-    });
+    }
 }
 
 template <class P>
@@ -435,8 +445,15 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
     ImageInfo new_info = info;
     const size_t size_bytes = CalculateGuestSizeInBytes(new_info);
     std::vector<ImageId> overlap_ids;
-    std::vector<ImageId> aliased_ids;
+    std::vector<ImageId> left_aliased_ids;
+    std::vector<ImageId> right_aliased_ids;
     ForEachImageInRegion(cpu_addr, size_bytes, [&](ImageId overlap_id, ImageBase& overlap) {
+        if (info.type == ImageType::Linear) {
+            return;
+        }
+        if (overlap.info.type == ImageType::Linear) {
+            return;
+        }
         const auto solution = ResolveOverlap(new_info, gpu_addr, cpu_addr, overlap, true);
         if (solution) {
             gpu_addr = solution->gpu_addr;
@@ -447,8 +464,10 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
         }
         static constexpr auto options = RelaxedOptions::Size | RelaxedOptions::Format;
         const ImageBase new_image_base(new_info, gpu_addr, cpu_addr);
-        if (IsSubresource(overlap.info, new_image_base, overlap.gpu_addr, options)) {
-            aliased_ids.push_back(overlap_id);
+        if (IsSubresource(new_info, overlap, gpu_addr, options)) {
+            left_aliased_ids.push_back(overlap_id);
+        } else if (IsSubresource(overlap.info, new_image_base, overlap.gpu_addr, options)) {
+            right_aliased_ids.push_back(overlap_id);
         }
     });
     const ImageId new_image_id = slot_images.insert(runtime, new_info, gpu_addr, cpu_addr);
@@ -466,10 +485,14 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
         UnregisterImage(overlap_id);
         DeleteImage(overlap_id);
     }
-    for (const ImageId aliased_id : aliased_ids) {
+    ImageBase& new_image_base = new_image;
+    for (const ImageId aliased_id : right_aliased_ids) {
         ImageBase& aliased = slot_images[aliased_id];
-        ImageBase& new_image_base = new_image;
         AddImageAlias(new_image_base, aliased, new_image_id, aliased_id);
+    }
+    for (const ImageId aliased_id : left_aliased_ids) {
+        ImageBase& aliased = slot_images[aliased_id];
+        AddImageAlias(aliased, new_image_base, aliased_id, new_image_id);
     }
     RegisterImage(new_image_id);
     return new_image_id;

@@ -101,6 +101,17 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
 ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) noexcept {
     const auto& rt = regs.rt[index];
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(rt.format);
+    if (rt.tile_mode.is_pitch_linear) {
+        ASSERT(rt.tile_mode.is_3d == 0);
+        type = ImageType::Linear;
+        pitch = rt.width;
+        size = Extent3D{
+            .width = pitch / BytesPerBlock(format),
+            .height = rt.height,
+            .depth = 1,
+        };
+        return;
+    }
     size.width = rt.width;
     size.height = rt.height;
     layer_stride = rt.layer_stride * 4;
@@ -111,11 +122,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs, size_t index) 
         .height = rt.tile_mode.block_height,
         .depth = rt.tile_mode.block_depth,
     };
-    if (rt.tile_mode.is_pitch_linear) {
-        ASSERT(rt.tile_mode.is_3d == 0);
-        type = ImageType::Linear;
-        pitch = size.width * BytesPerBlock(format);
-    } else if (rt.tile_mode.is_3d) {
+    if (rt.tile_mode.is_3d) {
         type = ImageType::e3D;
         size.depth = rt.depth;
     } else {
