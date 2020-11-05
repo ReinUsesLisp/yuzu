@@ -194,7 +194,7 @@ GLenum ImageTarget(const VideoCommon::ImageInfo& info) {
     return GL_NONE;
 }
 
-GLenum ImageTarget(ImageViewType type, int num_samples) {
+GLenum ImageTarget(ImageViewType type, int num_samples = 1) {
     const bool is_multisampled = num_samples > 1;
     switch (type) {
     case ImageViewType::e1D:
@@ -440,7 +440,7 @@ ImageBufferMap::~ImageBufferMap() {
 TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& program_manager,
                                          StateTracker& state_tracker_)
     : device{device_}, state_tracker{state_tracker_}, util_shaders(program_manager) {
-    static constexpr std::array TARGETS = {GL_TEXTURE_1D_ARRAY, GL_TEXTURE_2D_ARRAY, GL_TEXTURE_3D};
+    static constexpr std::array TARGETS{GL_TEXTURE_1D_ARRAY, GL_TEXTURE_2D_ARRAY, GL_TEXTURE_3D};
     for (size_t i = 0; i < TARGETS.size(); ++i) {
         const GLenum target = TARGETS[i];
         for (const FormatTuple& tuple : FORMAT_TABLE) {
@@ -462,6 +462,14 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& 
             format_properties[i].emplace(format, properties);
         }
     }
+    null_image_1d.Create(GL_TEXTURE_1D);
+    null_image_2d.Create(GL_TEXTURE_2D_ARRAY);
+    null_image_3d.Create(GL_TEXTURE_3D);
+    null_image_rect.Create(GL_TEXTURE_RECTANGLE);
+    glTextureStorage1D(null_image_1d.handle, 1, GL_R8, 1);
+    glTextureStorage3D(null_image_2d.handle, 1, GL_R8, 1, 1, 6);
+    glTextureStorage3D(null_image_3d.handle, 1, GL_R8, 1, 1, 1);
+    glTextureStorage2D(null_image_rect.handle, 1, GL_R8, 1, 1);
 }
 
 TextureCacheRuntime::~TextureCacheRuntime() = default;
@@ -716,7 +724,6 @@ void Image::DownloadMemory(ImageBufferMap& map, size_t buffer_offset,
         }
         CopyImageToBuffer(copy, buffer_offset);
     }
-
     glFinish();
 }
 
@@ -883,6 +890,28 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
     default_handle = Handle(info.type);
 }
 
+ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::NullImageParams& params)
+    : VideoCommon::ImageViewBase{params} {
+    static constexpr std::array NULL_SWIZZLE{GL_ZERO, GL_ZERO, GL_ZERO, GL_ZERO};
+    std::array<GLuint, VideoCommon::NUM_IMAGE_VIEW_TYPES> handles;
+    glGenTextures(static_cast<GLsizei>(handles.size()), handles.data());
+
+    const auto set_view = [&](ImageViewType type, GLuint base, GLint num_layers) {
+        const GLuint view = handles[static_cast<size_t>(type)];
+        views[static_cast<size_t>(type)].handle = view;
+        glTextureView(view, ImageTarget(type), base, GL_R8, 0, 1, 0, num_layers);
+        glTextureParameteriv(view, GL_TEXTURE_SWIZZLE_RGBA, NULL_SWIZZLE.data());
+    };
+    set_view(ImageViewType::e1D, runtime.null_image_1d.handle, 1);
+    set_view(ImageViewType::e2D, runtime.null_image_2d.handle, 1);
+    set_view(ImageViewType::Cube, runtime.null_image_2d.handle, 6);
+    set_view(ImageViewType::e3D, runtime.null_image_3d.handle, 1);
+    set_view(ImageViewType::e1DArray, runtime.null_image_1d.handle, 1);
+    set_view(ImageViewType::e2DArray, runtime.null_image_2d.handle, 1);
+    set_view(ImageViewType::CubeArray, runtime.null_image_2d.handle, 6);
+    set_view(ImageViewType::Rect, runtime.null_image_rect.handle, 1);
+}
+
 void ImageView::SetupView(Image& image, ImageViewType type, GLuint handle,
                           const VideoCommon::ImageViewInfo& info,
                           VideoCommon::SubresourceRange range) {
@@ -903,11 +932,6 @@ void ImageView::SetupView(Image& image, ImageViewType type, GLuint handle,
     glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
 
     views[static_cast<size_t>(type)].handle = handle;
-}
-
-ImageView::ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams& params)
-    : VideoCommon::ImageViewBase{params} {
-    LOG_WARNING(Render_OpenGL, "(STUBBED) called");
 }
 
 Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {

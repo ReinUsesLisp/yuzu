@@ -55,6 +55,9 @@ struct FormatProperties {
 };
 
 class TextureCacheRuntime {
+    friend Image;
+    friend ImageView;
+
 public:
     explicit TextureCacheRuntime(const Device& device, ProgramManager& program_manager,
                                  StateTracker& state_tracker);
@@ -80,8 +83,6 @@ public:
 
     FormatProperties FormatInfo(VideoCommon::ImageType type, GLenum internal_format) const;
 
-    const Device& device;
-
 private:
     struct StagingBuffers {
         explicit StagingBuffers(GLenum storage_flags_, GLenum map_flags_);
@@ -101,6 +102,7 @@ private:
         GLenum map_flags;
     };
 
+    const Device& device;
     StateTracker& state_tracker;
     UtilShaders util_shaders;
 
@@ -108,6 +110,11 @@ private:
 
     StagingBuffers upload_buffers{GL_MAP_WRITE_BIT, GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT};
     StagingBuffers download_buffers{GL_MAP_READ_BIT, GL_MAP_READ_BIT};
+
+    OGLTexture null_image_1d;
+    OGLTexture null_image_2d;
+    OGLTexture null_image_3d;
+    OGLTexture null_image_rect;
 };
 
 class Image : public VideoCommon::ImageBase {
