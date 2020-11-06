@@ -111,10 +111,16 @@ private:
     StagingBuffers upload_buffers{GL_MAP_WRITE_BIT, GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT};
     StagingBuffers download_buffers{GL_MAP_READ_BIT, GL_MAP_READ_BIT};
 
-    OGLTexture null_image_1d;
-    OGLTexture null_image_2d;
+    OGLTexture null_image_1d_array;
+    OGLTexture null_image_cube_array;
     OGLTexture null_image_3d;
     OGLTexture null_image_rect;
+    OGLTextureView null_image_view_1d;
+    OGLTextureView null_image_view_2d;
+    OGLTextureView null_image_view_2d_array;
+    OGLTextureView null_image_view_cube;
+
+    std::array<GLuint, VideoCommon::NUM_IMAGE_VIEW_TYPES> null_image_views;
 };
 
 class Image : public VideoCommon::ImageBase {
@@ -159,7 +165,7 @@ public:
     explicit ImageView(TextureCacheRuntime&, const VideoCommon::NullImageParams&);
 
     [[nodiscard]] GLuint Handle(ImageViewType type) const noexcept {
-        return views[static_cast<size_t>(type)].handle;
+        return views[static_cast<size_t>(type)];
     }
 
     [[nodiscard]] GLuint DefaultHandle() const noexcept {
@@ -178,7 +184,8 @@ private:
     void SetupView(Image& image, ImageViewType type, GLuint handle,
                    const VideoCommon::ImageViewInfo& info, VideoCommon::SubresourceRange range);
 
-    std::array<OGLTextureView, VideoCommon::NUM_IMAGE_VIEW_TYPES> views;
+    std::array<GLuint, VideoCommon::NUM_IMAGE_VIEW_TYPES> views{};
+    std::vector<OGLTextureView> stored_views;
     GLuint default_handle = 0;
     GLenum internal_format = GL_NONE;
     bool is_slice_view = false;
