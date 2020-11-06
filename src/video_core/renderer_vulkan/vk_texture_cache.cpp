@@ -21,6 +21,9 @@ namespace Vulkan {
 using Tegra::Engines::Fermi2D;
 using Tegra::Texture::SwizzleSource;
 using Tegra::Texture::TextureMipmapFilter;
+using VideoCommon::BufferImageCopy;
+using VideoCommon::ImageInfo;
+using VideoCommon::ImageType;
 using VideoCore::Surface::IsPixelFormatASTC;
 
 namespace {
@@ -55,32 +58,31 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     }
 }
 
-[[nodiscard]] VkImageType ImageType(const VideoCommon::ImageType type) {
+[[nodiscard]] VkImageType ConvertImageType(const ImageType type) {
     switch (type) {
-    case VideoCommon::ImageType::e1D:
+    case ImageType::e1D:
         return VK_IMAGE_TYPE_1D;
-    case VideoCommon::ImageType::e2D:
-    case VideoCommon::ImageType::Linear:
-    case VideoCommon::ImageType::Rect:
+    case ImageType::e2D:
+    case ImageType::Linear:
+    case ImageType::Rect:
         return VK_IMAGE_TYPE_2D;
-    case VideoCommon::ImageType::e3D:
+    case ImageType::e3D:
         return VK_IMAGE_TYPE_3D;
-    case VideoCommon::ImageType::Buffer:
+    case ImageType::Buffer:
         break;
     }
     UNREACHABLE_MSG("Invalid image type={}", static_cast<int>(type));
     return {};
 }
 
-[[nodiscard]] VkImageCreateInfo MakeImageCreateInfo(const VKDevice& device,
-                                                    const VideoCommon::ImageInfo& info) {
+[[nodiscard]] VkImageCreateInfo MakeImageCreateInfo(const VKDevice& device, const ImageInfo& info) {
     const auto format_info = MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, info.format);
     VkImageCreateFlags flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
-    if (info.type == VideoCommon::ImageType::e2D && info.resources.layers >= 6 &&
+    if (info.type == ImageType::e2D && info.resources.layers >= 6 &&
         info.size.width == info.size.height) {
         flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     }
-    if (info.type == VideoCommon::ImageType::e3D) {
+    if (info.type == ImageType::e3D) {
         flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
     }
     VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -105,7 +107,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .pNext = nullptr,
         .flags = flags,
-        .imageType = ImageType(info.type),
+        .imageType = ConvertImageType(info.type),
         .format = format_info.format,
         .extent =
             {
@@ -125,15 +127,15 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
-[[nodiscard]] vk::Image MakeImage(const VKDevice& device, const VideoCommon::ImageInfo& info) {
-    if (info.type == VideoCommon::ImageType::Buffer) {
+[[nodiscard]] vk::Image MakeImage(const VKDevice& device, const ImageInfo& info) {
+    if (info.type == ImageType::Buffer) {
         return vk::Image{};
     }
     return device.GetLogical().CreateImage(MakeImageCreateInfo(device, info));
 }
 
-[[nodiscard]] vk::Buffer MakeBuffer(const VKDevice& device, const VideoCommon::ImageInfo& info) {
-    if (info.type != VideoCommon::ImageType::Buffer) {
+[[nodiscard]] vk::Buffer MakeBuffer(const VKDevice& device, const ImageInfo& info) {
+    if (info.type != ImageType::Buffer) {
         return vk::Buffer{};
     }
     const size_t bytes_per_block = VideoCore::Surface::BytesPerBlock(info.format);
@@ -214,6 +216,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         return VK_COMPONENT_SWIZZLE_ONE;
     }
     UNREACHABLE_MSG("Invalid swizzle={}", static_cast<int>(swizzle));
+    return VK_COMPONENT_SWIZZLE_ZERO;
 }
 
 [[nodiscard]] VkImageViewType ImageViewType(VideoCommon::ImageViewType type) {
@@ -295,12 +298,11 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
 }
 
 [[nodiscard]] std::vector<VkBufferImageCopy> TransformBufferImageCopies(
-    std::span<const VideoCommon::BufferImageCopy> copies, size_t buffer_offset,
-    VkImageAspectFlags aspect_mask) {
+    std::span<const BufferImageCopy> copies, size_t buffer_offset, VkImageAspectFlags aspect_mask) {
     struct Maker {
-        constexpr VkBufferImageCopy operator()(const VideoCommon::BufferImageCopy& copy) const {
+        VkBufferImageCopy operator()(const BufferImageCopy& copy) const {
             return VkBufferImageCopy{
-                .bufferOffset = copy.buffer_offset,
+                .bufferOffset = copy.buffer_offset + buffer_offset,
                 .bufferRowLength = copy.buffer_row_length,
                 .bufferImageHeight = copy.buffer_image_height,
                 .imageSubresource =
@@ -600,8 +602,7 @@ void TextureCacheRuntime::InsertUploadMemoryBarrier() {
     // scheduler.Record([](vk::CommandBuffer cmdbuf) {});
 }
 
-Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, GPUVAddr gpu_addr,
-             VAddr cpu_addr)
+Image::Image(TextureCacheRuntime& runtime, const ImageInfo& info, GPUVAddr gpu_addr, VAddr cpu_addr)
     : VideoCommon::ImageBase(info, gpu_addr, cpu_addr), scheduler{&runtime.scheduler},
       image(MakeImage(runtime.device, info)), buffer(MakeBuffer(runtime.device, info)),
       aspect_mask(ImageAspectMask(info.format)) {
@@ -631,7 +632,7 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
 }
 
 void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
-                         std::span<const VideoCommon::BufferImageCopy> copies) {
+                         std::span<const BufferImageCopy> copies) {
     // TODO: Move this to another API
     scheduler->RequestOutsideRenderPassOperationContext();
     std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
@@ -659,7 +660,7 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
 }
 
 void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
-                           std::span<const VideoCommon::BufferImageCopy> copies) {
+                           std::span<const BufferImageCopy> copies) {
     std::vector vk_copies = TransformBufferImageCopies(copies, buffer_offset, aspect_mask);
     scheduler->Record([buffer = map.handle, image = *image, aspect_mask = aspect_mask,
                        vk_copies](vk::CommandBuffer cmdbuf) {
@@ -671,7 +672,7 @@ void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
 
 ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,
                      ImageId image_id, Image& image)
-    : VideoCommon::ImageViewBase{info, image.info, image_id} {
+    : VideoCommon::ImageViewBase{info, image.info, image_id}, image_handle{image.Handle()} {
     const VkFormat format =
         MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format).format;
     const std::array swizzle = info.Swizzle();
