@@ -89,26 +89,24 @@ void TextureCache<P>::UpdateRenderTargets() {
 
 template <class P>
 typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
-    return GetFramebuffer(render_targets);
+    return &slot_framebuffers[GetFramebufferId(render_targets)];
 }
 
 template <class P>
-typename P::Framebuffer* TextureCache<P>::GetFramebuffer(const RenderTargets& key) {
+FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
     const auto [pair, is_new] = framebuffers.try_emplace(key);
-    FramebufferId& framebuffer = pair->second;
+    FramebufferId& framebuffer_id = pair->second;
     if (!is_new) {
-        return &slot_framebuffers[framebuffer];
+        return framebuffer_id;
     }
-
     std::array<ImageView*, NUM_RT> color_buffers;
     std::ranges::transform(key.color_buffer_ids, color_buffers.begin(),
                            [this](ImageViewId id) { return id ? &slot_image_views[id] : nullptr; });
     ImageView* const depth_buffer =
         key.depth_buffer_id ? &slot_image_views[key.depth_buffer_id] : nullptr;
-    framebuffer = slot_framebuffers.insert(runtime, slot_images, color_buffers, depth_buffer,
-                                           key.draw_buffers, key.size);
-
-    return &slot_framebuffers[framebuffer];
+    framebuffer_id = slot_framebuffers.insert(runtime, slot_images, color_buffers, depth_buffer,
+                                              key.draw_buffers, key.size);
+    return framebuffer_id;
 }
 
 template <class P>
@@ -180,19 +178,22 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     const std::optional dst_base = dst_image.FindSubresourceFromAddress(dst.Address());
     const SubresourceRange dst_range{.base = dst_base.value(), .extent = {1, 1}};
     const ImageViewInfo dst_view_info(ImageViewType::e2D, images.dst_format, dst_range);
-    const auto [dst_framebuffer, dst_view_id] = RenderTargetFromImage(images.dst_id, dst_view_info);
+    const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
 
     const std::optional src_base = src_image.FindSubresourceFromAddress(src.Address());
     const SubresourceRange src_range{.base = src_base.value(), .extent = {1, 1}};
     const ImageViewInfo src_view_info(ImageViewType::e2D, images.src_format, src_range);
-    const auto [src_framebuffer, src_view_id] = RenderTargetFromImage(images.src_id, src_view_info);
+    const auto [src_framebuffer_id, src_view_id] = RenderTargetFromImage(src_id, src_view_info);
 
+    // Always call this after src_framebuffer_id was queried, as the address might be invalidated.
+    Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
     if constexpr (FRAMEBUFFER_BLITS) {
-        // OpenGL blits framebuffers, not images
+        // OpenGL blits from framebuffers, not images
+        Framebuffer* const src_framebuffer = &slot_framebuffers[src_framebuffer_id];
         runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
     } else {
         // Vulkan can blit images, but it lacks format reinterpretations
-        // Provide a framebuffer in case its necessary
+        // Provide a framebuffer in case it's necessary
         ImageView& dst_view = slot_image_views[dst_view_id];
         ImageView& src_view = slot_image_views[src_view_id];
         runtime.BlitImage(dst_framebuffer, dst_view, src_view, copy);
@@ -849,7 +850,8 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const 
         const SubresourceRange src_range{.base = src_base, .extent = src_extent};
         const ImageViewInfo dst_view_info(ImageViewType::e2D, dst.info.format, dst_range);
         const ImageViewInfo src_view_info(ImageViewType::e2D, src.info.format, src_range);
-        const auto [dst_framebuffer, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
+        const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
+        Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
         const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
         ImageView& dst_view = slot_image_views[dst_view_id];
         ImageView& src_view = slot_image_views[src_view_id];
@@ -865,7 +867,7 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const 
 }
 
 template <class P>
-std::pair<typename P::Framebuffer*, ImageViewId> TextureCache<P>::RenderTargetFromImage(
+std::pair<FramebufferId, ImageViewId> TextureCache<P>::RenderTargetFromImage(
     ImageId image_id, const ImageViewInfo& view_info) {
     const ImageViewId view_id = FindOrEmplaceImageView(image_id, view_info);
     const ImageBase& image = slot_images[image_id];
@@ -873,12 +875,12 @@ std::pair<typename P::Framebuffer*, ImageViewId> TextureCache<P>::RenderTargetFr
     const ImageViewId color_view_id = is_color ? view_id : ImageViewId{};
     const ImageViewId depth_view_id = is_color ? ImageViewId{} : view_id;
     const Extent3D extent = MipSize(image.info.size, view_info.range.base.mipmap);
-    Framebuffer* const framebuffer = GetFramebuffer(RenderTargets{
+    const FramebufferId framebuffer_id = GetFramebufferId(RenderTargets{
         .color_buffer_ids = {color_view_id},
         .depth_buffer_id = depth_view_id,
         .size = {extent.width, extent.height},
     });
-    return {framebuffer, view_id};
+    return {framebuffer_id, view_id};
 }
 
 } // namespace VideoCommon

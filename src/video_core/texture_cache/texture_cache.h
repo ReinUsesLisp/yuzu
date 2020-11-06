@@ -246,7 +246,7 @@ private:
     void UpdateSamplerDescriptorTable(ClassDescriptorTables& tables, GPUVAddr tsc_address,
                                       size_t num_tscs);
 
-    Framebuffer* GetFramebuffer(const RenderTargets& key);
+    FramebufferId GetFramebufferId(const RenderTargets& key);
 
     void UpdateImageContents(Image& image);
 
@@ -335,7 +335,7 @@ private:
 
     void CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies);
 
-    [[nodiscard]] std::pair<Framebuffer*, ImageViewId> RenderTargetFromImage(
+    [[nodiscard]] std::pair<FramebufferId, ImageViewId> RenderTargetFromImage(
         ImageId, const ImageViewInfo& view_info);
 
     Runtime& runtime;
