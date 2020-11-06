@@ -1485,17 +1485,9 @@ void RasterizerOpenGL::SyncPointState() {
     flags[Dirty::PointSize] = false;
 
     oglEnable(GL_POINT_SPRITE, maxwell3d.regs.point_sprite_enable);
+    oglEnable(GL_PROGRAM_POINT_SIZE, maxwell3d.regs.vp_point_size.enable);
 
-    if (maxwell3d.regs.vp_point_size.enable) {
-        // By definition of GL_POINT_SIZE, it only matters if GL_PROGRAM_POINT_SIZE is disabled.
-        glEnable(GL_PROGRAM_POINT_SIZE);
-        return;
-    }
-
-    // Limit the point size to 1 since nouveau sometimes sets a point size of 0 (and that's invalid
-    // in OpenGL).
     glPointSize(std::max(1.0f, maxwell3d.regs.point_size));
-    glDisable(GL_PROGRAM_POINT_SIZE);
 }
 
 void RasterizerOpenGL::SyncLineState() {
