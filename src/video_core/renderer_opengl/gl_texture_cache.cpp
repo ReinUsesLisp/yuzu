@@ -233,17 +233,6 @@ GLenum TextureMode(PixelFormat format, bool is_first) {
     }
 }
 
-constexpr SwizzleSource SwapRedGreen(SwizzleSource value) {
-    switch (value) {
-    case SwizzleSource::R:
-        return SwizzleSource::G;
-    case SwizzleSource::G:
-        return SwizzleSource::R;
-    default:
-        return value;
-    }
-}
-
 GLint Swizzle(SwizzleSource source) {
     switch (source) {
     case SwizzleSource::Zero:
@@ -260,7 +249,6 @@ GLint Swizzle(SwizzleSource source) {
     case SwizzleSource::OneFloat:
         return GL_ONE;
     }
-
     UNREACHABLE_MSG("Invalid swizzle source={}", static_cast<int>(source));
     return GL_NONE;
 }
@@ -329,10 +317,6 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         break;
     default:
         break;
-    }
-    if (format == PixelFormat::S8_UINT_D24_UNORM) {
-        // Make sure we sample the first component
-        std::ranges::transform(swizzle, swizzle.begin(), SwapRedGreen);
     }
     std::array<GLint, 4> gl_swizzle;
     std::ranges::transform(swizzle, gl_swizzle.begin(), Swizzle);
@@ -445,7 +429,6 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& 
         const GLenum target = TARGETS[i];
         for (const FormatTuple& tuple : FORMAT_TABLE) {
             const GLenum format = tuple.internal_format;
-
             GLint compat_class;
             GLint compat_type;
             GLint is_compressed;
@@ -453,7 +436,6 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& 
             glGetInternalformativ(target, format, GL_IMAGE_FORMAT_COMPATIBILITY_TYPE, 1,
                                   &compat_type);
             glGetInternalformativ(target, format, GL_TEXTURE_COMPRESSED, 1, &is_compressed);
-
             const FormatProperties properties{
                 .compatibility_class = static_cast<GLenum>(compat_class),
                 .compatibility_by_size = compat_type == GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE,
