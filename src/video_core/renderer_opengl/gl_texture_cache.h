@@ -211,12 +211,17 @@ public:
                          std::span<ImageView*, NUM_RT> color_buffers, ImageView* depth_buffer,
                          std::array<u8, NUM_RT> draw_buffers, VideoCommon::Extent2D size);
 
-    GLuint Handle() const noexcept {
+    [[nodiscard]] GLuint Handle() const noexcept {
         return framebuffer.handle;
+    }
+
+    [[nodiscard]] GLbitfield BufferBits() const noexcept {
+        return buffer_bits;
     }
 
 private:
     OGLFramebuffer framebuffer;
+    GLbitfield buffer_bits = GL_NONE;
 };
 
 struct TextureCacheParams {

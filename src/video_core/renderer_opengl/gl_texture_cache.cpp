@@ -523,14 +523,17 @@ void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
     state_tracker.NotifyRasterizeEnable();
     state_tracker.NotifyFramebufferSRGB();
 
-    glDisable(GL_FRAMEBUFFER_SRGB);
+    ASSERT(dst->BufferBits() == src->BufferBits());
+
+    glEnable(GL_FRAMEBUFFER_SRGB);
     glDisable(GL_RASTERIZER_DISCARD);
     glDisablei(GL_SCISSOR_TEST, 0);
 
     const bool is_linear = copy.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
+    const GLbitfield buffer_bits = dst->BufferBits();
     glBlitNamedFramebuffer(src->Handle(), dst->Handle(), copy.src_x0, copy.src_y0, copy.src_x1,
                            copy.src_y1, copy.dst_x0, copy.dst_y0, copy.dst_x1, copy.dst_y1,
-                           GL_COLOR_BUFFER_BIT, is_linear ? GL_LINEAR : GL_NEAREST);
+                           buffer_bits, is_linear ? GL_LINEAR : GL_NEAREST);
 }
 
 void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferMap& map,
@@ -997,6 +1000,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Ima
         if (!image_view) {
             continue;
         }
+        buffer_bits |= GL_COLOR_BUFFER_BIT;
         gl_draw_buffers[index] = GL_COLOR_ATTACHMENT0 + draw_buffers[index];
         num_buffers = static_cast<GLsizei>(index + 1);
 
@@ -1007,6 +1011,11 @@ Framebuffer::Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Ima
     std::string_view debug_prefix = "C";
 
     if (const ImageView* const image_view = depth_buffer; image_view) {
+        if (GetFormatType(image_view->format) == SurfaceType::DepthStencil) {
+            buffer_bits |= GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
+        } else {
+            buffer_bits |= GL_DEPTH_BUFFER_BIT;
+        }
         const GLenum attachment = AttachmentType(image_view->format);
         debug_prefix = DepthStencilDebugName(attachment);
         AttachTexture(handle, attachment, image_view);
