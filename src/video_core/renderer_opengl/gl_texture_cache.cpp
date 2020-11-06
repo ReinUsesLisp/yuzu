@@ -946,9 +946,9 @@ Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {
     const GLenum mag = MaxwellToGL::TextureFilterMode(config.mag_filter, TextureMipmapFilter::None);
     const GLenum min = MaxwellToGL::TextureFilterMode(config.min_filter, config.mipmap_filter);
     const GLenum reduction_filter = MaxwellToGL::ReductionFilter(config.reduction_filter);
+    const GLint seamless = config.cubemap_interface_filtering ? GL_TRUE : GL_FALSE;
 
     UNIMPLEMENTED_IF(config.cubemap_anisotropy != 1);
-    UNIMPLEMENTED_IF(config.cubemap_interface_filtering != 1);
     UNIMPLEMENTED_IF(config.float_coord_normalization != 0);
 
     sampler.Create();
@@ -974,6 +974,12 @@ Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {
         glSamplerParameteri(handle, GL_TEXTURE_REDUCTION_MODE_ARB, reduction_filter);
     } else if (reduction_filter != GL_WEIGHTED_AVERAGE_ARB) {
         LOG_WARNING(Render_OpenGL, "GL_ARB_texture_filter_minmax is required");
+    }
+    if (GLAD_GL_ARB_seamless_cubemap_per_texture || GLAD_GL_AMD_seamless_cubemap_per_texture) {
+        glSamplerParameteri(handle, GL_TEXTURE_CUBE_MAP_SEAMLESS, seamless);
+    } else if (seamless == GL_FALSE) {
+        // We default to false because it's more common
+        LOG_WARNING(Render_OpenGL, "GL_ARB_seamless_cubemap_per_texture is required");
     }
 
     const std::string name = fmt::format("Sampler 0x{:x}", std::hash<TSCEntry>{}(config));

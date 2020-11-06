@@ -260,6 +260,11 @@ void RendererOpenGL::InitOpenGLObjects() {
     // Clear screen to black
     LoadColorToActiveGLTexture(0, 0, 0, 0, screen_info.texture);
 
+    // Enable seamless cubemaps when per texture parameters are not available
+    if (!GLAD_GL_ARB_seamless_cubemap_per_texture && !GLAD_GL_AMD_seamless_cubemap_per_texture) {
+        glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    }
+
     // Enable unified vertex attributes and query vertex buffer address when the driver supports it
     if (device.HasVertexBufferUnifiedMemory()) {
         glEnableClientState(GL_VERTEX_ATTRIB_ARRAY_UNIFIED_NV);
