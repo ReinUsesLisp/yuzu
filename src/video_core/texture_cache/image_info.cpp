@@ -161,7 +161,6 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
 
 ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Surface& config) noexcept {
     UNIMPLEMENTED_IF_MSG(config.layer != 0, "Surface layer is not zero");
-    UNIMPLEMENTED_IF_MSG(config.depth > 1, "Depth is larger than one");
     format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(config.format);
     if (config.linear == Tegra::Engines::Fermi2D::MemoryLayout::Pitch) {
         type = ImageType::Linear;
@@ -172,16 +171,18 @@ ImageInfo::ImageInfo(const Tegra::Engines::Fermi2D::Surface& config) noexcept {
         };
         pitch = config.pitch;
     } else {
-        type = ImageType::e2D;
+        type = config.block_depth > 0 ? ImageType::e3D : ImageType::e2D;
         block = Extent3D{
             .width = config.block_width,
             .height = config.block_height,
             .depth = config.block_depth,
         };
+        // 3D blits with more than once slice are not implemented for now
+        // Render to individual slices
         size = Extent3D{
             .width = config.width,
             .height = config.height,
-            .depth = config.depth,
+            .depth = 1,
         };
     }
 }
