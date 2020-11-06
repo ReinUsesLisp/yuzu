@@ -794,13 +794,27 @@ void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
 
 template <class P>
 void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
-    const ImageBase& image = slot_images[image_id];
+    std::vector<const AliasedImage*> aliased_images;
+    ImageBase& image = slot_images[image_id];
+    u64 most_recent_tick = image.modification_tick;
     for (const AliasedImage& aliased : image.aliased_images) {
-        Image& aliased_image = slot_images[aliased.id];
-        // TODO: sort
+        ImageBase& aliased_image = slot_images[aliased.id];
         if (image.modification_tick < aliased_image.modification_tick) {
-            CopyImage(image_id, aliased.id, aliased.copies);
+            most_recent_tick = std::max(most_recent_tick, aliased_image.modification_tick);
+            aliased_images.push_back(&aliased);
         }
+    }
+    if (aliased_images.empty()) {
+        return;
+    }
+    image.modification_tick = most_recent_tick;
+    std::ranges::sort(aliased_images, [this](const AliasedImage* lhs, const AliasedImage* rhs) {
+        const ImageBase& lhs_image = slot_images[lhs->id];
+        const ImageBase& rhs_image = slot_images[rhs->id];
+        return lhs_image.modification_tick < rhs_image.modification_tick;
+    });
+    for (const AliasedImage* const aliased : aliased_images) {
+        CopyImage(image_id, aliased->id, aliased->copies);
     }
 }
 
