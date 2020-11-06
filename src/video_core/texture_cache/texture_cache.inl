@@ -169,10 +169,15 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
     const BlitImages images = GetBlitImages(dst, src);
-    ImageBase& dst_image = slot_images[images.dst_id];
-    const ImageBase& src_image = slot_images[images.src_id];
-    // TODO: Synchronize
-    dst_image.flags |= ImageFlagBits::GpuModified;
+    const ImageId dst_id = images.dst_id;
+    const ImageId src_id = images.src_id;
+    SynchronizeAliases(dst_id);
+    SynchronizeAliases(src_id);
+
+    ImageBase& dst_image = slot_images[dst_id];
+    const ImageBase& src_image = slot_images[src_id];
+
+    MarkModification(dst_image);
 
     // TODO: Deduplicate
     const std::optional dst_base = dst_image.FindSubresourceFromAddress(dst.Address());
