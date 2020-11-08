@@ -442,7 +442,6 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
     FlushWork();
 
     query_cache.UpdateCounters();
-    texture_cache.ImplicitDescriptorInvalidations();
 
     GraphicsPipelineCacheKey key;
     key.fixed_state.Fill(maxwell3d.regs, device.IsExtExtendedDynamicStateSupported());
@@ -502,7 +501,6 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    texture_cache.ImplicitDescriptorInvalidations();
     query_cache.UpdateCounters();
 
     const auto& regs = maxwell3d.regs;

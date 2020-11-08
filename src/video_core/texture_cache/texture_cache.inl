@@ -32,24 +32,22 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 }
 
 template <class P>
-void TextureCache<P>::ImplicitDescriptorInvalidations() {
-    if (!maxwell3d.dirty.flags[Dirty::Descriptors] && !has_deleted_images) {
-        return;
-    }
-    maxwell3d.dirty.flags[Dirty::Descriptors] = false;
-
-    InvalidateImageDescriptorTable();
-    InvalidateSamplerDescriptorTable();
+typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
+    using SamplerIndex = Tegra::Engines::Maxwell3D::Regs::SamplerIndex;
+    const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
+    const u32 limit = linked_tsc ? maxwell3d.regs.tic.limit : maxwell3d.regs.tsc.limit;
+    const GPUVAddr gpu_addr = maxwell3d.regs.tsc.Address();
+    const TSCEntry config = ReadSamplerDescriptor(tables_3d, gpu_addr, limit, index);
+    return &slot_samplers[FindSampler(config)];
 }
 
 template <class P>
-typename P::Sampler* TextureCache<P>::GetGraphicsSampler(size_t index) {
-    return &slot_samplers[tables_3d.samplers[index]];
-}
-
-template <class P>
-typename P::Sampler* TextureCache<P>::GetComputeSampler(size_t index) {
-    return &slot_samplers[tables_compute.samplers[index]];
+typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
+    const bool linked_tsc = kepler_compute.launch_description.linked_tsc;
+    const u32 limit = linked_tsc ? kepler_compute.regs.tic.limit : kepler_compute.regs.tsc.limit;
+    const GPUVAddr gpu_addr = kepler_compute.regs.tsc.Address();
+    const TSCEntry config = ReadSamplerDescriptor(tables_compute, gpu_addr, limit, index);
+    return &slot_samplers[FindSampler(config)];
 }
 
 template <class P>
@@ -82,9 +80,6 @@ void TextureCache<P>::UpdateRenderTargets() {
         maxwell3d.regs.render_area.width,
         maxwell3d.regs.render_area.height,
     };
-    if (has_deleted_images) {
-        InvalidateImageDescriptorTable();
-    }
 }
 
 template <class P>
@@ -158,9 +153,6 @@ void TextureCache<P>::UnmapMemory(VAddr cpu_addr, size_t size) {
         }
         UnregisterImage(id);
         DeleteImage(id);
-    }
-    if (has_deleted_images) {
-        InvalidateImageDescriptorTable();
     }
 }
 
@@ -241,18 +233,14 @@ void TextureCache<P>::InvalidateDepthBuffer() {
 
 template <class P>
 void TextureCache<P>::InvalidateImageDescriptorTable() {
-    UpdateImageDescriptorTable(tables_3d, maxwell3d.regs.tic.Address(),
-                               maxwell3d.regs.tic.limit + 1);
-    UpdateImageDescriptorTable(tables_compute, kepler_compute.regs.tic.Address(),
-                               kepler_compute.regs.tic.limit + 1);
+    std::ranges::fill(tables_3d.cached_images, 0);
+    std::ranges::fill(tables_compute.cached_images, 0);
 }
 
 template <class P>
 void TextureCache<P>::InvalidateSamplerDescriptorTable() {
-    UpdateSamplerDescriptorTable(tables_3d, maxwell3d.regs.tsc.Address(),
-                                 maxwell3d.regs.tsc.limit + 1);
-    UpdateSamplerDescriptorTable(tables_compute, kepler_compute.regs.tsc.Address(),
-                                 kepler_compute.regs.tsc.limit + 1);
+    std::ranges::fill(tables_3d.cached_images, 0);
+    std::ranges::fill(tables_compute.cached_images, 0);
 }
 
 template <class P>
@@ -274,39 +262,6 @@ typename P::ImageView* TextureCache<P>::TryFindFramebufferImageView(VAddr cpu_ad
         return &slot_image_views[image.image_view_ids.at(0)];
     }
     return nullptr;
-}
-
-template <class P>
-void TextureCache<P>::UpdateImageDescriptorTable(ClassDescriptorTables& tables,
-                                                 GPUVAddr tic_address, size_t num_tics) {
-    if (tic_address == 0) {
-        tables.tic_entries.clear();
-        return;
-    }
-    tables.tic_entries.resize(num_tics);
-    gpu_memory.ReadBlock(tic_address, tables.tic_entries.data(), num_tics * sizeof(TICEntry));
-}
-
-template <class P>
-void TextureCache<P>::UpdateSamplerDescriptorTable(ClassDescriptorTables& tables,
-                                                   GPUVAddr tsc_address, size_t num_tscs) {
-    if (tsc_address == 0) {
-        tables.tsc_entries.clear();
-        tables.samplers.clear();
-        return;
-    }
-    tables.tsc_entries.resize(num_tscs);
-    tables.samplers.resize(num_tscs);
-    tables.stored_tsc_entries.resize(num_tscs);
-    gpu_memory.ReadBlock(tsc_address, tables.tsc_entries.data(), num_tscs * sizeof(TSCEntry));
-
-    while (num_tscs--) {
-        const size_t index = num_tscs;
-        TSCEntry& stored_config = tables.stored_tsc_entries[index];
-        const SamplerId existing_id = tables.samplers[index];
-        const TSCEntry& config = tables.tsc_entries[index];
-        tables.samplers[index] = FindSampler(stored_config, existing_id, config);
-    }
 }
 
 inline u32 MapSizeBytes(const ImageBase& image) {
@@ -540,13 +495,7 @@ typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
 }
 
 template <class P>
-SamplerId TextureCache<P>::FindSampler(TSCEntry& stored_config, SamplerId existing_id,
-                                       const TSCEntry& config) {
-    if (stored_config == config) {
-        return existing_id;
-    }
-    stored_config = config;
-
+SamplerId TextureCache<P>::FindSampler(const TSCEntry& config) {
     if (std::ranges::all_of(config.raw, [](u64 value) { return value == 0; })) {
         return SamplerId{};
     }
@@ -555,6 +504,38 @@ SamplerId TextureCache<P>::FindSampler(TSCEntry& stored_config, SamplerId existi
         pair->second = slot_samplers.insert(runtime, config);
     }
     return pair->second;
+}
+
+template <class P>
+TICEntry TextureCache<P>::ReadImageDescriptor(ClassDescriptorTables& tables, GPUVAddr gpu_addr,
+                                              u32 limit, u32 index) {
+    ASSERT(index <= limit);
+    if (index >= tables.image_descriptors.size()) {
+        tables.cached_images.resize(index / 64 + 1);
+        tables.image_descriptors.resize(index + 1);
+    }
+    if (((tables.cached_images[index / 64] >> (index % 64)) & 1) == 0) {
+        tables.cached_images[index / 64] |= 1ULL << (index % 64);
+        const GPUVAddr entry_addr = gpu_addr + index * sizeof(TICEntry);
+        gpu_memory.ReadBlock(entry_addr, &tables.image_descriptors[index], sizeof(TICEntry));
+    }
+    return tables.image_descriptors[index];
+}
+
+template <class P>
+TSCEntry TextureCache<P>::ReadSamplerDescriptor(ClassDescriptorTables& tables, GPUVAddr gpu_addr,
+                                                u32 limit, u32 index) {
+    ASSERT(index <= limit);
+    if (index >= tables.sampler_descriptors.size()) {
+        tables.cached_samplers.resize(index / 64 + 1);
+        tables.sampler_descriptors.resize(index + 1);
+    }
+    if (((tables.cached_samplers[index / 64] >> (index % 64)) & 1) == 0) {
+        tables.cached_samplers[index / 64] |= 1ULL << (index % 64);
+        const GPUVAddr entry_addr = gpu_addr + index * sizeof(TSCEntry);
+        gpu_memory.ReadBlock(entry_addr, &tables.sampler_descriptors[index], sizeof(TSCEntry));
+    }
+    return tables.sampler_descriptors[index];
 }
 
 template <class P>

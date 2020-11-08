@@ -69,9 +69,20 @@ constexpr size_t NUM_SUPPORTED_VERTEX_BINDINGS = 16;
 constexpr size_t MAX_TEXTURES = 192;
 constexpr size_t MAX_IMAGES = 48;
 
+struct TextureHandle {
+    constexpr TextureHandle(u32 data, bool via_header_index) {
+        const Tegra::Texture::TextureHandle handle{data};
+        image = handle.tic_id;
+        sampler = via_header_index ? image : handle.tsc_id.Value();
+    }
+
+    u32 image;
+    u32 sampler;
+};
+
 template <typename Engine, typename Entry>
-Tegra::Texture::TextureHandle TextureHandle(const Engine& engine, const Entry& entry,
-                                            ShaderType shader_type, std::size_t index = 0) {
+TextureHandle GetTextureInfo(const Engine& engine, bool via_header_index, const Entry& entry,
+                             ShaderType shader_type, size_t index = 0) {
     if constexpr (std::is_same_v<Entry, SamplerEntry>) {
         if (entry.is_separated) {
             const u32 buffer_1 = entry.buffer;
@@ -80,12 +91,12 @@ Tegra::Texture::TextureHandle TextureHandle(const Engine& engine, const Entry& e
             const u32 offset_2 = entry.secondary_offset;
             const u32 handle_1 = engine.AccessConstBuffer32(shader_type, buffer_1, offset_1);
             const u32 handle_2 = engine.AccessConstBuffer32(shader_type, buffer_2, offset_2);
-            return handle_1 | handle_2;
+            return TextureHandle(handle_1 | handle_2, via_header_index);
         }
     }
     const u32 buffer = entry.is_bindless ? entry.buffer : engine.GetBoundBuffer();
     const u64 offset = (entry.offset + index) * sizeof(u32);
-    return engine.AccessConstBuffer32(shader_type, buffer, offset);
+    return TextureHandle(engine.AccessConstBuffer32(shader_type, buffer, offset), via_header_index);
 }
 
 std::size_t GetConstBufferSize(const Tegra::Engines::ConstBufferInfo& buffer,
@@ -464,8 +475,6 @@ void RasterizerOpenGL::Clear() {
         return;
     }
 
-    texture_cache.ImplicitDescriptorInvalidations();
-
     const auto& regs = maxwell3d.regs;
     bool use_color{};
     bool use_depth{};
@@ -533,7 +542,6 @@ void RasterizerOpenGL::Draw(bool is_indexed, bool is_instanced) {
     MICROPROFILE_SCOPE(OpenGL_Drawing);
 
     query_cache.UpdateCounters();
-    texture_cache.ImplicitDescriptorInvalidations();
 
     SyncViewport();
     SyncRasterizeEnable();
@@ -1049,40 +1057,49 @@ void RasterizerOpenGL::SetupGlobalMemory(u32 binding, const GlobalMemoryEntry& e
 }
 
 void RasterizerOpenGL::SetupDrawTextures(const Shader* shader, size_t stage_index) {
+    const bool via_header_index =
+        maxwell3d.regs.sampler_index == Maxwell::SamplerIndex::ViaHeaderIndex;
     for (const auto& entry : shader->GetEntries().samplers) {
         const auto shader_type = static_cast<ShaderType>(stage_index);
         for (size_t index = 0; index < entry.size; ++index) {
-            const auto handle = TextureHandle(maxwell3d, entry, shader_type, index);
-            const Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.tsc_id);
+            const auto handle =
+                GetTextureInfo(maxwell3d, via_header_index, entry, shader_type, index);
+            const Sampler* const sampler = texture_cache.GetGraphicsSampler(handle.sampler);
             sampler_handles.push_back(sampler->Handle());
-            image_view_indices.push_back(handle.tic_id);
+            image_view_indices.push_back(handle.image);
         }
     }
 }
 
 void RasterizerOpenGL::SetupComputeTextures(const Shader* kernel) {
+    const bool via_header_index = kepler_compute.launch_description.linked_tsc;
     for (const auto& entry : kernel->GetEntries().samplers) {
         for (size_t i = 0; i < entry.size; ++i) {
-            const auto handle = TextureHandle(kepler_compute, entry, ShaderType::Compute, i);
-            const Sampler* const sampler = texture_cache.GetComputeSampler(handle.tsc_id);
+            const auto handle =
+                GetTextureInfo(kepler_compute, via_header_index, entry, ShaderType::Compute, i);
+            const Sampler* const sampler = texture_cache.GetComputeSampler(handle.sampler);
             sampler_handles.push_back(sampler->Handle());
-            image_view_indices.push_back(handle.tic_id);
+            image_view_indices.push_back(handle.image);
         }
     }
 }
 
 void RasterizerOpenGL::SetupDrawImages(const Shader* shader, size_t stage_index) {
+    const bool via_header_index =
+        maxwell3d.regs.sampler_index == Maxwell::SamplerIndex::ViaHeaderIndex;
     for (const auto& entry : shader->GetEntries().images) {
         const auto shader_type = static_cast<ShaderType>(stage_index);
-        const auto handle = TextureHandle(maxwell3d, entry, shader_type);
-        image_view_indices.push_back(handle.tic_id);
+        const auto handle = GetTextureInfo(maxwell3d, via_header_index, entry, shader_type);
+        image_view_indices.push_back(handle.image);
     }
 }
 
 void RasterizerOpenGL::SetupComputeImages(const Shader* shader) {
+    const bool via_header_index = kepler_compute.launch_description.linked_tsc;
     for (const auto& entry : shader->GetEntries().images) {
-        const auto handle = TextureHandle(kepler_compute, entry, ShaderType::Compute);
-        image_view_indices.push_back(handle.tic_id);
+        const auto handle =
+            GetTextureInfo(kepler_compute, via_header_index, entry, ShaderType::Compute);
+        image_view_indices.push_back(handle.image);
     }
 }
 
