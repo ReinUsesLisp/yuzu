@@ -239,8 +239,8 @@ void TextureCache<P>::InvalidateImageDescriptorTable() {
 
 template <class P>
 void TextureCache<P>::InvalidateSamplerDescriptorTable() {
-    std::ranges::fill(tables_3d.cached_images, 0);
-    std::ranges::fill(tables_compute.cached_images, 0);
+    std::ranges::fill(tables_3d.cached_samplers, 0);
+    std::ranges::fill(tables_compute.cached_samplers, 0);
 }
 
 template <class P>
@@ -514,7 +514,7 @@ TICEntry TextureCache<P>::ReadImageDescriptor(ClassDescriptorTables& tables, GPU
         tables.cached_images.resize(index / 64 + 1);
         tables.image_descriptors.resize(index + 1);
     }
-    if (((tables.cached_images[index / 64] >> (index % 64)) & 1) == 0) {
+    if ((tables.cached_images[index / 64] & (1ULL << (index % 64))) == 0) {
         tables.cached_images[index / 64] |= 1ULL << (index % 64);
         const GPUVAddr entry_addr = gpu_addr + index * sizeof(TICEntry);
         gpu_memory.ReadBlock(entry_addr, &tables.image_descriptors[index], sizeof(TICEntry));
@@ -530,7 +530,7 @@ TSCEntry TextureCache<P>::ReadSamplerDescriptor(ClassDescriptorTables& tables, G
         tables.cached_samplers.resize(index / 64 + 1);
         tables.sampler_descriptors.resize(index + 1);
     }
-    if (((tables.cached_samplers[index / 64] >> (index % 64)) & 1) == 0) {
+    if ((tables.cached_samplers[index / 64] & (1ULL << (index % 64))) == 0) {
         tables.cached_samplers[index / 64] |= 1ULL << (index % 64);
         const GPUVAddr entry_addr = gpu_addr + index * sizeof(TSCEntry);
         gpu_memory.ReadBlock(entry_addr, &tables.sampler_descriptors[index], sizeof(TSCEntry));
