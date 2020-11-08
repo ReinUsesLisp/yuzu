@@ -244,7 +244,7 @@ private:
     VideoCommon::Shader::AsyncShaders async_shaders;
 
     boost::container::static_vector<u32, MAX_IMAGE_VIEWS> image_view_indices;
-    std::array<ImageView*, MAX_IMAGE_VIEWS> image_views;
+    std::array<VideoCommon::ImageViewId, MAX_IMAGE_VIEWS> image_view_ids;
     boost::container::static_vector<VkSampler, MAX_TEXTURES> sampler_handles;
 
     u32 draw_counter = 0;

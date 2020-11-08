@@ -118,7 +118,7 @@ private:
     void BindComputeTextures(Shader* kernel);
 
     void BindTextures(const ShaderEntries& entries, GLuint base_texture, GLuint base_image,
-                      size_t* image_view_index, size_t* texture_index, size_t* image_index);
+                      size_t& image_view_index, size_t& texture_index, size_t& image_index);
 
     /// Configures the current constbuffers to use for the draw command.
     void SetupDrawConstBuffers(std::size_t stage_index, Shader* shader);
@@ -261,7 +261,7 @@ private:
     VideoCommon::Shader::AsyncShaders async_shaders;
 
     boost::container::static_vector<u32, MAX_IMAGE_VIEWS> image_view_indices;
-    std::array<ImageView*, MAX_IMAGE_VIEWS> image_views;
+    std::array<ImageViewId, MAX_IMAGE_VIEWS> image_view_ids;
     boost::container::static_vector<GLuint, MAX_TEXTURES> sampler_handles;
     std::array<GLuint, MAX_TEXTURES> texture_handles;
     std::array<GLuint, MAX_IMAGES> image_handles;

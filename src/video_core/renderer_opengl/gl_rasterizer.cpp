@@ -428,7 +428,7 @@ void RasterizerOpenGL::SetupShaders() {
     maxwell3d.dirty.flags[Dirty::Shaders] = false;
 
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
-    texture_cache.FillGraphicsImageViews(indices_span, image_views);
+    texture_cache.FillGraphicsImageViews(indices_span, image_view_ids);
 
     size_t image_view_index = 0;
     size_t texture_index = 0;
@@ -437,8 +437,8 @@ void RasterizerOpenGL::SetupShaders() {
         const Shader* const shader = shaders[stage];
         if (shader) {
             const auto base = device.GetBaseBindings(stage);
-            BindTextures(shader->GetEntries(), base.sampler, base.image, &image_view_index,
-                         &texture_index, &image_index);
+            BindTextures(shader->GetEntries(), base.sampler, base.image, image_view_index,
+                         texture_index, image_index);
         }
     }
 }
@@ -855,38 +855,35 @@ void RasterizerOpenGL::BindComputeTextures(Shader* kernel) {
     SetupComputeImages(kernel);
 
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
-    texture_cache.FillComputeImageViews(indices_span, image_views);
+    texture_cache.FillComputeImageViews(indices_span, image_view_ids);
 
     size_t image_view_index = 0;
     size_t texture_index = 0;
     size_t image_index = 0;
-    BindTextures(kernel->GetEntries(), 0, 0, &image_view_index, &texture_index, &image_index);
+    BindTextures(kernel->GetEntries(), 0, 0, image_view_index, texture_index, image_index);
 }
 
 void RasterizerOpenGL::BindTextures(const ShaderEntries& entries, GLuint base_texture,
-                                    GLuint base_image, size_t* image_view_index,
-                                    size_t* texture_index, size_t* image_index) {
-    const GLuint* const samplers = sampler_handles.data() + *texture_index;
-    const GLuint* const textures = texture_handles.data() + *texture_index;
-    const GLuint* const images = image_handles.data() + *image_index;
+                                    GLuint base_image, size_t& image_view_index,
+                                    size_t& texture_index, size_t& image_index) {
+    const GLuint* const samplers = sampler_handles.data() + texture_index;
+    const GLuint* const textures = texture_handles.data() + texture_index;
+    const GLuint* const images = image_handles.data() + image_index;
 
     const size_t num_samplers = entries.samplers.size();
     for (size_t unit = 0; unit < num_samplers; ++unit) {
-        const ImageView* const image_view = image_views[*image_view_index];
-        ++*image_view_index;
-
-        const GLuint handle = image_view->Handle(ImageViewTypeFromEntry(entries.samplers[unit]));
-        texture_handles[*texture_index] = handle;
-        ++*texture_index;
+        const ImageViewId image_view_id = image_view_ids[image_view_index++];
+        const ImageView& image_view = texture_cache.GetImageView(image_view_id);
+        const GLuint handle = image_view.Handle(ImageViewTypeFromEntry(entries.samplers[unit]));
+        texture_handles[texture_index++] = handle;
     }
     const size_t num_images = entries.images.size();
     for (size_t unit = 0; unit < num_images; ++unit) {
-        const ImageView* const image_view = image_views[*image_view_index];
-        ++*image_view_index;
-
-        const GLuint handle = image_view->Handle(ImageViewTypeFromEntry(entries.images[unit]));
-        image_handles[*image_index] = handle;
-        ++*image_index;
+        const ImageViewId image_view_id = image_view_ids[image_view_index++];
+        const ImageView& image_view = texture_cache.GetImageView(image_view_id);
+        const GLuint handle = image_view.Handle(ImageViewTypeFromEntry(entries.images[unit]));
+        image_handles[image_index] = handle;
+        ++image_index;
     }
     if (num_samplers > 0) {
         glBindSamplers(base_texture, static_cast<GLsizei>(num_samplers), samplers);

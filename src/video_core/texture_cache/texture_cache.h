@@ -89,18 +89,27 @@ public:
         ++frame_no;
     }
 
+    [[nodiscard]] const ImageView& GetImageView(ImageViewId id) const noexcept {
+        return slot_image_views[id];
+    }
+
+    [[nodiscard]] ImageView& GetImageView(ImageViewId id) noexcept {
+        return slot_image_views[id];
+    }
+
     void FillImageViews(ClassDescriptorTables& tables, GPUVAddr gpu_addr, u32 limit,
-                        std::span<const u32> indices, std::span<ImageView*> image_views) {
+                        std::span<const u32> indices, std::span<ImageViewId> image_view_ids) {
         const size_t num_indices = indices.size();
-        ASSERT(num_indices <= image_views.size());
+        ASSERT(num_indices <= image_view_ids.size());
         do {
             has_deleted_images = false;
             for (size_t i = num_indices; i--;) {
                 const u32 index = indices[i];
                 const TICEntry descriptor = ReadImageDescriptor(tables, gpu_addr, limit, index);
                 const ImageViewId image_view_id = FindImageView(descriptor);
+                image_view_ids[i] = image_view_id;
+
                 ImageView* const image_view = &slot_image_views[image_view_id];
-                image_views[i] = image_view;
                 if (image_view_id != NULL_IMAGE_VIEW_ID) {
                     const ImageId image_id = image_view->image_id;
                     UpdateImageContents(slot_images[image_id]);
@@ -110,14 +119,16 @@ public:
         } while (has_deleted_images);
     }
 
-    void FillGraphicsImageViews(std::span<const u32> indices, std::span<ImageView*> image_views) {
+    void FillGraphicsImageViews(std::span<const u32> indices,
+                                std::span<ImageViewId> image_view_ids) {
         FillImageViews(tables_3d, maxwell3d.regs.tic.Address(), maxwell3d.regs.tic.limit, indices,
-                       image_views);
+                       image_view_ids);
     }
 
-    void FillComputeImageViews(std::span<const u32> indices, std::span<ImageView*> image_views) {
+    void FillComputeImageViews(std::span<const u32> indices,
+                               std::span<ImageViewId> image_view_ids) {
         FillImageViews(tables_compute, kepler_compute.regs.tic.Address(),
-                       kepler_compute.regs.tic.limit, indices, image_views);
+                       kepler_compute.regs.tic.limit, indices, image_view_ids);
     }
 
     /**
