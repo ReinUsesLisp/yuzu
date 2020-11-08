@@ -4,8 +4,8 @@
 
 #include <algorithm>
 
-#include "video_core/host_shaders/convert_d32_float_to_r32_float_frag_spv.h"
-#include "video_core/host_shaders/convert_r32_float_to_d32_float_frag_spv.h"
+#include "video_core/host_shaders/convert_depth_to_float_frag_spv.h"
+#include "video_core/host_shaders/convert_float_to_depth_frag_spv.h"
 #include "video_core/host_shaders/full_screen_triangle_vert_spv.h"
 #include "video_core/host_shaders/vulkan_blit_color_float_frag_spv.h"
 #include "video_core/renderer_vulkan/blit_image.h"
@@ -141,6 +141,20 @@ constexpr VkPipelineColorBlendStateCreateInfo PIPELINE_COLOR_BLEND_STATE_GENERIC
     .pAttachments = &PIPELINE_COLOR_BLEND_ATTACHMENT_STATE,
     .blendConstants = {0.0f, 0.0f, 0.0f, 0.0f},
 };
+constexpr VkPipelineDepthStencilStateCreateInfo PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO{
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
+    .depthTestEnable = VK_FALSE,
+    .depthWriteEnable = VK_TRUE,
+    .depthCompareOp = VK_COMPARE_OP_ALWAYS,
+    .depthBoundsTestEnable = VK_FALSE,
+    .stencilTestEnable = VK_FALSE,
+    .front = VkStencilOpState{},
+    .back = VkStencilOpState{},
+    .minDepthBounds = 0.0f,
+    .maxDepthBounds = 0.0f,
+};
 
 constexpr VkSamplerCreateInfo SamplerCreateInfo(VkFilter filter) {
     return VkSamplerCreateInfo{
@@ -230,8 +244,8 @@ BlitImageHelper::BlitImageHelper(const VKDevice& device_, VKScheduler& scheduler
       descriptor_allocator(descriptor_pool, *set_layout),
       full_screen_vert(BuildShader(device, FULL_SCREEN_TRIANGLE_VERT_SPV)),
       blit_color_to_color_frag(BuildShader(device, VULKAN_BLIT_COLOR_FLOAT_FRAG_SPV)),
-      convert_d32_to_r32_frag(BuildShader(device, CONVERT_D32_FLOAT_TO_R32_FLOAT_FRAG_SPV)),
-      convert_r32_to_d32_frag(BuildShader(device, CONVERT_R32_FLOAT_TO_D32_FLOAT_FRAG_SPV)),
+      convert_depth_to_float_frag(BuildShader(device, CONVERT_DEPTH_TO_FLOAT_FRAG_SPV)),
+      convert_float_to_depth_frag(BuildShader(device, CONVERT_FLOAT_TO_DEPTH_FRAG_SPV)),
       linear_sampler(device.GetLogical().CreateSampler(SamplerCreateInfo(VK_FILTER_LINEAR))),
       nearest_sampler(device.GetLogical().CreateSampler(SamplerCreateInfo(VK_FILTER_NEAREST))),
       pipeline_layout(device.GetLogical().CreatePipelineLayout(
@@ -297,14 +311,27 @@ void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, const ImageV
 
 void BlitImageHelper::ConvertD32ToR32(const Framebuffer* dst_framebuffer,
                                       const ImageView& src_image_view) {
-    const VkPipeline pipeline = ConvertD32ToR32Pipeline(dst_framebuffer->RenderPass());
-    Convert(pipeline, dst_framebuffer, src_image_view);
+    ConvertDepthToColorPipeline(convert_d32_to_r32_pipeline, dst_framebuffer->RenderPass());
+    Convert(*convert_d32_to_r32_pipeline, dst_framebuffer, src_image_view);
 }
 
 void BlitImageHelper::ConvertR32ToD32(const Framebuffer* dst_framebuffer,
                                       const ImageView& src_image_view) {
-    const VkPipeline pipeline = ConvertR32ToD32Pipeline(dst_framebuffer->RenderPass());
-    Convert(pipeline, dst_framebuffer, src_image_view);
+
+    ConvertColorToDepthPipeline(convert_r32_to_d32_pipeline, dst_framebuffer->RenderPass());
+    Convert(*convert_r32_to_d32_pipeline, dst_framebuffer, src_image_view);
+}
+
+void BlitImageHelper::ConvertD16ToR16(const Framebuffer* dst_framebuffer,
+                                      const ImageView& src_image_view) {
+    ConvertDepthToColorPipeline(convert_d16_to_r16_pipeline, dst_framebuffer->RenderPass());
+    Convert(*convert_d16_to_r16_pipeline, dst_framebuffer, src_image_view);
+}
+
+void BlitImageHelper::ConvertR16ToD16(const Framebuffer* dst_framebuffer,
+                                      const ImageView& src_image_view) {
+    ConvertColorToDepthPipeline(convert_r16_to_d16_pipeline, dst_framebuffer->RenderPass());
+    Convert(*convert_r16_to_d16_pipeline, dst_framebuffer, src_image_view);
 }
 
 void BlitImageHelper::Convert(VkPipeline pipeline, const Framebuffer* dst_framebuffer,
@@ -410,13 +437,13 @@ VkPipeline BlitImageHelper::FindOrEmplacePipeline(const BlitImagePipelineKey& ke
     return *pipelines.back();
 }
 
-VkPipeline BlitImageHelper::ConvertD32ToR32Pipeline(VkRenderPass renderpass) {
-    if (convert_d32_to_r32_pipeline) {
-        return *convert_d32_to_r32_pipeline;
+void BlitImageHelper::ConvertDepthToColorPipeline(vk::Pipeline& pipeline, VkRenderPass renderpass) {
+    if (pipeline) {
+        return;
     }
     const std::array shader_create_infos =
-        PipelineShaderStageCreateInfos(*full_screen_vert, *convert_d32_to_r32_frag);
-    convert_d32_to_r32_pipeline = device.GetLogical().CreateGraphicsPipeline({
+        PipelineShaderStageCreateInfos(*full_screen_vert, *convert_depth_to_float_frag);
+    pipeline = device.GetLogical().CreateGraphicsPipeline({
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
@@ -437,16 +464,15 @@ VkPipeline BlitImageHelper::ConvertD32ToR32Pipeline(VkRenderPass renderpass) {
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = 0,
     });
-    return *convert_d32_to_r32_pipeline;
 }
 
-VkPipeline BlitImageHelper::ConvertR32ToD32Pipeline(VkRenderPass renderpass) {
-    if (convert_r32_to_d32_pipeline) {
-        return *convert_r32_to_d32_pipeline;
+void BlitImageHelper::ConvertColorToDepthPipeline(vk::Pipeline& pipeline, VkRenderPass renderpass) {
+    if (pipeline) {
+        return;
     }
     const std::array shader_create_infos =
-        PipelineShaderStageCreateInfos(*full_screen_vert, *convert_r32_to_d32_frag);
-    convert_r32_to_d32_pipeline = device.GetLogical().CreateGraphicsPipeline({
+        PipelineShaderStageCreateInfos(*full_screen_vert, *convert_float_to_depth_frag);
+    pipeline = device.GetLogical().CreateGraphicsPipeline({
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
@@ -458,7 +484,7 @@ VkPipeline BlitImageHelper::ConvertR32ToD32Pipeline(VkRenderPass renderpass) {
         .pViewportState = &PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         .pRasterizationState = &PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .pMultisampleState = &PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .pDepthStencilState = nullptr,
+        .pDepthStencilState = &PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .pColorBlendState = &PIPELINE_COLOR_BLEND_STATE_EMPTY_CREATE_INFO,
         .pDynamicState = &PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         .layout = *pipeline_layout,
@@ -467,7 +493,6 @@ VkPipeline BlitImageHelper::ConvertR32ToD32Pipeline(VkRenderPass renderpass) {
         .basePipelineHandle = VK_NULL_HANDLE,
         .basePipelineIndex = 0,
     });
-    return *convert_r32_to_d32_pipeline;
 }
 
 } // namespace Vulkan

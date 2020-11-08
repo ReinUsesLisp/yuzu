@@ -1,8 +1,8 @@
 set(SHADER_FILES
     block_linear_unswizzle_2d.comp
     block_linear_unswizzle_3d.comp
-    convert_d32_float_to_r32_float.frag
-    convert_r32_float_to_d32_float.frag
+    convert_depth_to_float.frag
+    convert_float_to_depth.frag
     full_screen_triangle.vert
     opengl_present.frag
     opengl_present.vert

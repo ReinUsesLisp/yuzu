@@ -39,15 +39,19 @@ public:
 
     void ConvertR32ToD32(const Framebuffer* dst_framebuffer, const ImageView& src_image_view);
 
+    void ConvertD16ToR16(const Framebuffer* dst_framebuffer, const ImageView& src_image_view);
+
+    void ConvertR16ToD16(const Framebuffer* dst_framebuffer, const ImageView& src_image_view);
+
 private:
     void Convert(VkPipeline pipeline, const Framebuffer* dst_framebuffer,
                  const ImageView& src_image_view);
 
     [[nodiscard]] VkPipeline FindOrEmplacePipeline(const BlitImagePipelineKey& key);
 
-    [[nodiscard]] VkPipeline ConvertD32ToR32Pipeline(VkRenderPass renderpass);
+    void ConvertDepthToColorPipeline(vk::Pipeline& pipeline, VkRenderPass renderpass);
 
-    [[nodiscard]] VkPipeline ConvertR32ToD32Pipeline(VkRenderPass renderpass);
+    void ConvertColorToDepthPipeline(vk::Pipeline& pipeline, VkRenderPass renderpass);
 
     const VKDevice& device;
     VKScheduler& scheduler;
@@ -57,8 +61,8 @@ private:
     DescriptorAllocator descriptor_allocator;
     vk::ShaderModule full_screen_vert;
     vk::ShaderModule blit_color_to_color_frag;
-    vk::ShaderModule convert_d32_to_r32_frag;
-    vk::ShaderModule convert_r32_to_d32_frag;
+    vk::ShaderModule convert_depth_to_float_frag;
+    vk::ShaderModule convert_float_to_depth_frag;
     vk::Sampler linear_sampler;
     vk::Sampler nearest_sampler;
     vk::PipelineLayout pipeline_layout;
@@ -67,6 +71,8 @@ private:
     std::vector<vk::Pipeline> pipelines;
     vk::Pipeline convert_d32_to_r32_pipeline;
     vk::Pipeline convert_r32_to_d32_pipeline;
+    vk::Pipeline convert_d16_to_r16_pipeline;
+    vk::Pipeline convert_r16_to_d16_pipeline;
 };
 
 } // namespace Vulkan

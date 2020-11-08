@@ -112,14 +112,9 @@ std::array<GPUVAddr, Maxwell::MaxShaderProgram> GetShaderAddresses(
 
 struct TextureHandle {
     constexpr TextureHandle(u32 data, bool via_header_index) {
-        if (via_header_index) {
-            image = data;
-            sampler = data;
-        } else {
-            const Tegra::Texture::TextureHandle handle{data};
-            image = handle.tic_id;
-            sampler = handle.tsc_id;
-        }
+        const Tegra::Texture::TextureHandle handle{data};
+        image = handle.tic_id;
+        sampler = via_header_index ? image : handle.tsc_id.Value();
     }
 
     u32 image;

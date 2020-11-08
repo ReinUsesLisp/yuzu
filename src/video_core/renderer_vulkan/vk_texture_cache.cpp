@@ -496,20 +496,24 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
 
 void TextureCacheRuntime::ConvertImage(Framebuffer* dst, ImageView& dst_view, ImageView& src_view) {
     switch (dst_view.format) {
+    case PixelFormat::R16_UNORM:
+        if (src_view.format == PixelFormat::D16_UNORM) {
+            return blit_image_helper.ConvertD16ToR16(dst, src_view);
+        }
+        break;
     case PixelFormat::R32_FLOAT:
-        switch (src_view.format) {
-        case PixelFormat::D32_FLOAT:
+        if (src_view.format == PixelFormat::D32_FLOAT) {
             return blit_image_helper.ConvertD32ToR32(dst, src_view);
-        default:
-            break;
+        }
+        break;
+    case PixelFormat::D16_UNORM:
+        if (src_view.format == PixelFormat::R16_UNORM) {
+            return blit_image_helper.ConvertR16ToD16(dst, src_view);
         }
         break;
     case PixelFormat::D32_FLOAT:
-        switch (src_view.format) {
-        case PixelFormat::R32_FLOAT:
+        if (src_view.format == PixelFormat::R32_FLOAT) {
             return blit_image_helper.ConvertR32ToD32(dst, src_view);
-        default:
-            break;
         }
         break;
     default:
