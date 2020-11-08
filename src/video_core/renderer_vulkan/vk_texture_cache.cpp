@@ -367,10 +367,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     };
 }
 
-[[nodiscard]] constexpr SwizzleSource SwapRedGreen(SwizzleSource value) {
+[[nodiscard]] constexpr SwizzleSource ConvertGreenRed(SwizzleSource value) {
     switch (value) {
-    case SwizzleSource::R:
-        return SwizzleSource::G;
     case SwizzleSource::G:
         return SwizzleSource::R;
     default:
@@ -679,7 +677,11 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
     : VideoCommon::ImageViewBase{info, image.info, image_id}, image_handle{image.Handle()} {
     const VkFormat format =
         MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format).format;
-    const std::array swizzle = info.Swizzle();
+    std::array swizzle = info.Swizzle();
+    const VkImageAspectFlags aspect_mask = ImageViewAspectMask(info);
+    if ((aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0) {
+        std::ranges::transform(swizzle, swizzle.begin(), ConvertGreenRed);
+    }
     const VkImageViewCreateInfo create_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = nullptr,
@@ -694,7 +696,7 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
                 .b = ComponentSwizzle(swizzle[2]),
                 .a = ComponentSwizzle(swizzle[3]),
             },
-        .subresourceRange = MakeSubresourceRange(ImageViewAspectMask(info), info.range),
+        .subresourceRange = MakeSubresourceRange(aspect_mask, info.range),
     };
     const vk::Device& device = runtime.device.GetLogical();
     const auto create = [this, &device, &create_info](VideoCommon::ImageViewType type,

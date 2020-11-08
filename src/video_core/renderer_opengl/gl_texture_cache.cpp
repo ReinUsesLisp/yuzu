@@ -306,6 +306,15 @@ std::string NameView(const VideoCommon::ImageViewBase& image_view) {
     return "Invalid";
 }
 
+[[nodiscard]] constexpr SwizzleSource ConvertGreenRed(SwizzleSource value) {
+    switch (value) {
+    case SwizzleSource::G:
+        return SwizzleSource::R;
+    default:
+        return value;
+    }
+}
+
 void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4> swizzle) {
     switch (format) {
     case PixelFormat::D24_UNORM_S8_UINT:
@@ -314,6 +323,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         UNIMPLEMENTED_IF(swizzle[0] != SwizzleSource::R && swizzle[0] != SwizzleSource::G);
         glTextureParameteri(handle, GL_DEPTH_STENCIL_TEXTURE_MODE,
                             TextureMode(format, swizzle[0] == SwizzleSource::R));
+        std::ranges::transform(swizzle, swizzle.begin(), ConvertGreenRed);
         break;
     default:
         break;
@@ -368,7 +378,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         };
     default:
         UNIMPLEMENTED_MSG("Unimplemented copy target={}", target);
-        return CopyOrigin{};
+        return CopyOrigin{0, 0, 0};
     }
 }
 
@@ -390,7 +400,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         };
     default:
         UNIMPLEMENTED_MSG("Unimplemented copy target={}", target);
-        return CopyRegion{};
+        return CopyRegion{0, 0, 0};
     }
 }
 

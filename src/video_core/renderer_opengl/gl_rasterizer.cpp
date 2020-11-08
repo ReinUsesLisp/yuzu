@@ -29,6 +29,7 @@
 #include "video_core/renderer_opengl/gl_query_cache.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_cache.h"
+#include "video_core/renderer_opengl/gl_texture_cache.h"
 #include "video_core/renderer_opengl/maxwell_to_gl.h"
 #include "video_core/renderer_opengl/renderer_opengl.h"
 #include "video_core/shader_cache.h"
