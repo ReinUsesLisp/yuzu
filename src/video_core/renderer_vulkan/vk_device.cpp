@@ -51,8 +51,6 @@ constexpr std::array REQUIRED_EXTENSIONS{
     VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME,
     VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME,
     VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME,
-    VK_EXT_ROBUSTNESS_2_EXTENSION_NAME,
-    VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME,
 };
 
 template <typename T>
@@ -285,15 +283,6 @@ bool VKDevice::Create() {
         .variableMultisampleRate = false,
         .inheritedQueries = false,
     };
-
-    VkPhysicalDeviceRobustness2FeaturesEXT robustness2{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT,
-        .pNext = nullptr,
-        .robustBufferAccess2 = false,
-        .robustImageAccess2 = false,
-        .nullDescriptor = true,
-    };
-    SetNext(next, robustness2);
 
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR,
@@ -655,6 +644,7 @@ std::vector<const char*> VKDevice::LoadExtensions() {
         test(has_khr_shader_float16_int8, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, false);
         test(ext_depth_range_unrestricted, VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME, true);
         test(ext_index_type_uint8, VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME, true);
+        test(ext_sampler_filter_minmax, VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME, true);
         test(ext_shader_viewport_index_layer, VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
              true);
         test(has_ext_transform_feedback, VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME, false);

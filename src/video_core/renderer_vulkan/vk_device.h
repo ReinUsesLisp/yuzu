@@ -172,6 +172,11 @@ public:
         return ext_index_type_uint8;
     }
 
+    /// Returns true if the device supports VK_EXT_sampler_filter_minmax.
+    bool IsExtSamplerFilterMinmaxSupported() const {
+        return ext_sampler_filter_minmax;
+    }
+
     /// Returns true if the device supports VK_EXT_depth_range_unrestricted.
     bool IsExtDepthRangeUnrestrictedSupported() const {
         return ext_depth_range_unrestricted;
@@ -256,6 +261,7 @@ private:
     bool nv_viewport_swizzle{};                ///< Support for VK_NV_viewport_swizzle.
     bool khr_uniform_buffer_standard_layout{}; ///< Support for std430 on UBOs.
     bool ext_index_type_uint8{};               ///< Support for VK_EXT_index_type_uint8.
+    bool ext_sampler_filter_minmax{};          ///< Support for VK_EXT_sampler_filter_minmax.
     bool ext_depth_range_unrestricted{};       ///< Support for VK_EXT_depth_range_unrestricted.
     bool ext_shader_viewport_index_layer{};    ///< Support for VK_EXT_shader_viewport_index_layer.
     bool ext_transform_feedback{};             ///< Support for VK_EXT_transform_feedback.

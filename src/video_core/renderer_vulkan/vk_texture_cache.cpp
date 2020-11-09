@@ -757,22 +757,31 @@ Sampler::Sampler(TextureCacheRuntime& runtime, const Tegra::Texture::TSCEntry& t
     // C++20 bit_cast
     VkClearColorValue border_color;
     std::memcpy(&border_color, &color, sizeof(color));
-    const VkSamplerCustomBorderColorCreateInfoEXT border{
+    const VkSamplerCustomBorderColorCreateInfoEXT border_ci{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT,
         .pNext = nullptr,
         .customBorderColor = border_color,
         .format = VK_FORMAT_UNDEFINED,
     };
+    const void* pnext = nullptr;
+    if (arbitrary_borders) {
+        pnext = &border_ci;
+    }
     const VkSamplerReductionModeCreateInfoEXT reduction_ci{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT,
-        .pNext = arbitrary_borders ? &border : nullptr,
+        .pNext = pnext,
         .reductionMode = MaxwellToVK::SamplerReduction(tsc.reduction_filter),
     };
+    if (runtime.device.IsExtSamplerFilterMinmaxSupported()) {
+        pnext = &reduction_ci;
+    } else if (reduction_ci.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT) {
+        LOG_WARNING(Render_Vulkan, "VK_EXT_sampler_filter_minmax is required");
+    }
     // Some games have samplers with garbage. Sanitize them here.
     const float max_anisotropy = std::clamp(tsc.MaxAnisotropy(), 1.0f, 16.0f);
     sampler = device.GetLogical().CreateSampler(VkSamplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .pNext = &reduction_ci,
+        .pNext = pnext,
         .flags = 0,
         .magFilter = MaxwellToVK::Sampler::Filter(tsc.mag_filter),
         .minFilter = MaxwellToVK::Sampler::Filter(tsc.min_filter),
