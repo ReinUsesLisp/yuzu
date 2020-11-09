@@ -87,8 +87,8 @@ bool BlockBranchInfoAreEqual(BlockBranchInfo first, BlockBranchInfo second);
 struct ShaderBlock {
     u32 start{};
     u32 end{};
-    bool ignore_branch{};
     BlockBranchInfo branch{};
+    bool ignore_branch{};
 
     bool operator==(const ShaderBlock& sb) const {
         return std::tie(start, end, ignore_branch) ==
@@ -102,12 +102,12 @@ struct ShaderBlock {
 };
 
 struct ShaderCharacteristics {
-    std::list<ShaderBlock> blocks{};
-    std::set<u32> labels{};
     u32 start{};
     u32 end{};
     ASTManager manager{true, true};
     CompilerSettings settings{};
+    std::set<u32> labels;
+    std::list<ShaderBlock> blocks;
 };
 
 std::unique_ptr<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code, u32 start_address,

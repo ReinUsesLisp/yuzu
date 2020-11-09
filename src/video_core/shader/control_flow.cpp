@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
+#include <concepts>
 #include <list>
 #include <map>
 #include <set>
@@ -26,41 +28,40 @@ using Tegra::Shader::OpCode;
 
 constexpr s32 unassigned_branch = -2;
 
+enum class ParseResult {
+    ControlCaught,
+    BlockEnd,
+    AbnormalFlow,
+};
+
+enum class BlockCollision {
+    None,
+    Found,
+    Inside,
+};
+
 struct Query {
+    std::stack<u32> ssy_stack;
+    std::stack<u32> pbk_stack;
     u32 address{};
-    std::stack<u32> ssy_stack{};
-    std::stack<u32> pbk_stack{};
 };
 
 struct BlockStack {
-    BlockStack() = default;
-    explicit BlockStack(const Query& q) : ssy_stack{q.ssy_stack}, pbk_stack{q.pbk_stack} {}
-    std::stack<u32> ssy_stack{};
-    std::stack<u32> pbk_stack{};
+    explicit BlockStack() = default;
+    explicit BlockStack(const Query& query)
+        : ssy_stack(query.ssy_stack), pbk_stack(query.pbk_stack) {}
+
+    std::stack<u32> ssy_stack;
+    std::stack<u32> pbk_stack;
 };
-
-template <typename T, typename... Args>
-BlockBranchInfo MakeBranchInfo(Args&&... args) {
-    static_assert(std::is_convertible_v<T, BranchData>);
-    return std::make_shared<BranchData>(T(std::forward<Args>(args)...));
-}
-
-bool BlockBranchIsIgnored(BlockBranchInfo first) {
-    bool ignore = false;
-    if (std::holds_alternative<SingleBranch>(*first)) {
-        const auto branch = std::get_if<SingleBranch>(first.get());
-        ignore = branch->ignore;
-    }
-    return ignore;
-}
 
 struct BlockInfo {
     u32 start{};
     u32 end{};
-    bool visited{};
     BlockBranchInfo branch{};
+    bool visited{};
 
-    bool IsInside(const u32 address) const {
+    constexpr bool IsInside(const u32 address) const {
         return start <= address && address <= end;
     }
 };
@@ -83,43 +84,9 @@ struct CFGRebuildState {
     ASTManager* manager{};
 };
 
-enum class BlockCollision : u32 { None, Found, Inside };
-
-std::pair<BlockCollision, u32> TryGetBlock(CFGRebuildState& state, u32 address) {
-    const auto& blocks = state.block_info;
-    for (u32 index = 0; index < blocks.size(); index++) {
-        if (blocks[index].start == address) {
-            return {BlockCollision::Found, index};
-        }
-        if (blocks[index].IsInside(address)) {
-            return {BlockCollision::Inside, index};
-        }
-    }
-    return {BlockCollision::None, 0xFFFFFFFF};
-}
-
 struct ParseInfo {
     BlockBranchInfo branch_info{};
     u32 end_address{};
-};
-
-BlockInfo& CreateBlockInfo(CFGRebuildState& state, u32 start, u32 end) {
-    auto& it = state.block_info.emplace_back();
-    it.start = start;
-    it.end = end;
-    const u32 index = static_cast<u32>(state.block_info.size() - 1);
-    state.registered.insert({start, index});
-    return it;
-}
-
-Pred GetPredicate(u32 index, bool negated) {
-    return static_cast<Pred>(static_cast<u64>(index) + (negated ? 8ULL : 0ULL));
-}
-
-enum class ParseResult : u32 {
-    ControlCaught,
-    BlockEnd,
-    AbnormalFlow,
 };
 
 struct BranchIndirectInfo {
@@ -134,6 +101,44 @@ struct BufferInfo {
     u32 offset;
 };
 
+template <std::convertible_to<BranchData> T, typename... Args>
+BlockBranchInfo MakeBranchInfo(Args&&... args) {
+    return std::make_shared<BranchData>(T(std::forward<Args>(args)...));
+}
+
+bool BlockBranchIsIgnored(BlockBranchInfo first) {
+    if (const auto branch = std::get_if<SingleBranch>(first.get())) {
+        return branch->ignore;
+    }
+    return false;
+}
+
+std::pair<BlockCollision, u32> TryGetBlock(CFGRebuildState& state, u32 address) {
+    const auto& blocks = state.block_info;
+    for (u32 index = 0; index < blocks.size(); index++) {
+        if (blocks[index].start == address) {
+            return {BlockCollision::Found, index};
+        }
+        if (blocks[index].IsInside(address)) {
+            return {BlockCollision::Inside, index};
+        }
+    }
+    return {BlockCollision::None, 0xFFFFFFFF};
+}
+
+BlockInfo& CreateBlockInfo(CFGRebuildState& state, u32 start, u32 end) {
+    auto& it = state.block_info.emplace_back();
+    it.start = start;
+    it.end = end;
+    const u32 index = static_cast<u32>(state.block_info.size() - 1);
+    state.registered.insert({start, index});
+    return it;
+}
+
+Pred GetPredicate(u32 index, bool negated) {
+    return static_cast<Pred>(static_cast<u64>(index) + (negated ? 8ULL : 0ULL));
+}
+
 std::optional<std::pair<s32, u64>> GetBRXInfo(const CFGRebuildState& state, u32& pos) {
     const Instruction instr = state.program_code[pos];
     const auto opcode = OpCode::Decode(instr);
@@ -147,11 +152,10 @@ std::optional<std::pair<s32, u64>> GetBRXInfo(const CFGRebuildState& state, u32&
     return std::make_pair(instr.brx.GetBranchExtend(), instr.gpr8.Value());
 }
 
-template <typename Result, typename TestCallable, typename PackCallable>
-// requires std::predicate<TestCallable, Instruction, const OpCode::Matcher&>
-// requires std::invocable<PackCallable, Instruction, const OpCode::Matcher&>
-std::optional<Result> TrackInstruction(const CFGRebuildState& state, u32& pos, TestCallable test,
-                                       PackCallable pack) {
+template <typename Result, std::predicate<Instruction, const OpCode::Matcher&> TestCallable,
+          std::invocable<Instruction, const OpCode::Matcher&> PackCallable>
+std::optional<Result> TrackInstruction(const CFGRebuildState& state, u32& pos, TestCallable&& test,
+                                       PackCallable&& pack) {
     for (; pos >= state.start; --pos) {
         if (IsSchedInstruction(pos, state.start)) {
             continue;
@@ -483,9 +487,9 @@ bool TryInspectAddress(CFGRebuildState& state) {
         current_block.end = address - 1;
         new_block.branch = std::move(current_block.branch);
         BlockBranchInfo forward_branch = MakeBranchInfo<SingleBranch>();
-        const auto branch = std::get_if<SingleBranch>(forward_branch.get());
-        branch->address = address;
-        branch->ignore = true;
+        auto& branch = std::get<SingleBranch>(*forward_branch);
+        branch.address = address;
+        branch.ignore = true;
         current_block.branch = std::move(forward_branch);
         return true;
     }
@@ -500,8 +504,7 @@ bool TryInspectAddress(CFGRebuildState& state) {
 
     BlockInfo& block_info = CreateBlockInfo(state, address, parse_info.end_address);
     block_info.branch = parse_info.branch_info;
-    if (std::holds_alternative<SingleBranch>(*block_info.branch)) {
-        const auto branch = std::get_if<SingleBranch>(block_info.branch.get());
+    if (const auto branch = std::get_if<SingleBranch>(block_info.branch.get())) {
         if (branch->condition.IsUnconditional()) {
             return true;
         }
@@ -512,48 +515,45 @@ bool TryInspectAddress(CFGRebuildState& state) {
     return true;
 }
 
+void GatherLabels(std::stack<u32>& cc, std::map<u32, u32>& labels, BlockInfo& block) {
+    auto gather_start = labels.lower_bound(block.start);
+    const auto gather_end = labels.upper_bound(block.end);
+    while (gather_start != gather_end) {
+        cc.push(gather_start->second);
+        ++gather_start;
+    }
+}
+
 bool TryQuery(CFGRebuildState& state) {
-    const auto gather_labels = [](std::stack<u32>& cc, std::map<u32, u32>& labels,
-                                  BlockInfo& block) {
-        auto gather_start = labels.lower_bound(block.start);
-        const auto gather_end = labels.upper_bound(block.end);
-        while (gather_start != gather_end) {
-            cc.push(gather_start->second);
-            ++gather_start;
-        }
-    };
     if (state.queries.empty()) {
         return false;
     }
-
-    Query& q = state.queries.front();
-    const u32 block_index = state.registered[q.address];
+    const Query& query = state.queries.front();
+    const u32 block_index = state.registered[query.address];
     BlockInfo& block = state.block_info[block_index];
     // If the block is visited, check if the stacks match, else gather the ssy/pbk
     // labels into the current stack and look if the branch at the end of the block
     // consumes a label. Schedule new queries accordingly
     if (block.visited) {
-        BlockStack& stack = state.stacks[q.address];
-        const bool all_okay = (stack.ssy_stack.empty() || q.ssy_stack == stack.ssy_stack) &&
-                              (stack.pbk_stack.empty() || q.pbk_stack == stack.pbk_stack);
+        BlockStack& stack = state.stacks[query.address];
+        const bool all_okay = (stack.ssy_stack.empty() || query.ssy_stack == stack.ssy_stack) &&
+                              (stack.pbk_stack.empty() || query.pbk_stack == stack.pbk_stack);
         state.queries.pop_front();
         return all_okay;
     }
     block.visited = true;
-    state.stacks.insert_or_assign(q.address, BlockStack{q});
+    state.stacks.insert_or_assign(query.address, BlockStack{query});
 
-    Query q2(q);
+    Query new_query = query;
     state.queries.pop_front();
-    gather_labels(q2.ssy_stack, state.ssy_labels, block);
-    gather_labels(q2.pbk_stack, state.pbk_labels, block);
-    if (std::holds_alternative<SingleBranch>(*block.branch)) {
-        auto* branch = std::get_if<SingleBranch>(block.branch.get());
+    GatherLabels(new_query.ssy_stack, state.ssy_labels, block);
+    GatherLabels(new_query.pbk_stack, state.pbk_labels, block);
+    if (const auto branch = std::get_if<SingleBranch>(block.branch.get())) {
         if (!branch->condition.IsUnconditional()) {
-            q2.address = block.end + 1;
-            state.queries.push_back(q2);
+            new_query.address = block.end + 1;
+            state.queries.push_back(new_query);
         }
-
-        auto& conditional_query = state.queries.emplace_back(q2);
+        auto& conditional_query = state.queries.emplace_back(new_query);
         if (branch->is_sync) {
             if (branch->address == unassigned_branch) {
                 branch->address = conditional_query.ssy_stack.top();
@@ -569,13 +569,11 @@ bool TryQuery(CFGRebuildState& state) {
         conditional_query.address = branch->address;
         return true;
     }
-
-    const auto* multi_branch = std::get_if<MultiBranch>(block.branch.get());
-    for (const auto& branch_case : multi_branch->branches) {
-        auto& conditional_query = state.queries.emplace_back(q2);
+    const auto multi_branch = std::get<MultiBranch>(*block.branch);
+    for (const auto& branch_case : multi_branch.branches) {
+        auto& conditional_query = state.queries.emplace_back(new_query);
         conditional_query.address = branch_case.address;
     }
-
     return true;
 }
 
@@ -606,9 +604,7 @@ void InsertBranch(ASTManager& mm, const BlockBranchInfo& branch_info) {
         }
         return MakeExpr<ExprBoolean>(true);
     };
-
-    if (std::holds_alternative<SingleBranch>(*branch_info)) {
-        const auto* branch = std::get_if<SingleBranch>(branch_info.get());
+    if (const auto branch = std::get_if<SingleBranch>(branch_info.get())) {
         if (branch->address < 0) {
             if (branch->kill) {
                 mm.InsertReturn(get_expr(branch->condition), true);
@@ -651,10 +647,10 @@ void DecompileShader(CFGRebuildState& state) {
 std::unique_ptr<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code, u32 start_address,
                                                 const CompilerSettings& settings,
                                                 Registry& registry) {
-    auto result_out = std::make_unique<ShaderCharacteristics>();
+    auto result = std::make_unique<ShaderCharacteristics>();
     if (settings.depth == CompileDepth::BruteForce) {
-        result_out->settings.depth = CompileDepth::BruteForce;
-        return result_out;
+        result->settings.depth = CompileDepth::BruteForce;
+        return result;
     }
 
     CFGRebuildState state{program_code, start_address, registry};
@@ -664,18 +660,20 @@ std::unique_ptr<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code,
     state.inspect_queries.push_back(state.start);
     while (!state.inspect_queries.empty()) {
         if (!TryInspectAddress(state)) {
-            result_out->settings.depth = CompileDepth::BruteForce;
-            return result_out;
+            result->settings.depth = CompileDepth::BruteForce;
+            return result;
         }
     }
-
     bool use_flow_stack = true;
-
     bool decompiled = false;
 
     if (settings.depth != CompileDepth::FlowStack) {
         // Decompile Stacks
-        state.queries.push_back(Query{state.start, {}, {}});
+        state.queries.push_back(Query{
+            .ssy_stack = {},
+            .pbk_stack = {},
+            .address = state.start,
+        });
         decompiled = true;
         while (!state.queries.empty()) {
             if (!TryQuery(state)) {
@@ -684,12 +682,11 @@ std::unique_ptr<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code,
             }
         }
     }
-
     use_flow_stack = !decompiled;
 
     // Sort and organize results
-    std::sort(state.block_info.begin(), state.block_info.end(),
-              [](const BlockInfo& a, const BlockInfo& b) -> bool { return a.start < b.start; });
+    std::ranges::sort(state.block_info,
+                      [](const BlockInfo& a, const BlockInfo& b) { return a.start < b.start; });
     if (decompiled && settings.depth != CompileDepth::NoFlowStack) {
         ASTManager manager{settings.depth != CompileDepth::DecompileBackwards,
                            settings.disable_else_derivation};
@@ -698,54 +695,56 @@ std::unique_ptr<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code,
         decompiled = state.manager->IsFullyDecompiled();
         if (!decompiled) {
             if (settings.depth == CompileDepth::FullDecompile) {
-                LOG_CRITICAL(HW_GPU, "Failed to remove all the gotos!:");
+                LOG_CRITICAL(HW_GPU, "Failed to remove all the gotos:");
             } else {
-                LOG_CRITICAL(HW_GPU, "Failed to remove all backward gotos!:");
+                LOG_CRITICAL(HW_GPU, "Failed to remove all backward gotos:");
             }
-            state.manager->ShowCurrentState("Of Shader");
+            state.manager->ShowCurrentState("of shader");
             state.manager->Clear();
         } else {
-            auto characteristics = std::make_unique<ShaderCharacteristics>();
-            characteristics->start = start_address;
-            characteristics->settings.depth = settings.depth;
-            characteristics->manager = std::move(manager);
-            characteristics->end = state.block_info.back().end + 1;
-            return characteristics;
+            return std::make_unique<ShaderCharacteristics>(ShaderCharacteristics{
+                .start = start_address,
+                .end = state.block_info.back().end + 1,
+                .manager = std::move(manager),
+                .settings =
+                    {
+                        .depth = settings.depth,
+                        .disable_else_derivation = true,
+                    },
+                .labels = {},
+                .blocks = {},
+            });
         }
     }
 
-    result_out->start = start_address;
-    result_out->settings.depth =
-        use_flow_stack ? CompileDepth::FlowStack : CompileDepth::NoFlowStack;
-    result_out->blocks.clear();
+    result->start = start_address;
+    result->settings.depth = use_flow_stack ? CompileDepth::FlowStack : CompileDepth::NoFlowStack;
+    result->blocks.clear();
     for (auto& block : state.block_info) {
-        ShaderBlock new_block{};
-        new_block.start = block.start;
-        new_block.end = block.end;
-        new_block.ignore_branch = BlockBranchIsIgnored(block.branch);
-        if (!new_block.ignore_branch) {
-            new_block.branch = block.branch;
-        }
-        result_out->end = std::max(result_out->end, block.end);
-        result_out->blocks.push_back(new_block);
+        const bool ignore_branch = BlockBranchIsIgnored(block.branch);
+        result->end = std::max(result->end, block.end);
+        result->blocks.push_back(ShaderBlock{
+            .start = block.start,
+            .end = block.end,
+            .branch = ignore_branch ? BlockBranchInfo{} : block.branch,
+            .ignore_branch = ignore_branch,
+        });
     }
     if (!use_flow_stack) {
-        result_out->labels = std::move(state.labels);
-        return result_out;
+        result->labels = std::move(state.labels);
+        return result;
     }
-
-    auto back = result_out->blocks.begin();
+    auto back = result->blocks.begin();
     auto next = std::next(back);
-    while (next != result_out->blocks.end()) {
+    while (next != result->blocks.end()) {
         if (state.labels.count(next->start) == 0 && next->start == back->end + 1) {
             back->end = next->end;
-            next = result_out->blocks.erase(next);
+            next = result->blocks.erase(next);
             continue;
         }
         back = next;
         ++next;
     }
-
-    return result_out;
+    return result;
 }
 } // namespace VideoCommon::Shader
