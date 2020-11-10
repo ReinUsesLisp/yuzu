@@ -212,7 +212,7 @@ bool VKDevice::Create() {
     void** next = &features2.pNext;
 
     features2.features = {
-        .robustBufferAccess = false,
+        .robustBufferAccess = true,
         .fullDrawIndexUint32 = false,
         .imageCubeArray = false,
         .independentBlend = true,

@@ -44,6 +44,7 @@ enum class BlockCollision {
 };
 
 enum class StackToken {
+    Pret,
     Ssy,
     Pbk,
 };
@@ -60,16 +61,24 @@ struct BlockStack {
 
     [[nodiscard]] auto operator<=>(const BlockStack&) const noexcept = default;
 
+    void PushPRET(u32 address) {
+        Push(StackToken::Pret, address);
+    }
+
     void PushSSY(u32 address) {
-        return Push(StackToken::Ssy, address);
+        Push(StackToken::Ssy, address);
+    }
+
+    void PushPBK(u32 address) {
+        Push(StackToken::Pbk, address);
+    }
+
+    [[nodiscard]] u32 PopPRET() {
+        return Pop(StackToken::Pret);
     }
 
     [[nodiscard]] u32 PopSSY() {
         return Pop(StackToken::Ssy);
-    }
-
-    void PushPBK(u32 address) {
-        return Push(StackToken::Pbk, address);
     }
 
     [[nodiscard]] u32 PopPBK() {
@@ -95,7 +104,7 @@ struct BlockStack {
 
 struct Query {
     BlockStack stack;
-    u32 address{0xcccccccc};
+    u32 address;
 };
 
 struct BlockInfo {
@@ -337,11 +346,13 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
             single_branch.kill = false;
             single_branch.is_sync = false;
             single_branch.is_brk = false;
+            single_branch.is_ret = false;
             single_branch.ignore = false;
             parse_info.end_address = offset;
             parse_info.branch_info = MakeBranchInfo<SingleBranch>(
                 single_branch.condition, single_branch.address, single_branch.kill,
-                single_branch.is_sync, single_branch.is_brk, single_branch.ignore);
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
 
             return {ParseResult::ControlCaught, parse_info};
         }
@@ -371,11 +382,13 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
             single_branch.kill = false;
             single_branch.is_sync = false;
             single_branch.is_brk = false;
+            single_branch.is_ret = false;
             single_branch.ignore = false;
             parse_info.end_address = offset;
             parse_info.branch_info = MakeBranchInfo<SingleBranch>(
                 single_branch.condition, single_branch.address, single_branch.kill,
-                single_branch.is_sync, single_branch.is_brk, single_branch.ignore);
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
 
             return {ParseResult::ControlCaught, parse_info};
         }
@@ -396,11 +409,13 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
             single_branch.kill = false;
             single_branch.is_sync = true;
             single_branch.is_brk = false;
+            single_branch.is_ret = false;
             single_branch.ignore = false;
             parse_info.end_address = offset;
             parse_info.branch_info = MakeBranchInfo<SingleBranch>(
                 single_branch.condition, single_branch.address, single_branch.kill,
-                single_branch.is_sync, single_branch.is_brk, single_branch.ignore);
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
 
             return {ParseResult::ControlCaught, parse_info};
         }
@@ -421,11 +436,13 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
             single_branch.kill = false;
             single_branch.is_sync = false;
             single_branch.is_brk = true;
+            single_branch.is_ret = false;
             single_branch.ignore = false;
             parse_info.end_address = offset;
             parse_info.branch_info = MakeBranchInfo<SingleBranch>(
                 single_branch.condition, single_branch.address, single_branch.kill,
-                single_branch.is_sync, single_branch.is_brk, single_branch.ignore);
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
 
             return {ParseResult::ControlCaught, parse_info};
         }
@@ -446,11 +463,40 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
             single_branch.kill = true;
             single_branch.is_sync = false;
             single_branch.is_brk = false;
+            single_branch.is_ret = false;
             single_branch.ignore = false;
             parse_info.end_address = offset;
             parse_info.branch_info = MakeBranchInfo<SingleBranch>(
                 single_branch.condition, single_branch.address, single_branch.kill,
-                single_branch.is_sync, single_branch.is_brk, single_branch.ignore);
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
+
+            return {ParseResult::ControlCaught, parse_info};
+        }
+        case OpCode::Id::RET: {
+            const auto pred_index = static_cast<u32>(instr.pred.pred_index);
+            single_branch.condition.predicate = GetPredicate(pred_index, instr.negate_pred != 0);
+            if (single_branch.condition.predicate == Pred::NeverExecute) {
+                offset++;
+                continue;
+            }
+            const ConditionCode cc = instr.flow_condition_code;
+            single_branch.condition.cc = cc;
+            if (cc == ConditionCode::F) {
+                offset++;
+                continue;
+            }
+            single_branch.address = UNASSIGNED_BRANCH;
+            single_branch.kill = false;
+            single_branch.is_sync = false;
+            single_branch.is_brk = false;
+            single_branch.is_ret = true;
+            single_branch.ignore = false;
+            parse_info.end_address = offset;
+            parse_info.branch_info = MakeBranchInfo<SingleBranch>(
+                single_branch.condition, single_branch.address, single_branch.kill,
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
 
             return {ParseResult::ControlCaught, parse_info};
         }
@@ -466,8 +512,38 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
             state.stack_labels.emplace(offset, StackEntry{StackToken::Pbk, target});
             break;
         }
+        case OpCode::Id::CAL: {
+            const auto pred_index = static_cast<u32>(instr.pred.pred_index);
+            single_branch.condition.predicate = GetPredicate(pred_index, instr.negate_pred != 0);
+            if (single_branch.condition.predicate == Pred::NeverExecute) {
+                offset++;
+                continue;
+            }
+            const u32 branch_offset = offset + instr.bra.GetBranchTarget();
+            if (branch_offset == 0) {
+                single_branch.address = EXIT_BRANCH;
+            } else {
+                single_branch.address = branch_offset;
+            }
+            InsertLabel(state, branch_offset);
+            single_branch.kill = false;
+            single_branch.is_sync = false;
+            single_branch.is_brk = false;
+            single_branch.is_ret = false;
+            single_branch.ignore = false;
+            parse_info.end_address = offset;
+            parse_info.branch_info = MakeBranchInfo<SingleBranch>(
+                single_branch.condition, single_branch.address, single_branch.kill,
+                single_branch.is_sync, single_branch.is_brk, single_branch.is_ret,
+                single_branch.ignore);
+
+            const u32 return_target = offset + 1;
+            InsertLabel(state, return_target);
+            state.stack_labels.emplace(branch_offset, StackEntry{StackToken::Pret, return_target});
+
+            return {ParseResult::ControlCaught, parse_info};
+        }
         case OpCode::Id::BRX: {
-            // return {ParseResult::AbnormalFlow, parse_info};
             const auto tmp = TrackBranchIndirectInfo(state, offset);
             if (!tmp) {
                 LOG_WARNING(HW_GPU, "BRX Track Unsuccesful");
@@ -502,10 +578,11 @@ std::pair<ParseResult, ParseInfo> ParseCode(CFGRebuildState& state, u32 address)
     single_branch.kill = false;
     single_branch.is_sync = false;
     single_branch.is_brk = false;
+    single_branch.is_ret = false;
     parse_info.end_address = offset - 1;
     parse_info.branch_info = MakeBranchInfo<SingleBranch>(
         single_branch.condition, single_branch.address, single_branch.kill, single_branch.is_sync,
-        single_branch.is_brk, single_branch.ignore);
+        single_branch.is_brk, single_branch.is_ret, single_branch.ignore);
     return {ParseResult::BlockEnd, parse_info};
 }
 
@@ -609,6 +686,12 @@ bool TryQuery(CFGRebuildState& state) {
         }
         if (branch->is_brk) {
             const u32 address = conditional_query.stack.PopPBK();
+            if (branch->address == UNASSIGNED_BRANCH) {
+                branch->address = address;
+            }
+        }
+        if (branch->is_ret) {
+            const u32 address = conditional_query.stack.PopPRET();
             if (branch->address == UNASSIGNED_BRANCH) {
                 branch->address = address;
             }

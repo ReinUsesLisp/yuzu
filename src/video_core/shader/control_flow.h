@@ -44,9 +44,9 @@ class SingleBranch {
 public:
     SingleBranch() = default;
     SingleBranch(Condition condition, s32 address, bool kill, bool is_sync, bool is_brk,
-                 bool ignore)
+                 bool is_ret, bool ignore)
         : condition{condition}, address{address}, kill{kill}, is_sync{is_sync}, is_brk{is_brk},
-          ignore{ignore} {}
+          is_ret{is_ret}, ignore{ignore} {}
 
     bool operator==(const SingleBranch& b) const {
         return std::tie(condition, address, kill, is_sync, is_brk, ignore) ==
@@ -62,6 +62,7 @@ public:
     bool kill{};
     bool is_sync{};
     bool is_brk{};
+    bool is_ret{};
     bool ignore{};
 };
 

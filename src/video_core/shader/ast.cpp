@@ -302,7 +302,6 @@ public:
     }
 
     void operator()(const ASTLabel& ast) {
-        abort();
         inner += fmt::format("Label_{}:\n", ast.index);
     }
 
