@@ -635,7 +635,7 @@ std::vector<const char*> VKDevice::LoadExtensions() {
         if (instance_version >= VK_API_VERSION_1_1) {
             test(has_ext_subgroup_size_control, VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, false);
         }
-        if (Settings::values.renderer_debug) {
+        if (true) {
             test(nv_device_diagnostics_config, VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME,
                  true);
         }

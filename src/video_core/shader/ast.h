@@ -374,6 +374,8 @@ private:
 
     void MoveOutward(ASTNode goto_node);
 
+    void MoveInward(ASTNode goto_node);
+
     u32 NewVariable() {
         return variables++;
     }

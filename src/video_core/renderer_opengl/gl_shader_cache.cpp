@@ -48,7 +48,10 @@ using VideoCommon::Shader::STAGE_MAIN_OFFSET;
 
 namespace {
 
-constexpr VideoCommon::Shader::CompilerSettings COMPILER_SETTINGS{};
+constexpr VideoCommon::Shader::CompilerSettings COMPILER_SETTINGS{
+    .depth = VideoCommon::Shader::CompileDepth::NoFlowStack,
+    .disable_else_derivation = true,
+};
 
 /// Gets the shader type from a Maxwell program type
 constexpr GLenum GetGLShaderType(ShaderType shader_type) {

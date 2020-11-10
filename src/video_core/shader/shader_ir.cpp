@@ -28,6 +28,10 @@ using Tegra::Shader::Register;
 ShaderIR::ShaderIR(const ProgramCode& program_code, u32 main_offset, CompilerSettings settings,
                    Registry& registry)
     : program_code{program_code}, main_offset{main_offset}, settings{settings}, registry{registry} {
+    FILE* file = fopen("D:\\shader.bin", "wb");
+    fwrite(program_code.data(), 8, program_code.size(), file);
+    fclose(file);
+
     Decode();
     PostDecode();
 }

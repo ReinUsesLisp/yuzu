@@ -145,14 +145,14 @@ void ShaderIR::Decode() {
     case CompileDepth::NoFlowStack: {
         disable_flow_stack = true;
         const auto insert_block = [this](NodeBlock& nodes, u32 label) {
-            if (label == static_cast<u32>(exit_branch)) {
+            if (label == static_cast<u32>(EXIT_BRANCH)) {
                 return;
             }
             basic_blocks.insert({label, nodes});
         };
         const auto& blocks = shader_info.blocks;
         NodeBlock current_block;
-        u32 current_label = static_cast<u32>(exit_branch);
+        u32 current_label = static_cast<u32>(EXIT_BRANCH);
         for (auto& block : blocks) {
             if (shader_info.labels.count(block.start) != 0) {
                 insert_block(current_block, current_label);

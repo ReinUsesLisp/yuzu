@@ -28,6 +28,8 @@
 #include "video_core/shader/shader_ir.h"
 #include "video_core/shader/transform_feedback.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 namespace {
@@ -51,7 +53,20 @@ constexpr u32 MaxConstBufferElements = MaxConstBufferFloats / 4;
 
 constexpr u32 NumInputPatches = 32; // This value seems to be the standard
 
-enum class Type { Void, Bool, Bool2, Float, Int, Uint, HalfFloat };
+enum class Type {
+    Void,
+    Bool,
+    Bool2,
+    Float,
+    Int,
+    Uint,
+    HalfFloat,
+};
+
+enum class StackToken : u32 {
+    Ssy,
+    Pbk,
+};
 
 class Expression final {
 public:
@@ -282,12 +297,15 @@ u32 ShaderVersion(const VKDevice& device) {
 class SPIRVDecompiler final : public Sirit::Module {
 public:
     explicit SPIRVDecompiler(const VKDevice& device, const ShaderIR& ir, ShaderType stage,
-                             const Registry& registry, const Specialization& specialization)
+                             const Registry& registry, const Specialization& specialization,
+                             u64 uid)
         : Module(ShaderVersion(device)), device{device}, ir{ir}, stage{stage},
           header{ir.GetHeader()}, registry{registry}, specialization{specialization} {
         if (stage != ShaderType::Compute) {
             transform_feedback = BuildTransformFeedback(registry.GetGraphicsInfo());
         }
+
+        Name(OpUndef(t_void), fmt::format("Address_0x{:x}", uid));
 
         AddCapability(spv::Capability::Shader);
         AddCapability(spv::Capability::UniformAndStorageBuffer16BitAccess);
@@ -462,18 +480,23 @@ private:
             branch_labels.push_back(label);
         }
 
+        // TODO(Rodrigo): Figure out the actual depth of the flow stack, for now it seems unlikely
+        // that shaders will use several nested SSYs and PBKs.
+        constexpr u32 FLOW_STACK_SIZE = 30;
+        const Id flow_stack_type = TypeArray(t_uint, Constant(t_uint, FLOW_STACK_SIZE));
+        flow_stack = OpVariable(TypePointer(spv::StorageClass::Function, flow_stack_type),
+                                spv::StorageClass::Function, ConstantNull(flow_stack_type));
+        flow_stack_top = OpVariable(TypePointer(spv::StorageClass::Function, t_uint),
+                                    spv::StorageClass::Function, v_uint_zero);
+
+        AddLocalVariable(flow_stack);
+        AddLocalVariable(flow_stack_top);
+        Name(flow_stack, "flow_stack");
+        Name(flow_stack_top, "flow_stack_top");
+
         jmp_to = OpVariable(TypePointer(spv::StorageClass::Function, t_uint),
                             spv::StorageClass::Function, Constant(t_uint, first_address));
         AddLocalVariable(jmp_to);
-
-        std::tie(ssy_flow_stack, ssy_flow_stack_top) = CreateFlowStack();
-        std::tie(pbk_flow_stack, pbk_flow_stack_top) = CreateFlowStack();
-
-        Name(jmp_to, "jmp_to");
-        Name(ssy_flow_stack, "ssy_flow_stack");
-        Name(ssy_flow_stack_top, "ssy_flow_stack_top");
-        Name(pbk_flow_stack, "pbk_flow_stack");
-        Name(pbk_flow_stack_top, "pbk_flow_stack_top");
 
         DefinePrologue();
 
@@ -2048,25 +2071,52 @@ private:
 
     Expression PushFlowStack(Operation operation) {
         const auto& target = std::get<ImmediateNode>(*operation[0]);
-        const auto [flow_stack, flow_stack_top] = GetFlowStack(operation);
-        const Id current = OpLoad(t_uint, flow_stack_top);
-        const Id next = OpIAdd(t_uint, current, Constant(t_uint, 1));
-        const Id access = OpAccessChain(t_func_uint, flow_stack, current);
+        const auto stack_class = std::get<MetaStackClass>(operation.GetMeta());
+        const Id stack_class_id = Constant(t_uint, static_cast<u32>(stack_class));
+        const Id address = Constant(t_uint, target.GetValue());
 
-        OpStore(access, Constant(t_uint, target.GetValue()));
-        OpStore(flow_stack_top, next);
+        const Id current_token = OpLoad(t_uint, flow_stack_top);
+        const Id current_address = OpIAdd(t_uint, current_token, Constant(t_uint, 1));
+        const Id next_top = OpIAdd(t_uint, current_token, Constant(t_uint, 2));
+
+        const Id token_access = OpAccessChain(t_func_uint, flow_stack, current_token);
+        const Id address_access = OpAccessChain(t_func_uint, flow_stack, current_address);
+
+        OpStore(token_access, stack_class_id);
+        OpStore(address_access, address);
+        OpStore(flow_stack_top, next_top);
         return {};
     }
 
     Expression PopFlowStack(Operation operation) {
-        const auto [flow_stack, flow_stack_top] = GetFlowStack(operation);
-        const Id current = OpLoad(t_uint, flow_stack_top);
-        const Id previous = OpISub(t_uint, current, Constant(t_uint, 1));
-        const Id access = OpAccessChain(t_func_uint, flow_stack, previous);
-        const Id target = OpLoad(t_uint, access);
+        const auto stack_class = std::get<MetaStackClass>(operation.GetMeta());
+        const Id stack_class_id = Constant(t_uint, static_cast<u32>(stack_class));
 
-        OpStore(flow_stack_top, previous);
-        OpStore(jmp_to, target);
+        const Id start_label = OpLabel();
+        const Id loop_label = OpLabel();
+        const Id finish_label = OpLabel();
+        const Id test_label = OpLabel();
+
+        OpBranch(start_label);
+        AddLabel(start_label);
+        OpLoopMerge(finish_label, test_label, spv::LoopControlMask::MaskNone);
+        OpBranch(loop_label);
+        AddLabel(loop_label);
+        const Id new_top = OpISub(t_uint, OpLoad(t_uint, flow_stack_top), Constant(t_uint, 2));
+        OpStore(flow_stack_top, new_top);
+        OpBranch(test_label);
+        AddLabel(test_label);
+        const Id top_token = OpLoad(t_uint, flow_stack_top);
+        const Id stack_ptr = OpAccessChain(t_func_uint, flow_stack, top_token);
+        const Id stack_token = OpLoad(t_uint, stack_ptr);
+        const Id is_equal = OpIEqual(t_bool, stack_token, stack_class_id);
+        OpBranchConditional(is_equal, finish_label, start_label);
+        AddLabel(finish_label);
+
+        const Id top_address = OpIAdd(t_uint, OpLoad(t_uint, flow_stack_top), Constant(t_uint, 1U));
+        const Id top_address_ptr = OpAccessChain(t_func_uint, flow_stack, top_address);
+        OpStore(jmp_to, OpLoad(t_uint, top_address_ptr));
+
         OpBranch(continue_label);
         inside_branch = true;
         if (!conditional_branch_set) {
@@ -2443,33 +2493,6 @@ private:
         }
     }
 
-    std::tuple<Id, Id> CreateFlowStack() {
-        // TODO(Rodrigo): Figure out the actual depth of the flow stack, for now it seems unlikely
-        // that shaders will use 20 nested SSYs and PBKs.
-        constexpr u32 FLOW_STACK_SIZE = 20;
-        constexpr auto storage_class = spv::StorageClass::Function;
-
-        const Id flow_stack_type = TypeArray(t_uint, Constant(t_uint, FLOW_STACK_SIZE));
-        const Id stack = OpVariable(TypePointer(storage_class, flow_stack_type), storage_class,
-                                    ConstantNull(flow_stack_type));
-        const Id top = OpVariable(t_func_uint, storage_class, Constant(t_uint, 0));
-        AddLocalVariable(stack);
-        AddLocalVariable(top);
-        return std::tie(stack, top);
-    }
-
-    std::pair<Id, Id> GetFlowStack(Operation operation) {
-        const auto stack_class = std::get<MetaStackClass>(operation.GetMeta());
-        switch (stack_class) {
-        case MetaStackClass::Ssy:
-            return {ssy_flow_stack, ssy_flow_stack_top};
-        case MetaStackClass::Pbk:
-            return {pbk_flow_stack, pbk_flow_stack_top};
-        }
-        UNREACHABLE();
-        return {};
-    }
-
     Id GetGlobalMemoryPointer(const GmemNode& gmem) {
         const Id real = AsUint(Visit(gmem.GetRealAddress()));
         const Id base = AsUint(Visit(gmem.GetBaseAddress()));
@@ -2838,10 +2861,8 @@ private:
     std::vector<Id> interfaces;
 
     Id jmp_to{};
-    Id ssy_flow_stack_top{};
-    Id pbk_flow_stack_top{};
-    Id ssy_flow_stack{};
-    Id pbk_flow_stack{};
+    Id flow_stack{};
+    Id flow_stack_top{};
     Id continue_label{};
     std::map<u32, Id> labels;
 
@@ -3099,8 +3120,8 @@ ShaderEntries GenerateShaderEntries(const VideoCommon::Shader::ShaderIR& ir) {
 
 std::vector<u32> Decompile(const VKDevice& device, const VideoCommon::Shader::ShaderIR& ir,
                            ShaderType stage, const VideoCommon::Shader::Registry& registry,
-                           const Specialization& specialization) {
-    return SPIRVDecompiler(device, ir, stage, registry, specialization).Assemble();
+                           const Specialization& specialization, u64 uid) {
+    return SPIRVDecompiler(device, ir, stage, registry, specialization, uid).Assemble();
 }
 
 } // namespace Vulkan

@@ -50,8 +50,10 @@ constexpr VkDescriptorType COMBINED_IMAGE_SAMPLER = VK_DESCRIPTOR_TYPE_COMBINED_
 constexpr VkDescriptorType STORAGE_TEXEL_BUFFER = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
 constexpr VkDescriptorType STORAGE_IMAGE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
-constexpr VideoCommon::Shader::CompilerSettings compiler_settings{
-    VideoCommon::Shader::CompileDepth::FullDecompile};
+constexpr VideoCommon::Shader::CompilerSettings COMPILER_SETTINGS{
+    .depth = VideoCommon::Shader::CompileDepth::FullDecompile,
+    .disable_else_derivation = true,
+};
 
 constexpr std::size_t GetStageFromProgram(std::size_t program) {
     return program == 0 ? 0 : program - 1;
@@ -139,7 +141,7 @@ Shader::Shader(Tegra::Engines::ConstBufferEngineInterface& engine, Tegra::Engine
                GPUVAddr gpu_addr_, VAddr cpu_addr, VideoCommon::Shader::ProgramCode program_code_,
                u32 main_offset)
     : gpu_addr(gpu_addr_), program_code(std::move(program_code_)), registry(stage, engine),
-      shader_ir(program_code, main_offset, compiler_settings, registry),
+      shader_ir(program_code, main_offset, COMPILER_SETTINGS, registry),
       entries(GenerateShaderEntries(shader_ir)) {}
 
 Shader::~Shader() = default;
@@ -281,7 +283,7 @@ VKComputePipeline& VKPipelineCache::GetComputePipeline(const ComputePipelineCach
         .ndc_minus_one_to_one = false,
     };
     const SPIRVShader spirv_shader{Decompile(device, shader->GetIR(), ShaderType::Compute,
-                                             shader->GetRegistry(), specialization),
+                                             shader->GetRegistry(), specialization, gpu_addr),
                                    shader->GetEntries()};
     entry = std::make_unique<VKComputePipeline>(device, scheduler, descriptor_pool,
                                                 update_descriptor_queue, spirv_shader);
@@ -362,9 +364,9 @@ VKPipelineCache::DecompileShaders(const FixedPipelineState& fixed_state) {
         const std::size_t stage = index == 0 ? 0 : index - 1; // Stage indices are 0 - 5
         const ShaderType program_type = GetShaderType(program_enum);
         const auto& entries = shader->GetEntries();
-        program[stage] = {
-            Decompile(device, shader->GetIR(), program_type, shader->GetRegistry(), specialization),
-            entries};
+        program[stage] = {Decompile(device, shader->GetIR(), program_type, shader->GetRegistry(),
+                                    specialization, gpu_addr),
+                          entries};
 
         if (program_enum == Maxwell::ShaderProgram::VertexA) {
             // VertexB was combined with VertexA, so we skip the VertexB iteration

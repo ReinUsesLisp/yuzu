@@ -12,6 +12,8 @@
 #include "video_core/shader/ast.h"
 #include "video_core/shader/expr.h"
 
+#pragma optimize("", off)
+
 namespace VideoCommon::Shader {
 
 ASTZipper::ASTZipper() = default;
@@ -191,7 +193,7 @@ void ASTZipper::Remove(const ASTNode node) {
 class ExprPrinter final {
 public:
     void operator()(const ExprAnd& expr) {
-        inner += "( ";
+        inner += '(';
         std::visit(*this, *expr.operand1);
         inner += " && ";
         std::visit(*this, *expr.operand2);
@@ -199,7 +201,7 @@ public:
     }
 
     void operator()(const ExprOr& expr) {
-        inner += "( ";
+        inner += '(';
         std::visit(*this, *expr.operand1);
         inner += " || ";
         std::visit(*this, *expr.operand2);
@@ -229,7 +231,7 @@ public:
     }
 
     void operator()(const ExprGprEqual& expr) {
-        inner += "( gpr_" + std::to_string(expr.gpr) + " == " + std::to_string(expr.value) + ')';
+        inner += "(gpr_" + std::to_string(expr.gpr) + " == " + std::to_string(expr.value) + ')';
     }
 
     const std::string& GetResult() const {
@@ -300,6 +302,7 @@ public:
     }
 
     void operator()(const ASTLabel& ast) {
+        abort();
         inner += fmt::format("Label_{}:\n", ast.index);
     }
 

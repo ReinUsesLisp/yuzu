@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <compare>
 #include <list>
 #include <optional>
 #include <set>
@@ -20,7 +21,7 @@ namespace VideoCommon::Shader {
 using Tegra::Shader::ConditionCode;
 using Tegra::Shader::Pred;
 
-constexpr s32 exit_branch = -1;
+constexpr s32 EXIT_BRANCH = -1;
 
 struct Condition {
     Pred predicate{Pred::UnusedIndex};
@@ -57,7 +58,7 @@ public:
     }
 
     Condition condition{};
-    s32 address{exit_branch};
+    s32 address{EXIT_BRANCH};
     bool kill{};
     bool is_sync{};
     bool is_brk{};
@@ -82,23 +83,11 @@ public:
 using BranchData = std::variant<SingleBranch, MultiBranch>;
 using BlockBranchInfo = std::shared_ptr<BranchData>;
 
-bool BlockBranchInfoAreEqual(BlockBranchInfo first, BlockBranchInfo second);
-
 struct ShaderBlock {
     u32 start{};
     u32 end{};
     BlockBranchInfo branch{};
     bool ignore_branch{};
-
-    bool operator==(const ShaderBlock& sb) const {
-        return std::tie(start, end, ignore_branch) ==
-                   std::tie(sb.start, sb.end, sb.ignore_branch) &&
-               BlockBranchInfoAreEqual(branch, sb.branch);
-    }
-
-    bool operator!=(const ShaderBlock& sb) const {
-        return !operator==(sb);
-    }
 };
 
 struct ShaderCharacteristics {

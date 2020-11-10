@@ -470,6 +470,8 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
         }
         draw_params.Draw(cmdbuf);
     });
+    // LOG_INFO(HW_GPU, "Draw 0x{:x}", pipeline->GetCacheKey().Hash());
+    // scheduler.Finish();
 
     EndTransformFeedback();
 }
@@ -596,6 +598,8 @@ void RasterizerVulkan::DispatchCompute(GPUVAddr code_addr) {
                                   descriptor_set, {});
         cmdbuf.Dispatch(grid_x, grid_y, grid_z);
     });
+    // LOG_INFO(HW_GPU, "Compute");
+    // scheduler.Finish();
 }
 
 void RasterizerVulkan::ResetCounter(VideoCore::QueryType type) {
