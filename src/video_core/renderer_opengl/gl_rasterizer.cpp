@@ -95,7 +95,11 @@ TextureHandle GetTextureInfo(const Engine& engine, bool via_header_index, const 
             return TextureHandle(handle_1 | handle_2, via_header_index);
         }
     }
-    const u32 buffer = entry.is_bindless ? entry.buffer : engine.GetBoundBuffer();
+    if (entry.is_bindless) {
+        const u32 raw = engine.AccessConstBuffer32(shader_type, entry.buffer, entry.offset);
+        return TextureHandle(raw, via_header_index);
+    }
+    const u32 buffer = engine.GetBoundBuffer();
     const u64 offset = (entry.offset + index) * sizeof(u32);
     return TextureHandle(engine.AccessConstBuffer32(shader_type, buffer, offset), via_header_index);
 }
