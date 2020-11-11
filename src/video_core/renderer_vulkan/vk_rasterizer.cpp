@@ -457,16 +457,14 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
     const DrawParameters draw_params =
         SetupGeometry(key.fixed_state, buffer_bindings, is_indexed, is_instanced);
 
-    update_descriptor_queue.Acquire();
+    texture_cache.UpdateRenderTargets();
+    const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
     const auto shaders = pipeline_cache.GetShaders();
     key.shaders = GetShaderAddresses(shaders);
     SetupShaderDescriptors(shaders);
 
     buffer_cache.Unmap();
-
-    texture_cache.UpdateRenderTargets();
-    const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
     key.renderpass = framebuffer->RenderPass();
 
@@ -848,6 +846,8 @@ void RasterizerVulkan::SetupShaderDescriptors(
     }
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
     texture_cache.FillGraphicsImageViews(indices_span, image_view_ids);
+
+    update_descriptor_queue.Acquire();
 
     ImageViewId* image_view_id_ptr = image_view_ids.data();
     VkSampler* sampler_ptr = sampler_handles.data();

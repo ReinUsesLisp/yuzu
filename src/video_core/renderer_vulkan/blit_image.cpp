@@ -306,7 +306,7 @@ void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, const ImageV
         cmdbuf.PushConstants(layout, VK_SHADER_STAGE_VERTEX_BIT, push_constants);
         cmdbuf.Draw(3, 1, 0, 0);
     });
-    state_tracker.InvalidateCommandBufferState();
+    scheduler.InvalidateState();
 }
 
 void BlitImageHelper::ConvertD32ToR32(const Framebuffer* dst_framebuffer,
@@ -379,7 +379,7 @@ void BlitImageHelper::Convert(VkPipeline pipeline, const Framebuffer* dst_frameb
         cmdbuf.PushConstants(layout, VK_SHADER_STAGE_VERTEX_BIT, push_constants);
         cmdbuf.Draw(3, 1, 0, 0);
     });
-    state_tracker.InvalidateCommandBufferState();
+    scheduler.InvalidateState();
 }
 
 VkPipeline BlitImageHelper::FindOrEmplacePipeline(const BlitImagePipelineKey& key) {

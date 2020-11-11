@@ -62,6 +62,9 @@ public:
     /// Binds a pipeline to the current execution context.
     void BindGraphicsPipeline(VkPipeline pipeline);
 
+    /// Invalidates current command buffer state except for render passes
+    void InvalidateState();
+
     /// Assigns the query cache.
     void SetQueryCache(VKQueryCache& query_cache_) {
         query_cache = &query_cache_;
@@ -169,8 +172,6 @@ private:
     void SubmitExecution(VkSemaphore semaphore);
 
     void AllocateNewContext();
-
-    void InvalidateState();
 
     void EndPendingOperations();
 
