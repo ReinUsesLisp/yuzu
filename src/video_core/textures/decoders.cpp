@@ -11,6 +11,7 @@
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/bit_util.h"
+#include "common/div_ceil.h"
 #include "video_core/gpu.h"
 #include "video_core/textures/decoders.h"
 #include "video_core/textures/texture.h"
@@ -47,9 +48,10 @@ void Swizzle(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixe
     const u32 pitch = width * bytes_per_pixel; // TODO
     const u32 stride = Common::AlignBits(width, stride_alignment) * bytes_per_pixel;
 
-    const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
+    const u32 gobs_in_x = Common::DivCeilLog2(stride, GOB_SIZE_X_SHIFT);
     const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block_height + block_depth);
-    const u32 slice_size = (gobs_in_x * height) << (block_height + block_depth);
+    const u32 slice_size =
+        Common::DivCeilLog2(height, block_height + GOB_SIZE_Y_SHIFT) * block_size;
 
     const u32 block_height_mask = (1U << block_height) - 1;
     const u32 block_depth_mask = (1U << block_depth) - 1;

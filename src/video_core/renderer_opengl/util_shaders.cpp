@@ -9,6 +9,7 @@
 #include "common/alignment.h"
 #include "common/assert.h"
 #include "common/common_types.h"
+#include "common/div_ceil.h"
 #include "video_core/host_shaders/block_linear_unswizzle_2d_comp.h"
 #include "video_core/host_shaders/block_linear_unswizzle_3d_comp.h"
 #include "video_core/host_shaders/pitch_unswizzle_comp.h"
@@ -28,6 +29,7 @@ using namespace HostShaders;
 using Tegra::Texture::GOB_SIZE_SHIFT;
 using Tegra::Texture::GOB_SIZE_X;
 using Tegra::Texture::GOB_SIZE_X_SHIFT;
+using Tegra::Texture::GOB_SIZE_Y_SHIFT;
 using VideoCommon::ImageType;
 using VideoCommon::SwizzleParameters;
 using VideoCore::Surface::BytesPerBlock;
@@ -87,10 +89,8 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
         const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
         const size_t offset = swizzle.buffer_offset + buffer_offset;
 
-        const u32 aligned_width = Common::AlignUp(num_tiles.width, WORKGROUP_SIZE.width);
-        const u32 aligned_height = Common::AlignUp(num_tiles.height, WORKGROUP_SIZE.height);
-        const u32 num_dispatches_x = aligned_width / WORKGROUP_SIZE.width;
-        const u32 num_dispatches_y = aligned_height / WORKGROUP_SIZE.height;
+        const u32 num_dispatches_x = Common::DivCeil(num_tiles.width, WORKGROUP_SIZE.width);
+        const u32 num_dispatches_y = Common::DivCeil(num_tiles.height, WORKGROUP_SIZE.height);
 
         const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
         const u32 stride = Common::AlignBits(num_tiles.width, stride_alignment) * bytes_per_block;
@@ -146,19 +146,17 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
         const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
         const size_t offset = swizzle.buffer_offset + buffer_offset;
 
-        const u32 aligned_width = Common::AlignUp(num_tiles.width, WORKGROUP_SIZE.width);
-        const u32 aligned_height = Common::AlignUp(num_tiles.height, WORKGROUP_SIZE.height);
-        const u32 aligned_depth = Common::AlignUp(num_tiles.depth, WORKGROUP_SIZE.depth);
-        const u32 num_dispatches_x = aligned_width / WORKGROUP_SIZE.width;
-        const u32 num_dispatches_y = aligned_height / WORKGROUP_SIZE.height;
-        const u32 num_dispatches_z = aligned_depth / WORKGROUP_SIZE.depth;
+        const u32 num_dispatches_x = Common::DivCeil(num_tiles.width, WORKGROUP_SIZE.width);
+        const u32 num_dispatches_y = Common::DivCeil(num_tiles.height, WORKGROUP_SIZE.height);
+        const u32 num_dispatches_z = Common::DivCeil(num_tiles.depth, WORKGROUP_SIZE.depth);
 
         const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
         const u32 stride = Common::AlignBits(num_tiles.width, stride_alignment) * bytes_per_block;
 
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
         const u32 block_size = gobs_in_x << (GOB_SIZE_SHIFT + block.height + block.depth);
-        const u32 slice_size = (gobs_in_x * num_tiles.height) << (block.height + block.depth);
+        const u32 slice_size =
+            Common::DivCeilLog2(num_tiles.height, block.height + GOB_SIZE_Y_SHIFT) * block_size;
 
         const u32 block_height_mask = (1U << block.height) - 1;
         const u32 block_depth_mask = (1U << block.depth) - 1;
