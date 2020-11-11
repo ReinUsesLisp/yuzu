@@ -52,7 +52,7 @@ public:
         payload.emplace_back(VkDescriptorImageInfo{
             .sampler = VK_NULL_HANDLE,
             .imageView = image_view,
-            .imageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         });
     }
 
