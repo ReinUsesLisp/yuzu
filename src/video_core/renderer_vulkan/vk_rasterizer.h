@@ -82,6 +82,8 @@ public:
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
+    void FragmentBarrier() override;
+    void TiledCacheBarrier() override;
     void InvalidateSamplerDescriptorTable() override;
     void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;

@@ -739,6 +739,14 @@ void RasterizerVulkan::WaitForIdle() {
     });
 }
 
+void RasterizerVulkan::FragmentBarrier() {
+    // We already put barriers when a render pass finishes
+}
+
+void RasterizerVulkan::TiledCacheBarrier() {
+    // TODO: Implementing tiled barriers requires rewriting a good chunk of the Vulkan backend
+}
+
 void RasterizerVulkan::InvalidateSamplerDescriptorTable() {
     texture_cache.InvalidateSamplerDescriptorTable();
 }

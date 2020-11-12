@@ -86,6 +86,12 @@ public:
     /// Notify the host renderer to wait for previous primitive and compute operations.
     virtual void WaitForIdle() = 0;
 
+    /// Notify the host renderer to wait for reads and writes to render targets and flush caches.
+    virtual void FragmentBarrier() = 0;
+
+    /// Notify the host renderer to make available previous render target writes.
+    virtual void TiledCacheBarrier() = 0;
+
     /// Notify the rasterizer to invalidate the sampler descriptor table
     virtual void InvalidateSamplerDescriptorTable() = 0;
 

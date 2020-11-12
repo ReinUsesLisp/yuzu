@@ -799,6 +799,14 @@ void RasterizerOpenGL::WaitForIdle() {
                     GL_SHADER_STORAGE_BARRIER_BIT | GL_QUERY_BUFFER_BARRIER_BIT);
 }
 
+void RasterizerOpenGL::FragmentBarrier() {
+    glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT);
+}
+
+void RasterizerOpenGL::TiledCacheBarrier() {
+    glTextureBarrier();
+}
+
 void RasterizerOpenGL::InvalidateSamplerDescriptorTable() {
     texture_cache.InvalidateSamplerDescriptorTable();
 }

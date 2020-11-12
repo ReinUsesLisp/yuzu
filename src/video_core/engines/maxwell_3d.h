@@ -828,7 +828,11 @@ public:
 
                 u32 patch_vertices;
 
-                INSERT_UNION_PADDING_WORDS(0xC);
+                INSERT_UNION_PADDING_WORDS(0x4);
+
+                u32 fragment_barrier;
+
+                INSERT_UNION_PADDING_WORDS(0x7);
 
                 std::array<ScissorTest, NumViewports> scissor_test;
 
@@ -842,7 +846,11 @@ public:
 
                 u32 invalidate_texture_data_cache;
 
-                INSERT_UNION_PADDING_WORDS(0x6);
+                INSERT_UNION_PADDING_WORDS(0x1);
+
+                u32 tiled_cache_barrier;
+
+                INSERT_UNION_PADDING_WORDS(0x4);
 
                 u32 color_mask_common;
 
@@ -1606,11 +1614,13 @@ ASSERT_REG_POSITION(polygon_offset_point_enable, 0x370);
 ASSERT_REG_POSITION(polygon_offset_line_enable, 0x371);
 ASSERT_REG_POSITION(polygon_offset_fill_enable, 0x372);
 ASSERT_REG_POSITION(patch_vertices, 0x373);
+ASSERT_REG_POSITION(fragment_barrier, 0x378);
 ASSERT_REG_POSITION(scissor_test, 0x380);
 ASSERT_REG_POSITION(stencil_back_func_ref, 0x3D5);
 ASSERT_REG_POSITION(stencil_back_mask, 0x3D6);
 ASSERT_REG_POSITION(stencil_back_func_mask, 0x3D7);
 ASSERT_REG_POSITION(invalidate_texture_data_cache, 0x3DD);
+ASSERT_REG_POSITION(tiled_cache_barrier, 0x3DF);
 ASSERT_REG_POSITION(color_mask_common, 0x3E4);
 ASSERT_REG_POSITION(depth_bounds, 0x3E7);
 ASSERT_REG_POSITION(rt_separate_frag_data, 0x3EB);

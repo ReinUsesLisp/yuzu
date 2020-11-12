@@ -226,6 +226,10 @@ void Maxwell3D::ProcessMethodCall(u32 method, u32 argument, u32 nonshadow_argume
             OnMemoryWrite();
         }
         return;
+    case MAXWELL3D_REG_INDEX(fragment_barrier):
+        return rasterizer->FragmentBarrier();
+    case MAXWELL3D_REG_INDEX(tiled_cache_barrier):
+        return rasterizer->TiledCacheBarrier();
     case MAXWELL3D_REG_INDEX(invalidate_sampler_cache_no_wfi):
         // TODO: Manage WFI variant
         return rasterizer->InvalidateSamplerDescriptorTable();
