@@ -68,6 +68,30 @@ VkViewportSwizzleNV UnpackViewportSwizzle(u16 swizzle) {
     };
 }
 
+VkSampleCountFlagBits ConvertMsaaMode(Tegra::Texture::MsaaMode msaa_mode) {
+    switch (msaa_mode) {
+    case Tegra::Texture::MsaaMode::Msaa1x1:
+        return VK_SAMPLE_COUNT_1_BIT;
+    case Tegra::Texture::MsaaMode::Msaa2x1:
+    case Tegra::Texture::MsaaMode::Msaa2x1_D3D:
+        return VK_SAMPLE_COUNT_2_BIT;
+    case Tegra::Texture::MsaaMode::Msaa2x2:
+    case Tegra::Texture::MsaaMode::Msaa2x2_VC4:
+    case Tegra::Texture::MsaaMode::Msaa2x2_VC12:
+        return VK_SAMPLE_COUNT_4_BIT;
+    case Tegra::Texture::MsaaMode::Msaa4x2:
+    case Tegra::Texture::MsaaMode::Msaa4x2_D3D:
+    case Tegra::Texture::MsaaMode::Msaa4x2_VC8:
+    case Tegra::Texture::MsaaMode::Msaa4x2_VC24:
+        return VK_SAMPLE_COUNT_8_BIT;
+    case Tegra::Texture::MsaaMode::Msaa4x4:
+        return VK_SAMPLE_COUNT_16_BIT;
+    default:
+        UNREACHABLE_MSG("Invalid msaa_mode={}", static_cast<int>(msaa_mode));
+        return VK_SAMPLE_COUNT_1_BIT;
+    }
+}
+
 } // Anonymous namespace
 
 VKGraphicsPipeline::VKGraphicsPipeline(const VKDevice& device, VKScheduler& scheduler,
@@ -323,7 +347,7 @@ vk::Pipeline VKGraphicsPipeline::CreatePipeline(const SPIRVProgram& program,
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .rasterizationSamples = ConvertMsaaMode(state.msaa_mode),
         .sampleShadingEnable = VK_FALSE,
         .minSampleShading = 0.0f,
         .pSampleMask = nullptr,

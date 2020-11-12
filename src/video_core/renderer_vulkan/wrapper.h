@@ -224,6 +224,7 @@ struct DeviceDispatch : public InstanceDispatch {
     PFN_vkCmdSetPrimitiveTopologyEXT vkCmdSetPrimitiveTopologyEXT;
     PFN_vkCmdSetStencilOpEXT vkCmdSetStencilOpEXT;
     PFN_vkCmdSetStencilTestEnableEXT vkCmdSetStencilTestEnableEXT;
+    PFN_vkCmdResolveImage vkCmdResolveImage;
     PFN_vkCreateBuffer vkCreateBuffer;
     PFN_vkCreateBufferView vkCreateBufferView;
     PFN_vkCreateCommandPool vkCreateCommandPool;
@@ -934,6 +935,12 @@ public:
                    VkFilter filter) const noexcept {
         dld->vkCmdBlitImage(handle, src_image, src_layout, dst_image, dst_layout, regions.size(),
                             regions.data(), filter);
+    }
+
+    void ResolveImage(VkImage src_image, VkImageLayout src_layout, VkImage dst_image,
+                      VkImageLayout dst_layout, Span<VkImageResolve> regions) {
+        dld->vkCmdResolveImage(handle, src_image, src_layout, dst_image, dst_layout, regions.size(),
+                               regions.data());
     }
 
     void Dispatch(u32 x, u32 y, u32 z) const noexcept {

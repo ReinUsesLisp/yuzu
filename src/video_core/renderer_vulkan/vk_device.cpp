@@ -257,7 +257,7 @@ bool VKDevice::Create() {
         .shaderTessellationAndGeometryPointSize = false,
         .shaderImageGatherExtended = true,
         .shaderStorageImageExtendedFormats = false,
-        .shaderStorageImageMultisample = false,
+        .shaderStorageImageMultisample = true,
         .shaderStorageImageReadWithoutFormat = is_formatless_image_load_supported,
         .shaderStorageImageWriteWithoutFormat = true,
         .shaderUniformBufferArrayDynamicIndexing = false,
@@ -597,6 +597,7 @@ bool VKDevice::IsSuitable(vk::PhysicalDevice physical, VkSurfaceKHR surface) {
         std::make_pair(features.occlusionQueryPrecise, "occlusionQueryPrecise"),
         std::make_pair(features.fragmentStoresAndAtomics, "fragmentStoresAndAtomics"),
         std::make_pair(features.shaderImageGatherExtended, "shaderImageGatherExtended"),
+        std::make_pair(features.shaderStorageImageMultisample, "shaderStorageImageMultisample"),
         std::make_pair(features.shaderStorageImageWriteWithoutFormat,
                        "shaderStorageImageWriteWithoutFormat"),
     };

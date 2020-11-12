@@ -46,15 +46,23 @@ constexpr size_t NUM_IMAGE_VIEW_TYPES = 9;
 enum class RelaxedOptions : u32 {
     Size = 1 << 0,
     Format = 1 << 1,
+    Samples = 1 << 2,
 };
 DECLARE_ENUM_FLAG_OPERATORS(RelaxedOptions)
+
+struct Offset2D {
+    constexpr auto operator<=>(const Offset2D&) const noexcept = default;
+
+    s32 x;
+    s32 y;
+};
 
 struct Offset3D {
     constexpr auto operator<=>(const Offset3D&) const noexcept = default;
 
-    u32 x;
-    u32 y;
-    u32 z;
+    s32 x;
+    s32 y;
+    s32 z;
 };
 
 struct Extent2D {
@@ -73,23 +81,23 @@ struct Extent3D {
 };
 
 struct SubresourceLayers {
-    u32 base_mipmap = 0;
-    u32 base_layer = 0;
-    u32 num_layers = 1;
+    s32 base_mipmap = 0;
+    s32 base_layer = 0;
+    s32 num_layers = 1;
 };
 
 struct SubresourceBase {
     constexpr auto operator<=>(const SubresourceBase&) const noexcept = default;
 
-    u32 mipmap = 0;
-    u32 layer = 0;
+    s32 mipmap = 0;
+    s32 layer = 0;
 };
 
 struct SubresourceExtent {
     constexpr auto operator<=>(const SubresourceExtent&) const noexcept = default;
 
-    u32 mipmaps = 1;
-    u32 layers = 1;
+    s32 mipmaps = 1;
+    s32 layers = 1;
 };
 
 struct SubresourceRange {
@@ -127,7 +135,7 @@ struct SwizzleParameters {
     Extent3D num_tiles;
     Extent3D block;
     size_t buffer_offset;
-    u32 mipmap;
+    s32 mipmap;
 };
 
 } // namespace VideoCommon

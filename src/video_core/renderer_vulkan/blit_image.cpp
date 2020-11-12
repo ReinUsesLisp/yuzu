@@ -254,11 +254,14 @@ BlitImageHelper::BlitImageHelper(const VKDevice& device_, VKScheduler& scheduler
 BlitImageHelper::~BlitImageHelper() = default;
 
 void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
-                                const Tegra::Engines::Fermi2D::Config& config) {
-    const bool is_linear = config.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
+                                const std::array<Offset2D, 2>& dst_region,
+                                const std::array<Offset2D, 2>& src_region,
+                                Tegra::Engines::Fermi2D::Filter filter,
+                                Tegra::Engines::Fermi2D::Operation operation) {
+    const bool is_linear = filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
     const BlitImagePipelineKey key{
         .renderpass = dst_framebuffer->RenderPass(),
-        .operation = config.operation,
+        .operation = operation,
     };
     const VkPipelineLayout layout = *pipeline_layout;
     const VkImageView src_view = src_image_view.Handle(ImageViewType::e2D);
@@ -266,15 +269,15 @@ void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, const ImageV
     const VkPipeline pipeline = FindOrEmplacePipeline(key);
     const VkDescriptorSet descriptor_set = descriptor_allocator.Commit();
     scheduler.RequestRenderpass(dst_framebuffer);
-    scheduler.Record([pipeline, layout, sampler, config, src_view, descriptor_set,
+    scheduler.Record([dst_region, src_region, pipeline, layout, sampler, src_view, descriptor_set,
                       &device = device](vk::CommandBuffer cmdbuf) {
         const VkOffset2D offset{
-            .x = std::min(config.dst_x0, config.dst_x1),
-            .y = std::min(config.dst_y0, config.dst_y1),
+            .x = std::min(dst_region[0].x, dst_region[1].x),
+            .y = std::min(dst_region[0].y, dst_region[1].y),
         };
         const VkExtent2D extent{
-            .width = static_cast<u32>(std::abs(config.dst_x1 - config.dst_x0)),
-            .height = static_cast<u32>(std::abs(config.dst_y1 - config.dst_y0)),
+            .width = static_cast<u32>(std::abs(dst_region[1].x - dst_region[0].x)),
+            .height = static_cast<u32>(std::abs(dst_region[1].y - dst_region[0].y)),
         };
         const VkViewport viewport{
             .x = static_cast<float>(offset.x),
@@ -289,11 +292,12 @@ void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, const ImageV
             .offset = offset,
             .extent = extent,
         };
-        const float scale_x = static_cast<float>(config.src_x1 - config.src_x0);
-        const float scale_y = static_cast<float>(config.src_y1 - config.src_y0);
+        const float scale_x = static_cast<float>(src_region[1].x - src_region[0].x);
+        const float scale_y = static_cast<float>(src_region[1].y - src_region[0].y);
         const PushConstants push_constants{
             .tex_scale = {scale_x, scale_y},
-            .tex_offset = {static_cast<float>(config.src_x0), static_cast<float>(config.src_y0)},
+            .tex_offset = {static_cast<float>(src_region[0].x),
+                           static_cast<float>(src_region[0].y)},
         };
         UpdateDescriptorSet(device, descriptor_set, sampler, src_view);
 

@@ -526,7 +526,7 @@ void RasterizerOpenGL::Clear() {
     }
     UNIMPLEMENTED_IF(regs.clear_flags.viewport);
 
-    texture_cache.UpdateRenderTargets();
+    texture_cache.UpdateRenderTargets(true);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
 
     if (use_color) {
@@ -617,7 +617,7 @@ void RasterizerOpenGL::Draw(bool is_indexed, bool is_instanced) {
     // Signal the buffer cache that we are not going to upload more things.
     buffer_cache.Unmap();
 
-    texture_cache.UpdateRenderTargets();
+    texture_cache.UpdateRenderTargets(false);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
 
     program_manager.BindGraphicsPipeline();

@@ -15,6 +15,7 @@
 #include <boost/container/small_vector.hpp>
 
 #include "video_core/texture_cache/formatter.h"
+#include "video_core/texture_cache/samples_helper.h"
 #include "video_core/texture_cache/util.h"
 
 namespace VideoCommon {
@@ -51,11 +52,11 @@ typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
 }
 
 template <class P>
-void TextureCache<P>::UpdateRenderTargets() {
+void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
     // TODO: Use dirty flags
     for (size_t index = 0; index < NUM_RT; ++index) {
         ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
-        color_buffer_id = FindColorBuffer(index);
+        color_buffer_id = FindColorBuffer(index, is_clear);
         if (color_buffer_id) {
             const ImageId image_id = slot_image_views[color_buffer_id].image_id;
             Image& image = slot_images[image_id];
@@ -64,7 +65,7 @@ void TextureCache<P>::UpdateRenderTargets() {
             MarkModification(image);
         }
     }
-    render_targets.depth_buffer_id = FindDepthBuffer();
+    render_targets.depth_buffer_id = FindDepthBuffer(is_clear);
     if (render_targets.depth_buffer_id) {
         const ImageId image_id = slot_image_views[render_targets.depth_buffer_id].image_id;
         Image& image = slot_images[image_id];
@@ -172,35 +173,47 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     MarkModification(dst_image);
 
     // TODO: Deduplicate
-    const std::optional dst_base = dst_image.FindSubresourceFromAddress(dst.Address());
+    const std::optional dst_base = dst_image.TryFindBase(dst.Address());
     const SubresourceRange dst_range{.base = dst_base.value(), .extent = {1, 1}};
     const ImageViewInfo dst_view_info(ImageViewType::e2D, images.dst_format, dst_range);
     const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
+    const auto [src_samples_x, src_samples_y] = SamplesLog2(src_image.info.num_samples);
+    const std::array src_region{
+        Offset2D{.x = copy.src_x0 >> src_samples_x, .y = copy.src_y0 >> src_samples_y},
+        Offset2D{.x = copy.src_x1 >> src_samples_x, .y = copy.src_y1 >> src_samples_y},
+    };
 
-    const std::optional src_base = src_image.FindSubresourceFromAddress(src.Address());
+    const std::optional src_base = src_image.TryFindBase(src.Address());
     const SubresourceRange src_range{.base = src_base.value(), .extent = {1, 1}};
     const ImageViewInfo src_view_info(ImageViewType::e2D, images.src_format, src_range);
     const auto [src_framebuffer_id, src_view_id] = RenderTargetFromImage(src_id, src_view_info);
+    const auto [dst_samples_x, dst_samples_y] = SamplesLog2(dst_image.info.num_samples);
+    const std::array dst_region{
+        Offset2D{.x = copy.dst_x0 >> dst_samples_x, .y = copy.dst_y0 >> dst_samples_y},
+        Offset2D{.x = copy.dst_x1 >> dst_samples_x, .y = copy.dst_y1 >> dst_samples_y},
+    };
 
     // Always call this after src_framebuffer_id was queried, as the address might be invalidated.
     Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
     if constexpr (FRAMEBUFFER_BLITS) {
         // OpenGL blits from framebuffers, not images
         Framebuffer* const src_framebuffer = &slot_framebuffers[src_framebuffer_id];
-        runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, copy);
+        runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, dst_region, src_region,
+                                copy.filter, copy.operation);
     } else {
         // Vulkan can blit images, but it lacks format reinterpretations
         // Provide a framebuffer in case it's necessary
         ImageView& dst_view = slot_image_views[dst_view_id];
         ImageView& src_view = slot_image_views[src_view_id];
-        runtime.BlitImage(dst_framebuffer, dst_view, src_view, copy);
+        runtime.BlitImage(dst_framebuffer, dst_view, src_view, dst_region, src_region, copy.filter,
+                          copy.operation);
     }
 }
 
 template <class P>
 void TextureCache<P>::InvalidateColorBuffer(size_t index) {
     ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
-    color_buffer_id = FindColorBuffer(index);
+    color_buffer_id = FindColorBuffer(index, false);
     if (!color_buffer_id) {
         LOG_ERROR(HW_GPU, "Invalidating invalid color buffer in index={}", index);
         return;
@@ -217,7 +230,7 @@ void TextureCache<P>::InvalidateColorBuffer(size_t index) {
 template <class P>
 void TextureCache<P>::InvalidateDepthBuffer() {
     ImageViewId& depth_buffer_id = render_targets.depth_buffer_id;
-    depth_buffer_id = FindDepthBuffer();
+    depth_buffer_id = FindDepthBuffer(false);
     if (!depth_buffer_id) {
         LOG_ERROR(HW_GPU, "Invalidating invalid depth buffer");
         return;
@@ -281,7 +294,12 @@ void TextureCache<P>::UpdateImageContents(Image& image) {
         return;
     }
     image.flags &= ~ImageFlagBits::CpuModified;
+    TrackImage(image);
 
+    if (image.info.num_samples > 1) {
+        LOG_WARNING(HW_GPU, "MSAA image uploads are not implemented");
+        return;
+    }
     auto map = runtime.MapUploadBuffer(MapSizeBytes(image));
     UploadImageContents(image, map, 0);
     runtime.InsertUploadMemoryBarrier();
@@ -309,7 +327,6 @@ void TextureCache<P>::UploadImageContents(Image& image, MapBuffer& map, size_t b
         const auto copies = UnswizzleImage(gpu_memory, gpu_addr, image.info, mapped_span);
         image.UploadMemory(map, buffer_offset, copies);
     }
-    TrackImage(image);
 }
 
 template <class P>
@@ -361,26 +378,25 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
         return ImageId{};
     }
     ImageId image_id;
-    const size_t size = CalculateGuestSizeInBytes(info);
-    ForEachImageInRegion(
-        *cpu_addr, size, [&](ImageId existing_image_id, ImageBase& existing_image) {
-            if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear) {
-                const bool strict_size = False(options & RelaxedOptions::Size) &&
-                                         True(existing_image.flags & ImageFlagBits::Strong);
-                const ImageInfo& existing = existing_image.info;
-                if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
-                    existing.pitch == info.pitch &&
-                    IsPitchLinearSameSize(existing, info, strict_size) &&
-                    IsViewCompatible(existing.format, info.format)) {
-                    image_id = existing_image_id;
-                    return true;
-                }
-            } else if (IsSubresource(info, existing_image, gpu_addr, options)) {
+    const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
+        if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear) {
+            const bool strict_size = False(options & RelaxedOptions::Size) &&
+                                     True(existing_image.flags & ImageFlagBits::Strong);
+            const ImageInfo& existing = existing_image.info;
+            if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
+                existing.pitch == info.pitch &&
+                IsPitchLinearSameSize(existing, info, strict_size) &&
+                IsViewCompatible(existing.format, info.format)) {
                 image_id = existing_image_id;
                 return true;
             }
-            return false;
-        });
+        } else if (IsSubresource(info, existing_image, gpu_addr, options)) {
+            image_id = existing_image_id;
+            return true;
+        }
+        return false;
+    };
+    ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
     return image_id;
 }
 
@@ -439,10 +455,16 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
 
     for (const ImageId overlap_id : overlap_ids) {
         Image& overlap = slot_images[overlap_id];
-        const SubresourceBase base = new_image.FindSubresourceFromAddress(overlap.gpu_addr).value();
-        runtime.CopyImage(new_image, overlap, MakeShrinkImageCopies(new_info, overlap.info, base));
-
-        UntrackImage(overlap);
+        if (overlap.info.num_samples != new_image.info.num_samples) {
+            LOG_WARNING(HW_GPU, "Copying between images with different samples is not implemented");
+        } else {
+            const SubresourceBase base = new_image.TryFindBase(overlap.gpu_addr).value();
+            const auto copies = MakeShrinkImageCopies(new_info, overlap.info, base);
+            runtime.CopyImage(new_image, overlap, copies);
+        }
+        if (True(overlap.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(overlap);
+        }
         UnregisterImage(overlap_id);
         DeleteImage(overlap_id);
     }
@@ -462,7 +484,7 @@ ImageId TextureCache<P>::ResolveImageOverlaps(const ImageInfo& info, GPUVAddr gp
 template <class P>
 typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
     const Tegra::Engines::Fermi2D::Surface& dst, const Tegra::Engines::Fermi2D::Surface& src) {
-    static constexpr auto FIND_OPTIONS = RelaxedOptions::Format;
+    static constexpr auto FIND_OPTIONS = RelaxedOptions::Format | RelaxedOptions::Samples;
     const GPUVAddr dst_addr = dst.Address();
     const GPUVAddr src_addr = src.Address();
     ImageInfo dst_info(dst);
@@ -539,7 +561,7 @@ TSCEntry TextureCache<P>::ReadSamplerDescriptor(ClassDescriptorTables& tables, G
 }
 
 template <class P>
-ImageViewId TextureCache<P>::FindColorBuffer(size_t index) {
+ImageViewId TextureCache<P>::FindColorBuffer(size_t index, bool is_clear) {
     const auto& regs = maxwell3d.regs;
     if (index >= regs.rt_control.count) {
         return ImageViewId{};
@@ -553,11 +575,11 @@ ImageViewId TextureCache<P>::FindColorBuffer(size_t index) {
         return ImageViewId{};
     }
     const ImageInfo info(regs, index);
-    return FindRenderTargetView(info, gpu_addr);
+    return FindRenderTargetView(info, gpu_addr, is_clear);
 }
 
 template <class P>
-ImageViewId TextureCache<P>::FindDepthBuffer() {
+ImageViewId TextureCache<P>::FindDepthBuffer(bool is_clear) {
     const auto& regs = maxwell3d.regs;
     if (!regs.zeta_enable) {
         return ImageViewId{};
@@ -567,12 +589,14 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
         return ImageViewId{};
     }
     const ImageInfo info(regs);
-    return FindRenderTargetView(info, gpu_addr);
+    return FindRenderTargetView(info, gpu_addr, is_clear);
 }
 
 template <class P>
-ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr) {
-    const ImageId image_id = FindOrInsertImage(info, gpu_addr, RelaxedOptions{});
+ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr,
+                                                  bool is_clear) {
+    const auto options = is_clear ? RelaxedOptions::Samples : RelaxedOptions{};
+    const ImageId image_id = FindOrInsertImage(info, gpu_addr, options);
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
@@ -582,9 +606,9 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     if (image.info.type == ImageType::Linear) {
         base = SubresourceBase{.mipmap = 0, .layer = 0};
     } else {
-        base = image.FindSubresourceFromAddress(gpu_addr).value();
+        base = image.TryFindBase(gpu_addr).value();
     }
-    const u32 layers = image.info.type == ImageType::e3D ? info.size.depth : info.resources.layers;
+    const s32 layers = image.info.type == ImageType::e3D ? info.size.depth : info.resources.layers;
     const SubresourceRange range{
         .base = base,
         .extent = {.mipmaps = 1, .layers = layers},
@@ -678,14 +702,14 @@ void TextureCache<P>::UnregisterImage(ImageId image_id) {
 }
 
 template <class P>
-void TextureCache<P>::TrackImage(Image& image) {
+void TextureCache<P>::TrackImage(ImageBase& image) {
     ASSERT(False(image.flags & ImageFlagBits::Tracked));
     image.flags |= ImageFlagBits::Tracked;
     rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_bytes, 1);
 }
 
 template <class P>
-void TextureCache<P>::UntrackImage(Image& image) {
+void TextureCache<P>::UntrackImage(ImageBase& image) {
     ASSERT(True(image.flags & ImageFlagBits::Tracked));
     image.flags &= ~ImageFlagBits::Tracked;
     rasterizer.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_bytes, -1);
@@ -861,10 +885,12 @@ std::pair<FramebufferId, ImageViewId> TextureCache<P>::RenderTargetFromImage(
     const ImageViewId color_view_id = is_color ? view_id : ImageViewId{};
     const ImageViewId depth_view_id = is_color ? ImageViewId{} : view_id;
     const Extent3D extent = MipSize(image.info.size, view_info.range.base.mipmap);
+    const u32 num_samples = image.info.num_samples;
+    const auto [samples_x, samples_y] = SamplesLog2(num_samples);
     const FramebufferId framebuffer_id = GetFramebufferId(RenderTargets{
         .color_buffer_ids = {color_view_id},
         .depth_buffer_id = depth_view_id,
-        .size = {extent.width, extent.height},
+        .size = {extent.width >> samples_x, extent.height >> samples_y},
     });
     return {framebuffer_id, view_id};
 }

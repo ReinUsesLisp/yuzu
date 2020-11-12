@@ -75,6 +75,24 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     return {};
 }
 
+[[nodiscard]] VkSampleCountFlagBits ConvertSampleCount(u32 num_samples) {
+    switch (num_samples) {
+    case 1:
+        return VK_SAMPLE_COUNT_1_BIT;
+    case 2:
+        return VK_SAMPLE_COUNT_2_BIT;
+    case 4:
+        return VK_SAMPLE_COUNT_4_BIT;
+    case 8:
+        return VK_SAMPLE_COUNT_8_BIT;
+    case 16:
+        return VK_SAMPLE_COUNT_16_BIT;
+    default:
+        UNREACHABLE_MSG("Invalid number of samples={}", num_samples);
+        return VK_SAMPLE_COUNT_1_BIT;
+    }
+}
+
 [[nodiscard]] VkImageCreateInfo MakeImageCreateInfo(const VKDevice& device, const ImageInfo& info) {
     const auto format_info = MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, info.format);
     VkImageCreateFlags flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
@@ -103,6 +121,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     if (format_info.storage) {
         usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
+    const auto [samples_x, samples_y] = VideoCommon::SamplesLog2(info.num_samples);
     return VkImageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .pNext = nullptr,
@@ -111,13 +130,13 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         .format = format_info.format,
         .extent =
             {
-                .width = info.size.width,
-                .height = info.size.height,
+                .width = info.size.width >> samples_x,
+                .height = info.size.height >> samples_y,
                 .depth = info.size.depth,
             },
-        .mipLevels = info.resources.mipmaps,
-        .arrayLayers = info.resources.layers,
-        .samples = VK_SAMPLE_COUNT_1_BIT, // TODO
+        .mipLevels = static_cast<u32>(info.resources.mipmaps),
+        .arrayLayers = static_cast<u32>(info.resources.layers),
+        .samples = ConvertSampleCount(info.num_samples),
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -163,7 +182,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     default:
         UNREACHABLE_MSG("Invalid surface type");
-        return {};
+        return VkImageAspectFlags{};
     }
 }
 
@@ -189,7 +208,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     return VkAttachmentDescription{
         .flags = VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT,
         .format = MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, pixel_format).format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .samples = image_view->Samples(),
         .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
@@ -250,25 +269,25 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     VideoCommon::SubresourceLayers subresource, VkImageAspectFlags aspect_mask) {
     return VkImageSubresourceLayers{
         .aspectMask = aspect_mask,
-        .mipLevel = subresource.base_mipmap,
-        .baseArrayLayer = subresource.base_layer,
-        .layerCount = subresource.num_layers,
+        .mipLevel = static_cast<u32>(subresource.base_mipmap),
+        .baseArrayLayer = static_cast<u32>(subresource.base_layer),
+        .layerCount = static_cast<u32>(subresource.num_layers),
     };
 }
 
 [[nodiscard]] VkOffset3D MakeOffset3D(VideoCommon::Offset3D offset3d) {
     return VkOffset3D{
-        .x = static_cast<s32>(offset3d.x),
-        .y = static_cast<s32>(offset3d.y),
-        .z = static_cast<s32>(offset3d.z),
+        .x = offset3d.x,
+        .y = offset3d.y,
+        .z = offset3d.z,
     };
 }
 
 [[nodiscard]] VkExtent3D MakeExtent3D(VideoCommon::Extent3D extent3d) {
     return VkExtent3D{
-        .width = extent3d.width,
-        .height = extent3d.height,
-        .depth = extent3d.depth,
+        .width = static_cast<u32>(extent3d.width),
+        .height = static_cast<u32>(extent3d.height),
+        .depth = static_cast<u32>(extent3d.depth),
     };
 }
 
@@ -308,15 +327,15 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
                 .imageSubresource =
                     {
                         .aspectMask = aspect_mask,
-                        .mipLevel = copy.image_subresource.base_mipmap,
-                        .baseArrayLayer = copy.image_subresource.base_layer,
-                        .layerCount = copy.image_subresource.num_layers,
+                        .mipLevel = static_cast<u32>(copy.image_subresource.base_mipmap),
+                        .baseArrayLayer = static_cast<u32>(copy.image_subresource.base_layer),
+                        .layerCount = static_cast<u32>(copy.image_subresource.num_layers),
                     },
                 .imageOffset =
                     {
-                        .x = static_cast<s32>(copy.image_offset.x),
-                        .y = static_cast<s32>(copy.image_offset.y),
-                        .z = static_cast<s32>(copy.image_offset.z),
+                        .x = copy.image_offset.x,
+                        .y = copy.image_offset.y,
+                        .z = copy.image_offset.z,
                     },
                 .imageExtent =
                     {
@@ -347,10 +366,10 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     VkImageAspectFlags aspect_mask, const VideoCommon::SubresourceRange& range) {
     return VkImageSubresourceRange{
         .aspectMask = aspect_mask,
-        .baseMipLevel = range.base.mipmap,
-        .levelCount = range.extent.mipmaps,
-        .baseArrayLayer = range.base.layer,
-        .layerCount = range.extent.layers,
+        .baseMipLevel = static_cast<u32>(range.base.mipmap),
+        .levelCount = static_cast<u32>(range.extent.mipmaps),
+        .baseArrayLayer = static_cast<u32>(range.base.layer),
+        .layerCount = static_cast<u32>(range.extent.layers),
     };
 }
 
@@ -361,9 +380,9 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
 [[nodiscard]] VkImageSubresourceLayers MakeSubresourceLayers(const ImageView* image_view) {
     return VkImageSubresourceLayers{
         .aspectMask = ImageAspectMask(image_view->format),
-        .mipLevel = image_view->range.base.mipmap,
-        .baseArrayLayer = image_view->range.base.layer,
-        .layerCount = image_view->range.extent.layers,
+        .mipLevel = static_cast<u32>(image_view->range.base.mipmap),
+        .baseArrayLayer = static_cast<u32>(image_view->range.base.layer),
+        .layerCount = static_cast<u32>(image_view->range.extent.layers),
     };
 }
 
@@ -428,34 +447,68 @@ void CopyBufferToImage(vk::CommandBuffer cmdbuf, VkBuffer src_buffer, VkImage im
                            write_barrier);
 }
 
-[[nodiscard]] VkImageBlit MakeImageBlit(const Fermi2D::Config& copy,
+[[nodiscard]] VkImageBlit MakeImageBlit(const std::array<Offset2D, 2>& dst_region,
+                                        const std::array<Offset2D, 2>& src_region,
                                         const VkImageSubresourceLayers& dst_layers,
                                         const VkImageSubresourceLayers& src_layers) {
-    // Using an aggregate constructor here generates an internal compiler error on MSVC
-    VkImageBlit result;
-    result.srcSubresource = src_layers;
-    result.srcOffsets[0] = {
-        .x = copy.src_x0,
-        .y = copy.src_y0,
-        .z = 0,
+    return VkImageBlit{
+        .srcSubresource = src_layers,
+        .srcOffsets =
+            {
+                {
+                    .x = src_region[0].x,
+                    .y = src_region[0].y,
+                    .z = 0,
+                },
+                {
+                    .x = src_region[1].x,
+                    .y = src_region[1].y,
+                    .z = 1,
+                },
+            },
+        .dstSubresource = dst_layers,
+        .dstOffsets =
+            {
+                {
+                    .x = dst_region[0].x,
+                    .y = dst_region[0].y,
+                    .z = 0,
+                },
+                {
+                    .x = dst_region[1].x,
+                    .y = dst_region[1].y,
+                    .z = 1,
+                },
+            },
     };
-    result.srcOffsets[1] = {
-        .x = copy.src_x1,
-        .y = copy.src_y1,
-        .z = 1,
+}
+
+[[nodiscard]] VkImageResolve MakeImageResolve(const std::array<Offset2D, 2>& dst_region,
+                                              const std::array<Offset2D, 2>& src_region,
+                                              const VkImageSubresourceLayers& dst_layers,
+                                              const VkImageSubresourceLayers& src_layers) {
+    return VkImageResolve{
+        .srcSubresource = src_layers,
+        .srcOffset =
+            {
+                .x = src_region[0].x,
+                .y = src_region[0].y,
+                .z = 0,
+            },
+        .dstSubresource = dst_layers,
+        .dstOffset =
+            {
+                .x = dst_region[0].x,
+                .y = dst_region[0].y,
+                .z = 0,
+            },
+        .extent =
+            {
+                .width = static_cast<u32>(dst_region[1].x - dst_region[0].x),
+                .height = static_cast<u32>(dst_region[1].y - dst_region[0].y),
+                .depth = 1,
+            },
     };
-    result.dstSubresource = dst_layers;
-    result.dstOffsets[0] = {
-        .x = copy.dst_x0,
-        .y = copy.dst_y0,
-        .z = 0,
-    };
-    result.dstOffsets[1] = {
-        .x = copy.dst_x1,
-        .y = copy.dst_y1,
-        .z = 1,
-    };
-    return result;
 }
 
 } // Anonymous namespace
@@ -469,27 +522,43 @@ ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
 }
 
 void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst, ImageView& src,
-                                    const Fermi2D::Config& copy) {
+                                    const std::array<Offset2D, 2>& dst_region,
+                                    const std::array<Offset2D, 2>& src_region,
+                                    Tegra::Engines::Fermi2D::Filter filter,
+                                    Tegra::Engines::Fermi2D::Operation operation) {
     const VkImageAspectFlags aspect_mask = ImageAspectMask(src.format);
+    const bool is_dst_msaa = dst.Samples() != VK_SAMPLE_COUNT_1_BIT;
+    const bool is_src_msaa = src.Samples() != VK_SAMPLE_COUNT_1_BIT;
     ASSERT(aspect_mask == ImageAspectMask(dst.format));
-    if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT) {
-        blit_image_helper.BlitColor(dst_framebuffer, src, copy);
+    if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT && !is_src_msaa && !is_dst_msaa) {
+        blit_image_helper.BlitColor(dst_framebuffer, src, dst_region, src_region, filter,
+                                    operation);
         return;
     }
-    ASSERT(src.format == dst.format);
-    ASSERT(copy.operation == Fermi2D::Operation::SrcCopy);
+    ASSERT(src.ImageFormat() == dst.ImageFormat());
+    ASSERT(!(is_dst_msaa && !is_src_msaa));
+    ASSERT(operation == Fermi2D::Operation::SrcCopy);
+
     const VkImage dst_image = dst.ImageHandle();
     const VkImage src_image = src.ImageHandle();
     const VkImageSubresourceLayers dst_layers = MakeSubresourceLayers(&dst);
     const VkImageSubresourceLayers src_layers = MakeSubresourceLayers(&src);
-    scheduler.Record(
-        [copy, dst_image, src_image, dst_layers, src_layers](vk::CommandBuffer cmdbuf) {
-            // TODO: Barriers
-            const bool is_linear = copy.filter == Fermi2D::Filter::Bilinear;
-            const VkFilter filter = is_linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    const bool is_resolve = is_src_msaa && !is_dst_msaa;
+    scheduler.RequestOutsideRenderPassOperationContext();
+    scheduler.Record([filter, dst_region, src_region, dst_image, src_image, dst_layers, src_layers,
+                      is_resolve](vk::CommandBuffer cmdbuf) {
+        // TODO: Barriers
+        const bool is_linear = filter == Fermi2D::Filter::Bilinear;
+        const VkFilter filter = is_linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+        if (is_resolve) {
+            cmdbuf.ResolveImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image,
+                                VK_IMAGE_LAYOUT_GENERAL,
+                                MakeImageResolve(dst_region, src_region, dst_layers, src_layers));
+        } else {
             cmdbuf.BlitImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, VK_IMAGE_LAYOUT_GENERAL,
-                             MakeImageBlit(copy, dst_layers, src_layers), filter);
-        });
+                             MakeImageBlit(dst_region, src_region, dst_layers, src_layers), filter);
+        }
+    });
 }
 
 void TextureCacheRuntime::ConvertImage(Framebuffer* dst, ImageView& dst_view, ImageView& src_view) {
@@ -674,7 +743,8 @@ void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
 
 ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,
                      ImageId image_id, Image& image)
-    : VideoCommon::ImageViewBase{info, image.info, image_id}, image_handle{image.Handle()} {
+    : VideoCommon::ImageViewBase{info, image.info, image_id}, image_handle{image.Handle()},
+      image_format{image.info.format}, samples{ConvertSampleCount(image.info.num_samples)} {
     const VkFormat format =
         MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, info.format).format;
     std::array swizzle = info.Swizzle();
@@ -809,20 +879,21 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime,
     std::vector<VkAttachmentDescription> descriptions;
     std::vector<VkImageView> attachments;
     RenderPassKey renderpass_key{};
-    u32 num_layers = 0;
+    s32 num_layers = 0;
 
     for (size_t index = 0; index < NUM_RT; ++index) {
-        const ImageView* const image_view = color_buffers[index];
-        if (!image_view) {
+        const ImageView* const color_buffer = color_buffers[index];
+        if (!color_buffer) {
             renderpass_key.color_formats[index] = PixelFormat::Invalid;
             continue;
         }
-        descriptions.push_back(AttachmentDescription(runtime.device, image_view));
-        attachments.push_back(image_view->RenderTarget());
-        renderpass_key.color_formats[index] = image_view->format;
-        num_layers = std::max(num_layers, image_view->range.extent.layers);
-        images[num_images] = slot_images[image_view->image_id].Handle();
-        image_ranges[num_images] = MakeSubresourceRange(image_view);
+        descriptions.push_back(AttachmentDescription(runtime.device, color_buffer));
+        attachments.push_back(color_buffer->RenderTarget());
+        renderpass_key.color_formats[index] = color_buffer->format;
+        num_layers = std::max(num_layers, color_buffer->range.extent.layers);
+        images[num_images] = color_buffer->ImageHandle();
+        image_ranges[num_images] = MakeSubresourceRange(color_buffer);
+        samples = color_buffer->Samples();
         ++num_images;
     }
 
@@ -834,13 +905,14 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime,
         attachments.push_back(depth_buffer->RenderTarget());
         renderpass_key.depth_format = depth_buffer->format;
         num_layers = std::max(num_layers, depth_buffer->range.extent.layers);
-        images[num_images] = slot_images[depth_buffer->image_id].Handle();
+        images[num_images] = depth_buffer->ImageHandle();
         image_ranges[num_images] = MakeSubresourceRange(depth_buffer);
+        samples = depth_buffer->Samples();
         ++num_images;
     } else {
         renderpass_key.depth_format = PixelFormat::Invalid;
     }
-    renderpass_key.samples = MsaaMode::Msaa1x1; // TODO
+    renderpass_key.samples = samples;
 
     const auto& device = runtime.device.GetLogical();
     const auto [cache_pair, is_new] = runtime.renderpass_cache.try_emplace(renderpass_key);
@@ -885,7 +957,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime& runtime,
         .pAttachments = attachments.data(),
         .width = size.width,
         .height = size.height,
-        .layers = num_layers,
+        .layers = static_cast<u32>(num_layers),
     });
 }
 

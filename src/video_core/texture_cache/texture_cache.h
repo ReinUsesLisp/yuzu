@@ -154,7 +154,7 @@ public:
     /*
      * Update bound render targets and upload memory if necessary
      */
-    void UpdateRenderTargets();
+    void UpdateRenderTargets(bool is_clear);
 
     /**
      * Create or find a framebuffer with the currently bound render targets
@@ -285,16 +285,17 @@ private:
      * @param index Index of the color buffer to find
      * @returns     Image view of the given color buffer
      */
-    [[nodiscard]] ImageViewId FindColorBuffer(size_t index);
+    [[nodiscard]] ImageViewId FindColorBuffer(size_t index, bool is_clear);
 
     /**
      * Find or create an image view for the depth buffer
      *
      * @returns Image view for the depth buffer
      */
-    [[nodiscard]] ImageViewId FindDepthBuffer();
+    [[nodiscard]] ImageViewId FindDepthBuffer(bool is_clear);
 
-    [[nodiscard]] ImageViewId FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr);
+    [[nodiscard]] ImageViewId FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr,
+                                                   bool is_clear);
 
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func);
@@ -315,9 +316,9 @@ private:
      */
     void UnregisterImage(ImageId image);
 
-    void TrackImage(Image& image);
+    void TrackImage(ImageBase& image);
 
-    void UntrackImage(Image& image);
+    void UntrackImage(ImageBase& image);
 
     void DeleteImage(ImageId image);
 

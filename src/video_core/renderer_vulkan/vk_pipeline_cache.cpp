@@ -51,7 +51,9 @@ constexpr VkDescriptorType STORAGE_TEXEL_BUFFER = VK_DESCRIPTOR_TYPE_STORAGE_TEX
 constexpr VkDescriptorType STORAGE_IMAGE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
 constexpr VideoCommon::Shader::CompilerSettings compiler_settings{
-    VideoCommon::Shader::CompileDepth::FullDecompile};
+    .depth = VideoCommon::Shader::CompileDepth::FullDecompile,
+    .disable_else_derivation = true,
+};
 
 constexpr std::size_t GetStageFromProgram(std::size_t program) {
     return program == 0 ? 0 : program - 1;

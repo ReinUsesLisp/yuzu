@@ -21,7 +21,7 @@ using VideoCore::Surface::DefaultBlockWidth;
 
 namespace {
 /// Returns the base layer and mip level offset
-[[nodiscard]] std::pair<u32, u32> LayerMipOffset(u32 diff, u32 layer_stride) {
+[[nodiscard]] std::pair<s32, s32> LayerMipOffset(s32 diff, u32 layer_stride) {
     if (layer_stride == 0) {
         return {0, diff};
     } else {
@@ -74,8 +74,7 @@ bool ImageBase::Overlaps(VAddr overlap_cpu_addr, size_t overlap_size) const noex
     return cpu_addr < overlap_end && overlap_cpu_addr < cpu_addr_end;
 }
 
-std::optional<SubresourceBase> ImageBase::FindSubresourceFromAddress(
-    GPUVAddr other_addr) const noexcept {
+std::optional<SubresourceBase> ImageBase::TryFindBase(GPUVAddr other_addr) const noexcept {
     if (other_addr < gpu_addr) {
         // Subresource address can't be lower than the base
         return std::nullopt;
@@ -89,11 +88,11 @@ std::optional<SubresourceBase> ImageBase::FindSubresourceFromAddress(
         const auto [layer, mip_offset] = LayerMipOffset(diff, info.layer_stride);
         const auto end = mipmap_offsets.begin() + info.resources.mipmaps;
         const auto it = std::find(mipmap_offsets.begin(), end, mip_offset);
-        if (it == end) {
+        if (layer > info.resources.layers || it == end) {
             return std::nullopt;
         }
         return SubresourceBase{
-            .mipmap = static_cast<u32>(std::distance(mipmap_offsets.begin(), it)),
+            .mipmap = static_cast<s32>(std::distance(mipmap_offsets.begin(), it)),
             .layer = layer,
         };
     } else {
@@ -142,16 +141,16 @@ void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_i
         LOG_ERROR(HW_GPU, "Compressed to compressed image aliasing is not implemented");
         return;
     }
-    const u32 lhs_mips = lhs.info.resources.mipmaps;
-    const u32 rhs_mips = rhs.info.resources.mipmaps;
-    const u32 num_mips = std::min(lhs_mips - base->mipmap, rhs_mips);
+    const s32 lhs_mips = lhs.info.resources.mipmaps;
+    const s32 rhs_mips = rhs.info.resources.mipmaps;
+    const s32 num_mips = std::min(lhs_mips - base->mipmap, rhs_mips);
     AliasedImage lhs_alias;
     AliasedImage rhs_alias;
     lhs_alias.id = rhs_id;
     rhs_alias.id = lhs_id;
     lhs_alias.copies.reserve(num_mips);
     rhs_alias.copies.reserve(num_mips);
-    for (u32 mip_level = 0; mip_level < num_mips; ++mip_level) {
+    for (s32 mip_level = 0; mip_level < num_mips; ++mip_level) {
         Extent3D lhs_size = MipSize(lhs.info.size, base->mipmap + mip_level);
         Extent3D rhs_size = MipSize(rhs.info.size, mip_level);
         if (is_lhs_compressed) {
@@ -175,9 +174,9 @@ void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_i
         const bool is_rhs_3d = rhs.info.type == ImageType::e3D;
         const Offset3D lhs_offset{0, 0, 0};
         const Offset3D rhs_offset{0, 0, is_rhs_3d ? base->layer : 0};
-        const u32 lhs_layers = is_lhs_3d ? 1 : lhs.info.resources.layers - base->layer;
-        const u32 rhs_layers = is_rhs_3d ? 1 : rhs.info.resources.layers;
-        const u32 num_layers = std::min(lhs_layers, rhs_layers);
+        const s32 lhs_layers = is_lhs_3d ? 1 : lhs.info.resources.layers - base->layer;
+        const s32 rhs_layers = is_rhs_3d ? 1 : rhs.info.resources.layers;
+        const s32 num_layers = std::min(lhs_layers, rhs_layers);
         const SubresourceLayers lhs_subresource{
             .base_mipmap = mip_level,
             .base_layer = 0,

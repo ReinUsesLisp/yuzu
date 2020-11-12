@@ -121,6 +121,7 @@ void Load(VkDevice device, DeviceDispatch& dld) noexcept {
     X(vkCmdSetPrimitiveTopologyEXT);
     X(vkCmdSetStencilOpEXT);
     X(vkCmdSetStencilTestEnableEXT);
+    X(vkCmdResolveImage);
     X(vkCreateBuffer);
     X(vkCreateBufferView);
     X(vkCreateCommandPool);

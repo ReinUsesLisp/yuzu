@@ -457,7 +457,7 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
     const DrawParameters draw_params =
         SetupGeometry(key.fixed_state, buffer_bindings, is_indexed, is_instanced);
 
-    texture_cache.UpdateRenderTargets();
+    texture_cache.UpdateRenderTargets(false);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
     const auto shaders = pipeline_cache.GetShaders();
@@ -515,7 +515,7 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    texture_cache.UpdateRenderTargets();
+    texture_cache.UpdateRenderTargets(true);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
     const VkExtent2D render_area = framebuffer->RenderArea();
     scheduler.RequestRenderpass(framebuffer);

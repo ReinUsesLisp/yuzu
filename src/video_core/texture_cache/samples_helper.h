@@ -11,18 +11,18 @@
 
 namespace VideoCommon {
 
-[[nodiscard]] inline std::pair<int, int> Samples(int num_samples) {
+[[nodiscard]] inline std::pair<int, int> SamplesLog2(int num_samples) {
     switch (num_samples) {
     case 1:
-        return {1, 1};
+        return {0, 0};
     case 2:
-        return {2, 1};
+        return {1, 0};
     case 4:
-        return {2, 2};
+        return {1, 1};
     case 8:
-        return {4, 2};
+        return {2, 1};
     case 16:
-        return {4, 4};
+        return {2, 2};
     }
     UNREACHABLE_MSG("Invalid number of samples={}", num_samples);
     return {1, 1};

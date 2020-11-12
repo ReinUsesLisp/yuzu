@@ -13,9 +13,9 @@
 
 namespace Vulkan {
 
-using Tegra::Texture::MsaaMode;
 using VideoCommon::ImageId;
 using VideoCommon::NUM_RT;
+using VideoCommon::Offset2D;
 using VideoCommon::RenderTargets;
 using VideoCore::Surface::PixelFormat;
 
@@ -33,7 +33,7 @@ struct RenderPassKey {
 
     std::array<PixelFormat, NUM_RT> color_formats;
     PixelFormat depth_format;
-    MsaaMode samples;
+    VkSampleCountFlagBits samples;
 };
 
 } // namespace Vulkan
@@ -83,7 +83,10 @@ struct TextureCacheRuntime {
     }
 
     void BlitImage(Framebuffer* dst_framebuffer, ImageView& dst, ImageView& src,
-                   const Tegra::Engines::Fermi2D::Config& copy);
+                   const std::array<Offset2D, 2>& dst_region,
+                   const std::array<Offset2D, 2>& src_region,
+                   Tegra::Engines::Fermi2D::Filter filter,
+                   Tegra::Engines::Fermi2D::Operation operation);
 
     void CopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
 
@@ -157,11 +160,21 @@ public:
         return render_target;
     }
 
+    [[nodiscard]] PixelFormat ImageFormat() const noexcept {
+        return image_format;
+    }
+
+    [[nodiscard]] VkSampleCountFlagBits Samples() const noexcept {
+        return samples;
+    }
+
 private:
     std::array<vk::ImageView, VideoCommon::NUM_IMAGE_VIEW_TYPES> image_views;
     vk::BufferView buffer_view;
     VkImage image_handle = VK_NULL_HANDLE;
     VkImageView render_target = VK_NULL_HANDLE;
+    PixelFormat image_format = PixelFormat::Invalid;
+    VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 };
 
 class ImageAlloc : public VideoCommon::ImageAllocBase {};
@@ -196,6 +209,10 @@ public:
         return render_area;
     }
 
+    [[nodiscard]] VkSampleCountFlagBits Samples() const noexcept {
+        return samples;
+    }
+
     [[nodiscard]] u32 NumColorBuffers() const noexcept {
         return num_color_buffers;
     }
@@ -216,6 +233,7 @@ private:
     vk::Framebuffer framebuffer;
     VkRenderPass renderpass{};
     VkExtent2D render_area{};
+    VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
     u32 num_color_buffers = 0;
     u32 num_images = 0;
     std::array<VkImage, 9> images{};

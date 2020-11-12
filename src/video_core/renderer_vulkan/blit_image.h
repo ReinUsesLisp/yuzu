@@ -9,8 +9,11 @@
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/wrapper.h"
+#include "video_core/texture_cache/types.h"
 
 namespace Vulkan {
+
+using VideoCommon::Offset2D;
 
 class VKDevice;
 class VKScheduler;
@@ -33,7 +36,10 @@ public:
     ~BlitImageHelper();
 
     void BlitColor(const Framebuffer* dst_framebuffer, const ImageView& src_image_view,
-                   const Tegra::Engines::Fermi2D::Config& config);
+                   const std::array<Offset2D, 2>& dst_region,
+                   const std::array<Offset2D, 2>& src_region,
+                   Tegra::Engines::Fermi2D::Filter filter,
+                   Tegra::Engines::Fermi2D::Operation operation);
 
     void ConvertD32ToR32(const Framebuffer* dst_framebuffer, const ImageView& src_image_view);
 

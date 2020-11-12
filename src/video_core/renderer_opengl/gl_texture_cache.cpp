@@ -17,6 +17,7 @@
 #include "video_core/renderer_opengl/util_shaders.h"
 #include "video_core/surface.h"
 #include "video_core/texture_cache/format_lookup_table.h"
+#include "video_core/texture_cache/samples_helper.h"
 #include "video_core/texture_cache/texture_cache.h"
 #include "video_core/textures/decoders.h"
 
@@ -33,6 +34,7 @@ using VideoCommon::CalculateLevelStrideAlignment;
 using VideoCommon::ImageCopy;
 using VideoCommon::ImageType;
 using VideoCommon::NUM_RT;
+using VideoCommon::SamplesLog2;
 using VideoCommon::SwizzleParameters;
 using VideoCore::Surface::BytesPerBlock;
 using VideoCore::Surface::IsPixelFormatASTC;
@@ -363,6 +365,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
                                         VideoCommon::SubresourceLayers subresource, GLenum target) {
     switch (target) {
     case GL_TEXTURE_2D_ARRAY:
+    case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
         return CopyOrigin{
             .level = static_cast<GLint>(subresource.base_mipmap),
             .x = static_cast<GLint>(offset.x),
@@ -378,7 +381,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         };
     default:
         UNIMPLEMENTED_MSG("Unimplemented copy target={}", target);
-        return CopyOrigin{0, 0, 0};
+        return CopyOrigin{.x = 0, .y = 0, .z = 0};
     }
 }
 
@@ -387,6 +390,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
                                         GLenum target) {
     switch (target) {
     case GL_TEXTURE_2D_ARRAY:
+    case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
         return CopyRegion{
             .width = static_cast<GLsizei>(extent.width),
             .height = static_cast<GLsizei>(extent.height),
@@ -400,7 +404,7 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
         };
     default:
         UNIMPLEMENTED_MSG("Unimplemented copy target={}", target);
-        return CopyRegion{0, 0, 0};
+        return CopyRegion{.width = 0, .height = 0, .depth = 0};
     }
 }
 
@@ -515,8 +519,8 @@ void TextureCacheRuntime::CopyImage(Image& dst_image, Image& src_image,
                                     std::span<const ImageCopy> copies) {
     const GLuint dst_name = dst_image.Handle();
     const GLuint src_name = src_image.Handle();
-    const GLenum src_target = ImageTarget(dst_image.info);
-    const GLenum dst_target = ImageTarget(src_image.info);
+    const GLenum dst_target = ImageTarget(dst_image.info);
+    const GLenum src_target = ImageTarget(src_image.info);
     for (const ImageCopy& copy : copies) {
         const auto src_origin = MakeCopyOrigin(copy.src_offset, copy.src_subresource, src_target);
         const auto dst_origin = MakeCopyOrigin(copy.dst_offset, copy.dst_subresource, dst_target);
@@ -528,7 +532,10 @@ void TextureCacheRuntime::CopyImage(Image& dst_image, Image& src_image,
 }
 
 void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
-                                          const Tegra::Engines::Fermi2D::Config& copy) {
+                                          const std::array<Offset2D, 2>& dst_region,
+                                          const std::array<Offset2D, 2>& src_region,
+                                          Tegra::Engines::Fermi2D::Filter filter,
+                                          Tegra::Engines::Fermi2D::Operation operation) {
     state_tracker.NotifyScissor0();
     state_tracker.NotifyRasterizeEnable();
     state_tracker.NotifyFramebufferSRGB();
@@ -539,11 +546,13 @@ void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
     glDisable(GL_RASTERIZER_DISCARD);
     glDisablei(GL_SCISSOR_TEST, 0);
 
-    const bool is_linear = copy.filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
     const GLbitfield buffer_bits = dst->BufferBits();
-    glBlitNamedFramebuffer(src->Handle(), dst->Handle(), copy.src_x0, copy.src_y0, copy.src_x1,
-                           copy.src_y1, copy.dst_x0, copy.dst_y0, copy.dst_x1, copy.dst_y1,
-                           buffer_bits, is_linear ? GL_LINEAR : GL_NEAREST);
+    const bool has_depth = (buffer_bits & ~GL_COLOR_BUFFER_BIT) != 0;
+    const bool is_linear = !has_depth && filter == Tegra::Engines::Fermi2D::Filter::Bilinear;
+    glBlitNamedFramebuffer(src->Handle(), dst->Handle(), src_region[0].x, src_region[0].y,
+                           src_region[1].x, src_region[1].y, dst_region[0].x, dst_region[0].y,
+                           dst_region[1].x, dst_region[1].y, buffer_bits,
+                           is_linear ? GL_LINEAR : GL_NEAREST);
 }
 
 void TextureCacheRuntime::AccelerateImageUpload(Image& image, const ImageBufferMap& map,
@@ -578,6 +587,7 @@ FormatProperties TextureCacheRuntime::FormatInfo(ImageType type, GLenum internal
         return format_properties[2].at(internal_format);
     default:
         UNREACHABLE();
+        return FormatProperties{};
     }
 }
 
@@ -676,11 +686,13 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     case GL_TEXTURE_2D_ARRAY:
         glTextureStorage3D(handle, num_mipmaps, gl_store_format, width, height, num_layers);
         break;
-    case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
+    case GL_TEXTURE_2D_MULTISAMPLE_ARRAY: {
         // TODO: Where should 'fixedsamplelocations' come from?
-        glTextureStorage3DMultisample(handle, num_samples, gl_store_format, width, height,
-                                      num_layers, GL_FALSE);
+        const auto [samples_x, samples_y] = SamplesLog2(info.num_samples);
+        glTextureStorage3DMultisample(handle, num_samples, gl_store_format, width >> samples_x,
+                                      height >> samples_y, num_layers, GL_FALSE);
         break;
+    }
     case GL_TEXTURE_RECTANGLE:
         glTextureStorage2D(handle, num_mipmaps, gl_store_format, width, height);
         break;
