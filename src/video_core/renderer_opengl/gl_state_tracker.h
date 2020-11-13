@@ -102,6 +102,14 @@ public:
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, new_index_buffer);
     }
 
+    void BindFramebuffer(GLuint new_framebuffer) {
+        if (framebuffer == new_framebuffer) {
+            return;
+        }
+        framebuffer = new_framebuffer;
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    }
+
     void NotifyScreenDrawVertexArray() {
         flags[OpenGL::Dirty::VertexFormats] = true;
         flags[OpenGL::Dirty::VertexFormat0 + 0] = true;
@@ -192,6 +200,7 @@ public:
 private:
     Tegra::Engines::Maxwell3D::DirtyState::Flags& flags;
 
+    GLuint framebuffer = 0;
     GLuint index_buffer = 0;
 };
 

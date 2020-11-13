@@ -53,10 +53,19 @@ typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
 
 template <class P>
 void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
-    // TODO: Use dirty flags
+    using namespace VideoCommon::Dirty;
+    auto& flags = maxwell3d.dirty.flags;
+    if (!flags[Dirty::RenderTargets]) {
+        return;
+    }
+    flags[Dirty::RenderTargets] = false;
+
     for (size_t index = 0; index < NUM_RT; ++index) {
         ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
-        color_buffer_id = FindColorBuffer(index, is_clear);
+        if (flags[Dirty::ColorBuffer0 + index]) {
+            flags[Dirty::ColorBuffer0 + index] = false;
+            color_buffer_id = FindColorBuffer(index, is_clear);
+        }
         if (color_buffer_id) {
             const ImageId image_id = slot_image_views[color_buffer_id].image_id;
             Image& image = slot_images[image_id];
@@ -65,7 +74,10 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
             MarkModification(image);
         }
     }
-    render_targets.depth_buffer_id = FindDepthBuffer(is_clear);
+    if (flags[Dirty::ZetaBuffer]) {
+        flags[Dirty::ZetaBuffer] = false;
+        render_targets.depth_buffer_id = FindDepthBuffer(is_clear);
+    }
     if (render_targets.depth_buffer_id) {
         const ImageId image_id = slot_image_views[render_targets.depth_buffer_id].image_id;
         Image& image = slot_images[image_id];
@@ -741,6 +753,14 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     }
     ASSERT_MSG(False(image.flags & ImageFlagBits::Tracked), "Image was not untracked");
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered), "Image was not unregistered");
+
+    // Mark render targets as dirty
+    auto& dirty = maxwell3d.dirty.flags;
+    dirty[Dirty::RenderTargets] = true;
+    dirty[Dirty::ZetaBuffer] = true;
+    for (size_t rt = 0; rt < NUM_RT; ++rt) {
+        dirty[Dirty::ColorBuffer0 + rt] = true;
+    }
 
     const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
     if constexpr (ENABLE_VALIDATION) {

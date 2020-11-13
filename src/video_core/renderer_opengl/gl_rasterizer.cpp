@@ -531,7 +531,7 @@ void RasterizerOpenGL::Clear() {
     {
         auto lock = texture_cache.AcquireLock();
         texture_cache.UpdateRenderTargets(true);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
+        state_tracker.BindFramebuffer(texture_cache.GetFramebuffer()->Handle());
     }
 
     if (use_color) {
@@ -624,7 +624,7 @@ void RasterizerOpenGL::Draw(bool is_indexed, bool is_instanced) {
     {
         auto lock = texture_cache.AcquireLock();
         texture_cache.UpdateRenderTargets(false);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
+        state_tracker.BindFramebuffer(texture_cache.GetFramebuffer()->Handle());
     }
     program_manager.BindGraphicsPipeline();
 

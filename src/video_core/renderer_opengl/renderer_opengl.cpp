@@ -144,7 +144,7 @@ void RendererOpenGL::SwapBuffers(const Tegra::FramebufferConfig* framebuffer) {
     PrepareRendertarget(framebuffer);
     RenderScreenshot();
 
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    state_tracker.BindFramebuffer(0);
     DrawScreen(emu_window.GetFramebufferLayout());
 
     ++m_current_frame;
