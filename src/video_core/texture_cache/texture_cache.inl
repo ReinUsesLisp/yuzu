@@ -545,7 +545,7 @@ TICEntry TextureCache<P>::ReadImageDescriptor(ClassDescriptorTables& tables, GPU
     if ((tables.cached_images[index / 64] & (1ULL << (index % 64))) == 0) {
         tables.cached_images[index / 64] |= 1ULL << (index % 64);
         const GPUVAddr entry_addr = gpu_addr + index * sizeof(TICEntry);
-        gpu_memory.ReadBlock(entry_addr, &tables.image_descriptors[index], sizeof(TICEntry));
+        gpu_memory.ReadBlockUnsafe(entry_addr, &tables.image_descriptors[index], sizeof(TICEntry));
     }
     return tables.image_descriptors[index];
 }
@@ -561,7 +561,8 @@ TSCEntry TextureCache<P>::ReadSamplerDescriptor(ClassDescriptorTables& tables, G
     if ((tables.cached_samplers[index / 64] & (1ULL << (index % 64))) == 0) {
         tables.cached_samplers[index / 64] |= 1ULL << (index % 64);
         const GPUVAddr entry_addr = gpu_addr + index * sizeof(TSCEntry);
-        gpu_memory.ReadBlock(entry_addr, &tables.sampler_descriptors[index], sizeof(TSCEntry));
+        gpu_memory.ReadBlockUnsafe(entry_addr, &tables.sampler_descriptors[index],
+                                   sizeof(TSCEntry));
     }
     return tables.sampler_descriptors[index];
 }

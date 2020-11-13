@@ -8,6 +8,7 @@
 #include <bit>
 #include <optional>
 #include <span>
+#include <mutex>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -87,6 +88,10 @@ public:
     int frame_no = 0;
     void TickFrame() {
         ++frame_no;
+    }
+
+    [[nodiscard]] std::unique_lock<std::mutex> AcquireLock() {
+        return std::unique_lock{mutex};
     }
 
     [[nodiscard]] const ImageView& GetImageView(ImageViewId id) const noexcept {
@@ -345,6 +350,8 @@ private:
     ClassDescriptorTables tables_compute;
 
     RenderTargets render_targets;
+
+    std::mutex mutex;
 
     std::unordered_map<TICEntry, ImageViewId> image_views;
     std::unordered_map<TSCEntry, SamplerId> samplers;

@@ -457,6 +457,7 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
     const DrawParameters draw_params =
         SetupGeometry(key.fixed_state, buffer_bindings, is_indexed, is_instanced);
 
+    auto lock = texture_cache.AcquireLock();
     texture_cache.UpdateRenderTargets(false);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
@@ -515,6 +516,7 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
+    auto lock = texture_cache.AcquireLock();
     texture_cache.UpdateRenderTargets(true);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
     const VkExtent2D render_area = framebuffer->RenderArea();
@@ -599,6 +601,7 @@ void RasterizerVulkan::DispatchCompute(GPUVAddr code_addr) {
     SetupComputeStorageTexels(entries);
     SetupComputeImages(entries);
 
+    auto lock = texture_cache.AcquireLock();
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
     texture_cache.FillComputeImageViews(indices_span, image_view_ids);
 
@@ -644,7 +647,10 @@ void RasterizerVulkan::FlushRegion(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.DownloadMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.DownloadMemory(addr, size);
+    }
     buffer_cache.FlushRegion(addr, size);
     query_cache.FlushRegion(addr, size);
 }
@@ -661,7 +667,10 @@ void RasterizerVulkan::InvalidateRegion(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.WriteMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.WriteMemory(addr, size);
+    }
     pipeline_cache.InvalidateRegion(addr, size);
     buffer_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
@@ -671,19 +680,28 @@ void RasterizerVulkan::OnCPUWrite(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.WriteMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.WriteMemory(addr, size);
+    }
     pipeline_cache.OnCPUWrite(addr, size);
     buffer_cache.OnCPUWrite(addr, size);
 }
 
 void RasterizerVulkan::SyncGuestHost() {
-    // texture_cache.SyncGuestHost();
+    {
+        // auto lock = texture_cache.AcquireLock();
+        // texture_cache.SyncGuestHost();
+    }
     buffer_cache.SyncGuestHost();
     pipeline_cache.SyncGuestHost();
 }
 
 void RasterizerVulkan::UnmapMemory(VAddr addr, u64 size) {
-    texture_cache.UnmapMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.UnmapMemory(addr, size);
+    }
     buffer_cache.InvalidateRegion(addr, size);
     pipeline_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
@@ -748,10 +766,12 @@ void RasterizerVulkan::TiledCacheBarrier() {
 }
 
 void RasterizerVulkan::InvalidateSamplerDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
     texture_cache.InvalidateSamplerDescriptorTable();
 }
 
 void RasterizerVulkan::InvalidateImageDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
     texture_cache.InvalidateImageDescriptorTable();
 }
 
@@ -767,12 +787,16 @@ void RasterizerVulkan::TickFrame() {
     update_descriptor_queue.TickFrame();
     buffer_cache.TickFrame();
     staging_pool.TickFrame();
-    texture_cache.TickFrame();
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.TickFrame();
+    }
 }
 
 bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
                                              const Tegra::Engines::Fermi2D::Surface& dst,
                                              const Tegra::Engines::Fermi2D::Config& copy_config) {
+    auto lock = texture_cache.AcquireLock();
     texture_cache.BlitImage(dst, src, copy_config);
     return true;
 }
@@ -783,6 +807,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
         return false;
     }
 
+    auto lock = texture_cache.AcquireLock();
     ImageView* const image_view = texture_cache.TryFindFramebufferImageView(framebuffer_addr);
     if (!image_view) {
         return false;

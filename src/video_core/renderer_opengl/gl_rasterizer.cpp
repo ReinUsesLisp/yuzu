@@ -431,6 +431,8 @@ void RasterizerOpenGL::SetupShaders() {
     SyncClipEnabled(clip_distances);
     maxwell3d.dirty.flags[Dirty::Shaders] = false;
 
+    auto lock = texture_cache.AcquireLock();
+
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
     texture_cache.FillGraphicsImageViews(indices_span, image_view_ids);
 
@@ -526,8 +528,11 @@ void RasterizerOpenGL::Clear() {
     }
     UNIMPLEMENTED_IF(regs.clear_flags.viewport);
 
-    texture_cache.UpdateRenderTargets(true);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.UpdateRenderTargets(true);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
+    }
 
     if (use_color) {
         glClearBufferfv(GL_COLOR, regs.clear_buffers.RT, regs.clear_color);
@@ -616,10 +621,11 @@ void RasterizerOpenGL::Draw(bool is_indexed, bool is_instanced) {
 
     // Signal the buffer cache that we are not going to upload more things.
     buffer_cache.Unmap();
-
-    texture_cache.UpdateRenderTargets(false);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
-
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.UpdateRenderTargets(false);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, texture_cache.GetFramebuffer()->Handle());
+    }
     program_manager.BindGraphicsPipeline();
 
     const GLenum primitive_mode = MaxwellToGL::PrimitiveTopology(maxwell3d.regs.draw.topology);
@@ -710,7 +716,10 @@ void RasterizerOpenGL::FlushRegion(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.DownloadMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.DownloadMemory(addr, size);
+    }
     buffer_cache.FlushRegion(addr, size);
     query_cache.FlushRegion(addr, size);
 }
@@ -728,7 +737,10 @@ void RasterizerOpenGL::InvalidateRegion(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.WriteMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.WriteMemory(addr, size);
+    }
     shader_cache.InvalidateRegion(addr, size);
     buffer_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
@@ -739,20 +751,29 @@ void RasterizerOpenGL::OnCPUWrite(VAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return;
     }
-    texture_cache.WriteMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.WriteMemory(addr, size);
+    }
     shader_cache.OnCPUWrite(addr, size);
     buffer_cache.OnCPUWrite(addr, size);
 }
 
 void RasterizerOpenGL::SyncGuestHost() {
     MICROPROFILE_SCOPE(OpenGL_CacheManagement);
-    // texture_cache.SyncGuestHost();
+    {
+        // auto lock = texture_cache.AcquireLock();
+        // texture_cache.SyncGuestHost();
+    }
     buffer_cache.SyncGuestHost();
     shader_cache.SyncGuestHost();
 }
 
 void RasterizerOpenGL::UnmapMemory(VAddr addr, u64 size) {
-    texture_cache.UnmapMemory(addr, size);
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.UnmapMemory(addr, size);
+    }
     buffer_cache.InvalidateRegion(addr, size);
     shader_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
@@ -808,10 +829,12 @@ void RasterizerOpenGL::TiledCacheBarrier() {
 }
 
 void RasterizerOpenGL::InvalidateSamplerDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
     texture_cache.InvalidateSamplerDescriptorTable();
 }
 
 void RasterizerOpenGL::InvalidateImageDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
     texture_cache.InvalidateImageDescriptorTable();
 }
 
@@ -829,12 +852,17 @@ void RasterizerOpenGL::TickFrame() {
     num_queued_commands = 0;
 
     buffer_cache.TickFrame();
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.TickFrame();
+    }
 }
 
 bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
                                              const Tegra::Engines::Fermi2D::Surface& dst,
                                              const Tegra::Engines::Fermi2D::Config& copy_config) {
     MICROPROFILE_SCOPE(OpenGL_Blits);
+    auto lock = texture_cache.AcquireLock();
     texture_cache.BlitImage(dst, src, copy_config);
     return true;
 }
@@ -846,6 +874,7 @@ bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     }
     MICROPROFILE_SCOPE(OpenGL_CacheManagement);
 
+    auto lock = texture_cache.AcquireLock();
     ImageView* const image_view{texture_cache.TryFindFramebufferImageView(framebuffer_addr)};
     if (!image_view) {
         return false;
