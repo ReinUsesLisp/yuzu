@@ -120,7 +120,13 @@ template <class P>
 void TextureCache<P>::DownloadMemory(VAddr cpu_addr, size_t size) {
     std::vector<ImageId> images;
     ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
+        // Skip images that were not modified from the GPU
         if (False(image.flags & ImageFlagBits::GpuModified)) {
+            return;
+        }
+        // Skip images that .are. modified from the CPU
+        // We don't want to write sensitive data from the guest
+        if (True(image.flags & ImageFlagBits::CpuModified)) {
             return;
         }
         image.flags &= ~ImageFlagBits::GpuModified;
