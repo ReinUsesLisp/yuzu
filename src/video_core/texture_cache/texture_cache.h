@@ -6,9 +6,9 @@
 
 #include <array>
 #include <bit>
+#include <mutex>
 #include <optional>
 #include <span>
-#include <mutex>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -26,6 +26,7 @@
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/surface.h"
+#include "video_core/texture_cache/descriptor_table.h"
 #include "video_core/texture_cache/format_lookup_table.h"
 #include "video_core/texture_cache/image_base.h"
 #include "video_core/texture_cache/image_info.h"
@@ -66,14 +67,6 @@ class TextureCache {
     using Sampler = typename P::Sampler;
     using Framebuffer = typename P::Framebuffer;
 
-    /// Descriptor table of a class
-    struct ClassDescriptorTables {
-        std::vector<TICEntry> image_descriptors;
-        std::vector<TSCEntry> sampler_descriptors;
-        std::vector<u64> cached_images;
-        std::vector<u64> cached_samplers;
-    };
-
     struct BlitImages {
         ImageId dst_id;
         ImageId src_id;
@@ -102,15 +95,15 @@ public:
         return slot_image_views[id];
     }
 
-    void FillImageViews(ClassDescriptorTables& tables, GPUVAddr gpu_addr, u32 limit,
-                        std::span<const u32> indices, std::span<ImageViewId> image_view_ids) {
+    void FillImageViews(std::span<const TICEntry> descriptors, std::span<const u32> indices,
+                        std::span<ImageViewId> image_view_ids) {
         const size_t num_indices = indices.size();
         ASSERT(num_indices <= image_view_ids.size());
         do {
             has_deleted_images = false;
             for (size_t i = num_indices; i--;) {
                 const u32 index = indices[i];
-                const TICEntry descriptor = ReadImageDescriptor(tables, gpu_addr, limit, index);
+                const TICEntry descriptor = descriptors[index];
                 const ImageViewId image_view_id = FindImageView(descriptor);
                 image_view_ids[i] = image_view_id;
 
@@ -126,14 +119,32 @@ public:
 
     void FillGraphicsImageViews(std::span<const u32> indices,
                                 std::span<ImageViewId> image_view_ids) {
-        FillImageViews(tables_3d, maxwell3d.regs.tic.Address(), maxwell3d.regs.tic.limit, indices,
-                       image_view_ids);
+        FillImageViews(graphics_image_table.Descriptors(), indices, image_view_ids);
     }
 
     void FillComputeImageViews(std::span<const u32> indices,
                                std::span<ImageViewId> image_view_ids) {
-        FillImageViews(tables_compute, kepler_compute.regs.tic.Address(),
-                       kepler_compute.regs.tic.limit, indices, image_view_ids);
+        FillImageViews(compute_image_table.Descriptors(), indices, image_view_ids);
+    }
+
+    void SynchronizeGraphicsDescriptors() {
+        using SamplerIndex = Tegra::Engines::Maxwell3D::Regs::SamplerIndex;
+        const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
+        const u32 tic_limit = maxwell3d.regs.tic.limit;
+        const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
+        graphics_sampler_table.Synchronize(maxwell3d.regs.tsc.Address(), tsc_limit);
+
+        graphics_image_table.Synchronize(maxwell3d.regs.tic.Address(), tic_limit);
+    }
+
+    void SynchronizeComputeDescriptors() {
+        const bool linked_tsc = kepler_compute.launch_description.linked_tsc;
+        const u32 tic_limit = kepler_compute.regs.tic.limit;
+        const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
+        const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
+        compute_sampler_table.Synchronize(tsc_gpu_addr, tsc_limit);
+
+        compute_image_table.Synchronize(kepler_compute.regs.tic.Address(), tic_limit);
     }
 
     /**
@@ -210,16 +221,6 @@ public:
     void InvalidateDepthBuffer();
 
     /**
-     * Invalidate the image descriptor tables
-     */
-    void InvalidateImageDescriptorTable();
-
-    /**
-     * Invalidate the sampler descriptor tables
-     */
-    void InvalidateSamplerDescriptorTable();
-
-    /**
      * Tries to find a cached image view in the given CPU address
      *
      * @param cpu_addr Virtual CPU address
@@ -277,12 +278,6 @@ private:
                                            const Tegra::Engines::Fermi2D::Surface& src);
 
     [[nodiscard]] SamplerId FindSampler(const TSCEntry& config);
-
-    [[nodiscard]] TICEntry ReadImageDescriptor(ClassDescriptorTables& tables, GPUVAddr gpu_addr,
-                                               u32 limit, u32 index);
-
-    [[nodiscard]] TSCEntry ReadSamplerDescriptor(ClassDescriptorTables& tables, GPUVAddr gpu_addr,
-                                                 u32 limit, u32 index);
 
     /**
      * Find or create an image view for the given color buffer index
@@ -346,8 +341,11 @@ private:
     Tegra::Engines::KeplerCompute& kepler_compute;
     Tegra::MemoryManager& gpu_memory;
 
-    ClassDescriptorTables tables_3d;
-    ClassDescriptorTables tables_compute;
+    DescriptorTable<TICEntry> graphics_image_table{rasterizer, gpu_memory};
+    DescriptorTable<TSCEntry> graphics_sampler_table{rasterizer, gpu_memory};
+
+    DescriptorTable<TICEntry> compute_image_table{rasterizer, gpu_memory};
+    DescriptorTable<TSCEntry> compute_sampler_table{rasterizer, gpu_memory};
 
     RenderTargets render_targets;
 

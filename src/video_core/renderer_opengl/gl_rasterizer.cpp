@@ -363,6 +363,9 @@ void RasterizerOpenGL::SetupShaders() {
     image_view_indices.clear();
     sampler_handles.clear();
 
+    auto lock = texture_cache.AcquireLock();
+    texture_cache.SynchronizeGraphicsDescriptors();
+
     for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
         const auto& shader_config = maxwell3d.regs.shader_config[index];
         const auto program{static_cast<Maxwell::ShaderProgram>(index)};
@@ -430,8 +433,6 @@ void RasterizerOpenGL::SetupShaders() {
     }
     SyncClipEnabled(clip_distances);
     maxwell3d.dirty.flags[Dirty::Shaders] = false;
-
-    auto lock = texture_cache.AcquireLock();
 
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
     texture_cache.FillGraphicsImageViews(indices_span, image_view_ids);
@@ -826,16 +827,6 @@ void RasterizerOpenGL::FragmentBarrier() {
 
 void RasterizerOpenGL::TiledCacheBarrier() {
     glTextureBarrier();
-}
-
-void RasterizerOpenGL::InvalidateSamplerDescriptorTable() {
-    auto lock = texture_cache.AcquireLock();
-    texture_cache.InvalidateSamplerDescriptorTable();
-}
-
-void RasterizerOpenGL::InvalidateImageDescriptorTable() {
-    auto lock = texture_cache.AcquireLock();
-    texture_cache.InvalidateImageDescriptorTable();
 }
 
 void RasterizerOpenGL::FlushCommands() {

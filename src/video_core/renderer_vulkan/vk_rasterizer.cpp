@@ -458,6 +458,8 @@ void RasterizerVulkan::Draw(bool is_indexed, bool is_instanced) {
         SetupGeometry(key.fixed_state, buffer_bindings, is_indexed, is_instanced);
 
     auto lock = texture_cache.AcquireLock();
+    texture_cache.SynchronizeGraphicsDescriptors();
+
     texture_cache.UpdateRenderTargets(false);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
 
@@ -595,13 +597,15 @@ void RasterizerVulkan::DispatchCompute(GPUVAddr code_addr) {
     image_view_indices.clear();
     sampler_handles.clear();
 
+    auto lock = texture_cache.AcquireLock();
+    texture_cache.SynchronizeComputeDescriptors();
+
     const auto& entries = pipeline.GetEntries();
     SetupComputeUniformTexels(entries);
     SetupComputeTextures(entries);
     SetupComputeStorageTexels(entries);
     SetupComputeImages(entries);
 
-    auto lock = texture_cache.AcquireLock();
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
     texture_cache.FillComputeImageViews(indices_span, image_view_ids);
 
@@ -763,16 +767,6 @@ void RasterizerVulkan::FragmentBarrier() {
 
 void RasterizerVulkan::TiledCacheBarrier() {
     // TODO: Implementing tiled barriers requires rewriting a good chunk of the Vulkan backend
-}
-
-void RasterizerVulkan::InvalidateSamplerDescriptorTable() {
-    auto lock = texture_cache.AcquireLock();
-    texture_cache.InvalidateSamplerDescriptorTable();
-}
-
-void RasterizerVulkan::InvalidateImageDescriptorTable() {
-    auto lock = texture_cache.AcquireLock();
-    texture_cache.InvalidateImageDescriptorTable();
 }
 
 void RasterizerVulkan::FlushCommands() {

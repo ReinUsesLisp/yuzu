@@ -84,8 +84,6 @@ public:
     void WaitForIdle() override;
     void FragmentBarrier() override;
     void TiledCacheBarrier() override;
-    void InvalidateSamplerDescriptorTable() override;
-    void InvalidateImageDescriptorTable() override;
     void FlushCommands() override;
     void TickFrame() override;
     bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,

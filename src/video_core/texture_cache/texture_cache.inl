@@ -34,20 +34,13 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
-    using SamplerIndex = Tegra::Engines::Maxwell3D::Regs::SamplerIndex;
-    const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
-    const u32 limit = linked_tsc ? maxwell3d.regs.tic.limit : maxwell3d.regs.tsc.limit;
-    const GPUVAddr gpu_addr = maxwell3d.regs.tsc.Address();
-    const TSCEntry config = ReadSamplerDescriptor(tables_3d, gpu_addr, limit, index);
+    const TSCEntry config = graphics_sampler_table.Descriptors()[index];
     return &slot_samplers[FindSampler(config)];
 }
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
-    const bool linked_tsc = kepler_compute.launch_description.linked_tsc;
-    const u32 limit = linked_tsc ? kepler_compute.regs.tic.limit : kepler_compute.regs.tsc.limit;
-    const GPUVAddr gpu_addr = kepler_compute.regs.tsc.Address();
-    const TSCEntry config = ReadSamplerDescriptor(tables_compute, gpu_addr, limit, index);
+    const TSCEntry config = compute_sampler_table.Descriptors()[index];
     return &slot_samplers[FindSampler(config)];
 }
 
@@ -119,6 +112,11 @@ FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
 
 template <class P>
 void TextureCache<P>::WriteMemory(VAddr cpu_addr, size_t size) {
+    graphics_image_table.WriteMemory(cpu_addr, size);
+    graphics_sampler_table.WriteMemory(cpu_addr, size);
+    compute_image_table.WriteMemory(cpu_addr, size);
+    compute_sampler_table.WriteMemory(cpu_addr, size);
+
     ForEachImageInRegion(cpu_addr, size, [this](ImageId image_id, Image& image) {
         if (True(image.flags & ImageFlagBits::CpuModified)) {
             return;
@@ -260,18 +258,6 @@ void TextureCache<P>::InvalidateDepthBuffer() {
 
     ImageView& depth_buffer = slot_image_views[depth_buffer_id];
     runtime.InvalidateDepthBuffer(depth_buffer);
-}
-
-template <class P>
-void TextureCache<P>::InvalidateImageDescriptorTable() {
-    std::ranges::fill(tables_3d.cached_images, 0);
-    std::ranges::fill(tables_compute.cached_images, 0);
-}
-
-template <class P>
-void TextureCache<P>::InvalidateSamplerDescriptorTable() {
-    std::ranges::fill(tables_3d.cached_samplers, 0);
-    std::ranges::fill(tables_compute.cached_samplers, 0);
 }
 
 template <class P>
@@ -544,39 +530,6 @@ SamplerId TextureCache<P>::FindSampler(const TSCEntry& config) {
         pair->second = slot_samplers.insert(runtime, config);
     }
     return pair->second;
-}
-
-template <class P>
-TICEntry TextureCache<P>::ReadImageDescriptor(ClassDescriptorTables& tables, GPUVAddr gpu_addr,
-                                              u32 limit, u32 index) {
-    ASSERT(index <= limit);
-    if (index >= tables.image_descriptors.size()) {
-        tables.cached_images.resize(index / 64 + 1);
-        tables.image_descriptors.resize(index + 1);
-    }
-    if ((tables.cached_images[index / 64] & (1ULL << (index % 64))) == 0) {
-        tables.cached_images[index / 64] |= 1ULL << (index % 64);
-        const GPUVAddr entry_addr = gpu_addr + index * sizeof(TICEntry);
-        gpu_memory.ReadBlockUnsafe(entry_addr, &tables.image_descriptors[index], sizeof(TICEntry));
-    }
-    return tables.image_descriptors[index];
-}
-
-template <class P>
-TSCEntry TextureCache<P>::ReadSamplerDescriptor(ClassDescriptorTables& tables, GPUVAddr gpu_addr,
-                                                u32 limit, u32 index) {
-    ASSERT(index <= limit);
-    if (index >= tables.sampler_descriptors.size()) {
-        tables.cached_samplers.resize(index / 64 + 1);
-        tables.sampler_descriptors.resize(index + 1);
-    }
-    if ((tables.cached_samplers[index / 64] & (1ULL << (index % 64))) == 0) {
-        tables.cached_samplers[index / 64] |= 1ULL << (index % 64);
-        const GPUVAddr entry_addr = gpu_addr + index * sizeof(TSCEntry);
-        gpu_memory.ReadBlockUnsafe(entry_addr, &tables.sampler_descriptors[index],
-                                   sizeof(TSCEntry));
-    }
-    return tables.sampler_descriptors[index];
 }
 
 template <class P>
