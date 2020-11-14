@@ -785,7 +785,7 @@ void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
 
 template <class P>
 void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
-    std::vector<const AliasedImage*> aliased_images;
+    boost::container::small_vector<const AliasedImage*, 1> aliased_images;
     ImageBase& image = slot_images[image_id];
     u64 most_recent_tick = image.modification_tick;
     for (const AliasedImage& aliased : image.aliased_images) {
