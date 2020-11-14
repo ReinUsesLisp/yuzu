@@ -830,16 +830,6 @@ void RasterizerOpenGL::TiledCacheBarrier() {
     glTextureBarrier();
 }
 
-void RasterizerOpenGL::InvalidateSamplerDescriptorTable() {
-    auto lock = texture_cache.AcquireLock();
-    texture_cache.InvalidateSamplerDescriptorTable();
-}
-
-void RasterizerOpenGL::InvalidateImageDescriptorTable() {
-    auto lock = texture_cache.AcquireLock();
-    texture_cache.InvalidateImageDescriptorTable();
-}
-
 void RasterizerOpenGL::FlushCommands() {
     // Only flush when we have commands queued to OpenGL.
     if (num_queued_commands == 0) {

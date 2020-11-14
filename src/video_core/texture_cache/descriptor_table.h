@@ -1,4 +1,4 @@
-// Copyright 2019 yuzu Emulator Project
+// Copyright 2020 yuzu Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -26,22 +26,7 @@ public:
     void WriteMemory(VAddr addr, size_t size) {
         const VAddr overlap_begin = addr;
         const VAddr overlap_end = addr + size;
-        [[likely]] if (is_modified) {
-            return;
-        }
-        [[unlikely]] if (cpu_addr_begin < overlap_end && overlap_begin < cpu_addr_end) {
-            is_modified = true;
-            Unregister();
-        }
-    }
-
-    void Invalidate() {
-        if (!is_modified) {
-            is_modified = true;
-            if (SizeBytes() > 0) {
-                Unregister();
-            }
-        }
+        is_modified |= cpu_addr_begin < overlap_end && overlap_begin < cpu_addr_end;
     }
 
     bool Synchronize(GPUVAddr gpu_addr, size_t limit) {
@@ -61,7 +46,7 @@ private:
         current_gpu_addr = gpu_addr;
         current_limit = limit;
 
-        if (!is_modified && SizeBytes() > 0) {
+        if (SizeBytes() == 0) {
             Unregister();
         }
         cpu_addr_begin = 0;

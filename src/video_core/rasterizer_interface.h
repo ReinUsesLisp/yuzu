@@ -92,12 +92,6 @@ public:
     /// Notify the host renderer to make available previous render target writes.
     virtual void TiledCacheBarrier() = 0;
 
-    /// Notify the rasterizer to invalidate the sampler descriptor table
-    virtual void InvalidateSamplerDescriptorTable() = 0;
-
-    /// Notify the rasterizer to invalidate the image descriptor table
-    virtual void InvalidateImageDescriptorTable() = 0;
-
     /// Notify the rasterizer to send all written commands to the host GPU.
     virtual void FlushCommands() = 0;
 
