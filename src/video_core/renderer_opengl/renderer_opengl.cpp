@@ -140,7 +140,6 @@ void RendererOpenGL::SwapBuffers(const Tegra::FramebufferConfig* framebuffer) {
     if (!framebuffer) {
         return;
     }
-
     PrepareRendertarget(framebuffer);
     RenderScreenshot();
 

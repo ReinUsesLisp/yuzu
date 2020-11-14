@@ -26,9 +26,21 @@ public:
     void WriteMemory(VAddr addr, size_t size) {
         const VAddr overlap_begin = addr;
         const VAddr overlap_end = addr + size;
+        [[likely]] if (is_modified) {
+            return;
+        }
         [[unlikely]] if (cpu_addr_begin < overlap_end && overlap_begin < cpu_addr_end) {
             is_modified = true;
             Unregister();
+        }
+    }
+
+    void Invalidate() {
+        if (!is_modified) {
+            is_modified = true;
+            if (SizeBytes() > 0) {
+                Unregister();
+            }
         }
     }
 
@@ -54,6 +66,8 @@ private:
         }
         cpu_addr_begin = 0;
         cpu_addr_end = 0;
+        is_modified = false;
+
         if (gpu_addr == 0) {
             return;
         }
@@ -72,7 +86,6 @@ private:
         }
         gpu_memory.ReadBlockUnsafe(gpu_addr, descriptors.get(), size_bytes);
         Register();
-        is_modified = false;
     }
 
     void Register() {

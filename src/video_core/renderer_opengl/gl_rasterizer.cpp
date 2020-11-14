@@ -684,6 +684,7 @@ void RasterizerOpenGL::DispatchCompute(GPUVAddr code_addr) {
     Shader* const kernel = shader_cache.GetComputeKernel(code_addr);
     program_manager.BindCompute(kernel->GetHandle());
 
+    auto lock = texture_cache.AcquireLock();
     BindComputeTextures(kernel);
 
     const size_t buffer_size = Tegra::Engines::KeplerCompute::NumConstBuffers *
@@ -829,6 +830,16 @@ void RasterizerOpenGL::TiledCacheBarrier() {
     glTextureBarrier();
 }
 
+void RasterizerOpenGL::InvalidateSamplerDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
+    texture_cache.InvalidateSamplerDescriptorTable();
+}
+
+void RasterizerOpenGL::InvalidateImageDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
+    texture_cache.InvalidateImageDescriptorTable();
+}
+
 void RasterizerOpenGL::FlushCommands() {
     // Only flush when we have commands queued to OpenGL.
     if (num_queued_commands == 0) {
@@ -882,6 +893,8 @@ bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
 void RasterizerOpenGL::BindComputeTextures(Shader* kernel) {
     image_view_indices.clear();
     sampler_handles.clear();
+
+    texture_cache.SynchronizeComputeDescriptors();
 
     SetupComputeTextures(kernel);
     SetupComputeImages(kernel);

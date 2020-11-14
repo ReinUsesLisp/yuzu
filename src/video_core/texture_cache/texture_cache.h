@@ -127,6 +127,16 @@ public:
         FillImageViews(compute_image_table.Descriptors(), indices, image_view_ids);
     }
 
+    void InvalidateImageDescriptorTable() {
+        graphics_image_table.Invalidate();
+        compute_image_table.Invalidate();
+    }
+
+    void InvalidateSamplerDescriptorTable() {
+        graphics_sampler_table.Invalidate();
+        compute_sampler_table.Invalidate();
+    }
+
     void SynchronizeGraphicsDescriptors() {
         using SamplerIndex = Tegra::Engines::Maxwell3D::Regs::SamplerIndex;
         const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;

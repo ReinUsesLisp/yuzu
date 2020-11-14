@@ -769,6 +769,16 @@ void RasterizerVulkan::TiledCacheBarrier() {
     // TODO: Implementing tiled barriers requires rewriting a good chunk of the Vulkan backend
 }
 
+void RasterizerVulkan::InvalidateSamplerDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
+    texture_cache.InvalidateSamplerDescriptorTable();
+}
+
+void RasterizerVulkan::InvalidateImageDescriptorTable() {
+    auto lock = texture_cache.AcquireLock();
+    texture_cache.InvalidateImageDescriptorTable();
+}
+
 void RasterizerVulkan::FlushCommands() {
     if (draw_counter > 0) {
         draw_counter = 0;
