@@ -32,11 +32,12 @@ public:
         }
     }
 
-    void Synchronize(GPUVAddr gpu_addr, size_t limit) {
+    bool Synchronize(GPUVAddr gpu_addr, size_t limit) {
         [[likely]] if (!is_modified && current_gpu_addr == gpu_addr && current_limit == limit) {
-            return;
+            return false;
         }
         Refresh(gpu_addr, limit);
+        return true;
     }
 
     [[nodiscard]] std::span<const Descriptor> Descriptors() const noexcept {

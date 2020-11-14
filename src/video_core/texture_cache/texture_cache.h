@@ -132,8 +132,9 @@ public:
         const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
         const u32 tic_limit = maxwell3d.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
-        graphics_sampler_table.Synchronize(maxwell3d.regs.tsc.Address(), tsc_limit);
-
+        if (graphics_sampler_table.Synchronize(maxwell3d.regs.tsc.Address(), tsc_limit)) {
+            UpdateSamplerIds(graphics_sampler_ids, graphics_sampler_table.Descriptors());
+        }
         graphics_image_table.Synchronize(maxwell3d.regs.tic.Address(), tic_limit);
     }
 
@@ -142,9 +143,17 @@ public:
         const u32 tic_limit = kepler_compute.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
         const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
-        compute_sampler_table.Synchronize(tsc_gpu_addr, tsc_limit);
-
+        if (compute_sampler_table.Synchronize(tsc_gpu_addr, tsc_limit)) {
+            UpdateSamplerIds(compute_sampler_ids, compute_sampler_table.Descriptors());
+        }
         compute_image_table.Synchronize(kepler_compute.regs.tic.Address(), tic_limit);
+    }
+
+    void UpdateSamplerIds(std::vector<SamplerId>& ids, std::span<const TSCEntry> descriptors) {
+        ids.resize(descriptors.size());
+        std::ranges::transform(descriptors, ids.begin(), [this](const TSCEntry& descriptor) {
+            return FindSampler(descriptor);
+        });
     }
 
     /**
@@ -343,9 +352,11 @@ private:
 
     DescriptorTable<TICEntry> graphics_image_table{rasterizer, gpu_memory};
     DescriptorTable<TSCEntry> graphics_sampler_table{rasterizer, gpu_memory};
+    std::vector<SamplerId> graphics_sampler_ids;
 
     DescriptorTable<TICEntry> compute_image_table{rasterizer, gpu_memory};
     DescriptorTable<TSCEntry> compute_sampler_table{rasterizer, gpu_memory};
+    std::vector<SamplerId> compute_sampler_ids;
 
     RenderTargets render_targets;
 
