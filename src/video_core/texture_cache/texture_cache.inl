@@ -746,6 +746,8 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
         image_allocs_table.erase(alloc_it);
     }
 
+    std::ranges::fill(graphics_image_view_ids, ImageViewId{});
+    std::ranges::fill(compute_image_view_ids, ImageViewId{});
     has_deleted_images = true;
 }
 
