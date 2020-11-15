@@ -77,8 +77,7 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
         MarkModification(image);
     }
     for (size_t index = 0; index < NUM_RT; ++index) {
-        render_targets.draw_buffers[index] =
-            static_cast<u8>(maxwell3d.regs.rt_control.GetMap(index));
+        render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d.regs.rt_control.Map(index));
     }
     render_targets.size = Extent2D{
         maxwell3d.regs.render_area.width,

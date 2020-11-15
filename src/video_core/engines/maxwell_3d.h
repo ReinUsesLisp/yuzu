@@ -935,7 +935,7 @@ public:
                         BitField<25, 3, u32> map_7;
                     };
 
-                    u32 GetMap(std::size_t index) const {
+                    u32 Map(std::size_t index) const {
                         const std::array<u32, NumRenderTargets> maps{map_0, map_1, map_2, map_3,
                                                                      map_4, map_5, map_6, map_7};
                         ASSERT(index < maps.size());
