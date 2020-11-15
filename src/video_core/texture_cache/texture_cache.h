@@ -140,7 +140,9 @@ public:
         const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
         const u32 tic_limit = maxwell3d.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
-        graphics_sampler_table.Synchornize(maxwell3d.regs.tsc.Address(), tsc_limit);
+        if (graphics_sampler_table.Synchornize(maxwell3d.regs.tsc.Address(), tsc_limit)) {
+            graphics_sampler_ids.resize(tsc_limit + 1);
+        }
         graphics_image_table.Synchornize(maxwell3d.regs.tic.Address(), tic_limit);
     }
 
@@ -149,7 +151,9 @@ public:
         const u32 tic_limit = kepler_compute.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
         const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
-        compute_sampler_table.Synchornize(tsc_gpu_addr, tsc_limit);
+        if (compute_sampler_table.Synchornize(tsc_gpu_addr, tsc_limit)) {
+            compute_sampler_ids.resize(tsc_limit + 1);
+        }
         compute_image_table.Synchornize(kepler_compute.regs.tic.Address(), tic_limit);
     }
 
@@ -349,9 +353,11 @@ private:
 
     DescriptorTable<TICEntry> graphics_image_table{gpu_memory};
     DescriptorTable<TSCEntry> graphics_sampler_table{gpu_memory};
+    std::vector<SamplerId> graphics_sampler_ids;
 
     DescriptorTable<TICEntry> compute_image_table{gpu_memory};
     DescriptorTable<TSCEntry> compute_sampler_table{gpu_memory};
+    std::vector<SamplerId> compute_sampler_ids;
 
     RenderTargets render_targets;
 

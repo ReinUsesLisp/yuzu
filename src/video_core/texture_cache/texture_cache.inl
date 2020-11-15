@@ -35,13 +35,21 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 template <class P>
 typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
     const auto [descriptor, is_new] = graphics_sampler_table.Read(index);
-    return &slot_samplers[FindSampler(descriptor)];
+    SamplerId& id = graphics_sampler_ids[index];
+    [[unlikely]] if (is_new) {
+        id = FindSampler(descriptor);
+    }
+    return &slot_samplers[id];
 }
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
     const auto [descriptor, is_new] = compute_sampler_table.Read(index);
-    return &slot_samplers[FindSampler(descriptor)];
+    SamplerId& id = compute_sampler_ids[index];
+    [[unlikely]] if (is_new) {
+        id = FindSampler(descriptor);
+    }
+    return &slot_samplers[id];
 }
 
 template <class P>
