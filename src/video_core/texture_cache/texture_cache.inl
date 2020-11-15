@@ -353,9 +353,11 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
     if (!image_id) {
         return NULL_IMAGE_VIEW_ID;
     }
-    const ImageViewInfo view_info(config);
-    const ImageViewId image_view_id = FindOrEmplaceImageView(image_id, view_info);
     ImageBase& image = slot_images[image_id];
+    const SubresourceBase base = image.TryFindBase(config.Address()).value();
+    ASSERT(base.mipmap == 0);
+    const ImageViewInfo view_info(config, base.layer);
+    const ImageViewId image_view_id = FindOrEmplaceImageView(image_id, view_info);
     ImageViewBase& image_view = slot_image_views[image_view_id];
     image_view.flags |= ImageViewFlagBits::Strong;
     image.flags |= ImageFlagBits::Strong;

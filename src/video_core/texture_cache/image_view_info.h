@@ -20,7 +20,7 @@ using VideoCore::Surface::PixelFormat;
 /// Properties used to determine a image view
 struct ImageViewInfo {
     explicit ImageViewInfo() noexcept = default;
-    explicit ImageViewInfo(const TICEntry& config) noexcept;
+    explicit ImageViewInfo(const TICEntry& config, s32 base_layer) noexcept;
     explicit ImageViewInfo(ImageViewType type, PixelFormat format,
                            SubresourceRange range = {}) noexcept;
 

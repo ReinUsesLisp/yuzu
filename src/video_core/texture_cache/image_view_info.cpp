@@ -20,16 +20,18 @@ namespace {
 
 } // Anonymous namespace
 
-ImageViewInfo::ImageViewInfo(const TICEntry& config) noexcept
+ImageViewInfo::ImageViewInfo(const TICEntry& config, s32 base_layer) noexcept
     : format{PixelFormatFromTIC(config)}, x_source{CastSwizzle(config.x_source)},
       y_source{CastSwizzle(config.y_source)}, z_source{CastSwizzle(config.z_source)},
       w_source{CastSwizzle(config.w_source)} {
-    range.base.mipmap = config.res_min_mip_level;
+    range.base = SubresourceBase{
+        .mipmap = static_cast<s32>(config.res_min_mip_level),
+        .layer = base_layer,
+    };
     range.extent.mipmaps = config.res_max_mip_level - config.res_min_mip_level + 1;
 
     switch (config.texture_type) {
     case TextureType::Texture1D:
-        ASSERT(config.BaseLayer() == 0);
         ASSERT(config.Height() == 1);
         ASSERT(config.Depth() == 1);
         type = ImageViewType::e1D;
@@ -38,26 +40,21 @@ ImageViewInfo::ImageViewInfo(const TICEntry& config) noexcept
     case TextureType::Texture2DNoMipmap:
         ASSERT(config.Depth() == 1);
         type = config.normalized_coords ? ImageViewType::e2D : ImageViewType::Rect;
-        range.base.layer = config.BaseLayer();
         break;
     case TextureType::Texture3D:
-        ASSERT(config.BaseLayer() == 0);
         type = ImageViewType::e3D;
         break;
     case TextureType::TextureCubemap:
         ASSERT(config.Depth() == 1);
         type = ImageViewType::Cube;
-        range.base.layer = config.BaseLayer();
         range.extent.layers = 6;
         break;
     case TextureType::Texture1DArray:
         type = ImageViewType::e1DArray;
-        range.base.layer = config.BaseLayer();
         range.extent.layers = config.Depth();
         break;
     case TextureType::Texture2DArray:
         type = ImageViewType::e2DArray;
-        range.base.layer = config.BaseLayer();
         range.extent.layers = config.Depth();
         break;
     case TextureType::Texture1DBuffer:
@@ -65,7 +62,6 @@ ImageViewInfo::ImageViewInfo(const TICEntry& config) noexcept
         break;
     case TextureType::TextureCubeArray:
         type = ImageViewType::CubeArray;
-        range.base.layer = config.BaseLayer();
         range.extent.layers = config.Depth() * 6;
         break;
     default:
