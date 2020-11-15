@@ -748,6 +748,12 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     if (alloc_images.empty()) {
         image_allocs_table.erase(alloc_it);
     }
+    if constexpr (ENABLE_VALIDATION) {
+        std::ranges::fill(graphics_image_view_ids, CORRUPT_ID);
+        std::ranges::fill(compute_image_view_ids, CORRUPT_ID);
+    }
+    graphics_image_table.Invalidate();
+    compute_image_table.Invalidate();
     has_deleted_images = true;
 }
 

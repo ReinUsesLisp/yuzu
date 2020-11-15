@@ -103,7 +103,8 @@ public:
         return slot_images[id];
     }
 
-    void FillImageViews(DescriptorTable<TICEntry>& table, std::span<const u32> indices,
+    void FillImageViews(DescriptorTable<TICEntry>& table,
+                        std::span<ImageViewId> cached_image_view_ids, std::span<const u32> indices,
                         std::span<ImageViewId> image_view_ids) {
         const size_t num_indices = indices.size();
         ASSERT(num_indices <= image_view_ids.size());
@@ -112,11 +113,14 @@ public:
             for (size_t i = num_indices; i--;) {
                 const u32 index = indices[i];
                 const auto [descriptor, is_new] = table.Read(index);
-                const ImageViewId image_view_id = FindImageView(descriptor);
+                ImageViewId& image_view_id = cached_image_view_ids[index];
+                if (is_new) {
+                    image_view_id = FindImageView(descriptor);
+                }
                 image_view_ids[i] = image_view_id;
 
-                ImageView* const image_view = &slot_image_views[image_view_id];
                 if (image_view_id != NULL_IMAGE_VIEW_ID) {
+                    ImageView* const image_view = &slot_image_views[image_view_id];
                     const ImageId image_id = image_view->image_id;
                     UpdateImageContents(slot_images[image_id]);
                     SynchronizeAliases(image_id);
@@ -127,12 +131,12 @@ public:
 
     void FillGraphicsImageViews(std::span<const u32> indices,
                                 std::span<ImageViewId> image_view_ids) {
-        FillImageViews(graphics_image_table, indices, image_view_ids);
+        FillImageViews(graphics_image_table, graphics_image_view_ids, indices, image_view_ids);
     }
 
     void FillComputeImageViews(std::span<const u32> indices,
                                std::span<ImageViewId> image_view_ids) {
-        FillImageViews(compute_image_table, indices, image_view_ids);
+        FillImageViews(compute_image_table, compute_image_view_ids, indices, image_view_ids);
     }
 
     void SynchronizeGraphicsDescriptors() {
@@ -141,9 +145,11 @@ public:
         const u32 tic_limit = maxwell3d.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
         if (graphics_sampler_table.Synchornize(maxwell3d.regs.tsc.Address(), tsc_limit)) {
-            graphics_sampler_ids.resize(tsc_limit + 1);
+            graphics_sampler_ids.resize(tsc_limit + 1, CORRUPT_ID);
         }
-        graphics_image_table.Synchornize(maxwell3d.regs.tic.Address(), tic_limit);
+        if (graphics_image_table.Synchornize(maxwell3d.regs.tic.Address(), tic_limit)) {
+            graphics_image_view_ids.resize(tic_limit + 1, CORRUPT_ID);
+        }
     }
 
     void SynchronizeComputeDescriptors() {
@@ -152,9 +158,11 @@ public:
         const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
         const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
         if (compute_sampler_table.Synchornize(tsc_gpu_addr, tsc_limit)) {
-            compute_sampler_ids.resize(tsc_limit + 1);
+            compute_sampler_ids.resize(tsc_limit + 1, CORRUPT_ID);
         }
-        compute_image_table.Synchornize(kepler_compute.regs.tic.Address(), tic_limit);
+        if (compute_image_table.Synchornize(kepler_compute.regs.tic.Address(), tic_limit)) {
+            compute_image_view_ids.resize(tic_limit + 1, CORRUPT_ID);
+        }
     }
 
     /**
@@ -354,10 +362,12 @@ private:
     DescriptorTable<TICEntry> graphics_image_table{gpu_memory};
     DescriptorTable<TSCEntry> graphics_sampler_table{gpu_memory};
     std::vector<SamplerId> graphics_sampler_ids;
+    std::vector<ImageViewId> graphics_image_view_ids;
 
     DescriptorTable<TICEntry> compute_image_table{gpu_memory};
     DescriptorTable<TSCEntry> compute_sampler_table{gpu_memory};
     std::vector<SamplerId> compute_sampler_ids;
+    std::vector<ImageViewId> compute_image_view_ids;
 
     RenderTargets render_targets;
 
