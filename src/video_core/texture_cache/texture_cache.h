@@ -111,7 +111,7 @@ public:
             has_deleted_images = false;
             for (size_t i = num_indices; i--;) {
                 const u32 index = indices[i];
-                const TICEntry descriptor = table.Read(index);
+                const auto [descriptor, is_new] = table.Read(index);
                 const ImageViewId image_view_id = FindImageView(descriptor);
                 image_view_ids[i] = image_view_id;
 
@@ -140,8 +140,8 @@ public:
         const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
         const u32 tic_limit = maxwell3d.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
-        graphics_sampler_table.SetState(maxwell3d.regs.tsc.Address(), tsc_limit);
-        graphics_image_table.SetState(maxwell3d.regs.tic.Address(), tic_limit);
+        graphics_sampler_table.Synchornize(maxwell3d.regs.tsc.Address(), tsc_limit);
+        graphics_image_table.Synchornize(maxwell3d.regs.tic.Address(), tic_limit);
     }
 
     void SynchronizeComputeDescriptors() {
@@ -149,8 +149,8 @@ public:
         const u32 tic_limit = kepler_compute.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
         const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
-        compute_sampler_table.SetState(tsc_gpu_addr, tsc_limit);
-        compute_image_table.SetState(kepler_compute.regs.tic.Address(), tic_limit);
+        compute_sampler_table.Synchornize(tsc_gpu_addr, tsc_limit);
+        compute_image_table.Synchornize(kepler_compute.regs.tic.Address(), tic_limit);
     }
 
     /**

@@ -4,8 +4,10 @@
 
 #pragma once
 
+#include <vector>
 
 #include "common/common_types.h"
+#include "common/div_ceil.h"
 #include "common/logging/log.h"
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
@@ -17,27 +19,53 @@ class DescriptorTable {
 public:
     explicit DescriptorTable(Tegra::MemoryManager& gpu_memory_) : gpu_memory{gpu_memory_} {}
 
-    void SetState(GPUVAddr gpu_addr, size_t limit) {
+    bool Synchornize(GPUVAddr gpu_addr, size_t limit) {
+        [[likely]] if (current_gpu_addr == gpu_addr && current_limit == limit) {
+            return false;
+        }
         Refresh(gpu_addr, limit);
+        return true;
     }
 
-    [[nodiscard]] Descriptor Read(size_t index) {
-        ASSERT(index <= current_limit);
+    [[nodiscard]] std::pair<Descriptor, bool> Read(size_t index) {
+        DEBUG_ASSERT(index <= current_limit);
         const GPUVAddr gpu_addr = current_gpu_addr + index * sizeof(Descriptor);
-        Descriptor descriptor;
-        gpu_memory.ReadBlockUnsafe(gpu_addr, &descriptor, sizeof(descriptor));
-        return descriptor;
+        std::pair<Descriptor, bool> result;
+        gpu_memory.ReadBlockUnsafe(gpu_addr, &result.first, sizeof(Descriptor));
+        if (IsDescriptorRead(index)) {
+            result.second = result.first != descriptors[index];
+        } else {
+            MarkDescriptorAsRead(index);
+            descriptors[index] = result.first;
+            result.second = true;
+        }
+        return result;
     }
 
 private:
     void Refresh(GPUVAddr gpu_addr, size_t limit) {
         current_gpu_addr = gpu_addr;
         current_limit = limit;
+
+        const size_t num_descriptors = limit + 1;
+        read_descriptors.clear();
+        read_descriptors.resize(Common::DivCeil(num_descriptors, 64U), 0);
+        descriptors.resize(num_descriptors);
+    }
+
+    [[nodiscard]] bool IsDescriptorRead(size_t index) {
+        return ((read_descriptors[index / 64] >> (index % 64)) & 1) != 0;
+    }
+
+    void MarkDescriptorAsRead(size_t index) {
+        read_descriptors[index / 64] |= 1ULL << (index % 64);
     }
 
     Tegra::MemoryManager& gpu_memory;
     GPUVAddr current_gpu_addr{};
     size_t current_limit{};
+    std::vector<u64> read_descriptors;
+    std::vector<Descriptor> descriptors;
 };
 
 } // namespace VideoCommon
