@@ -199,11 +199,13 @@ void PushImageDescriptors(const ShaderEntries& entries, TextureCache& texture_ca
         update_descriptor_queue.AddTexelBuffer(image_view.BufferView());
     }
     for (const auto& entry : entries.samplers) {
-        const VkSampler sampler = *sampler_ptr++;
-        const ImageViewId image_view_id = *image_view_id_ptr++;
-        const ImageView& image_view = texture_cache.GetImageView(image_view_id);
-        const VkImageView handle = image_view.Handle(ImageViewTypeFromEntry(entry));
-        update_descriptor_queue.AddSampledImage(handle, sampler);
+        for (size_t i = 0; i < entry.size; ++i) {
+            const VkSampler sampler = *sampler_ptr++;
+            const ImageViewId image_view_id = *image_view_id_ptr++;
+            const ImageView& image_view = texture_cache.GetImageView(image_view_id);
+            const VkImageView handle = image_view.Handle(ImageViewTypeFromEntry(entry));
+            update_descriptor_queue.AddSampledImage(handle, sampler);
+        }
     }
     for ([[maybe_unused]] const auto& entry : entries.storage_texels) {
         const ImageViewId image_view_id = *image_view_id_ptr++;

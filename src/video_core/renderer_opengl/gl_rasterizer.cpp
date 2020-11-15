@@ -906,11 +906,13 @@ void RasterizerOpenGL::BindTextures(const ShaderEntries& entries, GLuint base_te
     const GLuint* const images = image_handles.data() + image_index;
 
     const size_t num_samplers = entries.samplers.size();
-    for (size_t unit = 0; unit < num_samplers; ++unit) {
-        const ImageViewId image_view_id = image_view_ids[image_view_index++];
-        const ImageView& image_view = texture_cache.GetImageView(image_view_id);
-        const GLuint handle = image_view.Handle(ImageViewTypeFromEntry(entries.samplers[unit]));
-        texture_handles[texture_index++] = handle;
+    for (const auto& sampler : entries.samplers) {
+        for (size_t i = 0; i < sampler.size; ++i) {
+            const ImageViewId image_view_id = image_view_ids[image_view_index++];
+            const ImageView& image_view = texture_cache.GetImageView(image_view_id);
+            const GLuint handle = image_view.Handle(ImageViewTypeFromEntry(sampler));
+            texture_handles[texture_index++] = handle;
+        }
     }
     const size_t num_images = entries.images.size();
     for (size_t unit = 0; unit < num_images; ++unit) {
