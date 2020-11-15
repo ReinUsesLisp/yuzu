@@ -34,12 +34,14 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
-    return &slot_samplers[graphics_sampler_ids[index]];
+    const TSCEntry descriptor = graphics_sampler_table.Read(index);
+    return &slot_samplers[FindSampler(descriptor)];
 }
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
-    return &slot_samplers[compute_sampler_ids[index]];
+    const TSCEntry descriptor = compute_sampler_table.Read(index);
+    return &slot_samplers[FindSampler(descriptor)];
 }
 
 template <class P>
@@ -109,11 +111,6 @@ FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
 
 template <class P>
 void TextureCache<P>::WriteMemory(VAddr cpu_addr, size_t size) {
-    graphics_image_table.WriteMemory(cpu_addr, size);
-    graphics_sampler_table.WriteMemory(cpu_addr, size);
-    compute_image_table.WriteMemory(cpu_addr, size);
-    compute_sampler_table.WriteMemory(cpu_addr, size);
-
     ForEachImageInRegion(cpu_addr, size, [this](ImageId image_id, Image& image) {
         if (True(image.flags & ImageFlagBits::CpuModified)) {
             return;
@@ -713,7 +710,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     for (size_t rt = 0; rt < NUM_RT; ++rt) {
         dirty[Dirty::ColorBuffer0 + rt] = true;
     }
-
     const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
     if constexpr (ENABLE_VALIDATION) {
         std::ranges::replace(render_targets.color_buffer_ids, image_id, CORRUPT_ID);
@@ -733,12 +729,10 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
         ASSERT_MSG(num_removed_aliases == 1, "Invalid number of removed aliases: {}",
                    num_removed_aliases);
     }
-
     for (const ImageViewId image_view_id : image_view_ids) {
         sentenced_image_view.push_back(std::move(slot_image_views[image_view_id]));
         slot_image_views.erase(image_view_id);
     }
-
     sentenced_images.push_back(std::move(slot_images[image_id]));
     slot_images.erase(image_id);
 
@@ -746,9 +740,6 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
     if (alloc_images.empty()) {
         image_allocs_table.erase(alloc_it);
     }
-
-    std::ranges::fill(graphics_image_view_ids, ImageViewId{});
-    std::ranges::fill(compute_image_view_ids, ImageViewId{});
     has_deleted_images = true;
 }
 

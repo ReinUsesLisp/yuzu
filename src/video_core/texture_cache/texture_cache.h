@@ -103,8 +103,7 @@ public:
         return slot_images[id];
     }
 
-    void FillImageViews(std::span<const TICEntry> descriptors,
-                        std::span<ImageViewId> stored_image_view_ids, std::span<const u32> indices,
+    void FillImageViews(DescriptorTable<TICEntry>& table, std::span<const u32> indices,
                         std::span<ImageViewId> image_view_ids) {
         const size_t num_indices = indices.size();
         ASSERT(num_indices <= image_view_ids.size());
@@ -112,13 +111,9 @@ public:
             has_deleted_images = false;
             for (size_t i = num_indices; i--;) {
                 const u32 index = indices[i];
-                const TICEntry descriptor = descriptors[index];
-                ImageViewId& stored_id = stored_image_view_ids[index];
-                if (!stored_id) {
-                    stored_id = FindImageView(descriptor);
-                }
-                const ImageViewId image_view_id = stored_id;
-                image_view_ids[i] = stored_id;
+                const TICEntry descriptor = table.Read(index);
+                const ImageViewId image_view_id = FindImageView(descriptor);
+                image_view_ids[i] = image_view_id;
 
                 ImageView* const image_view = &slot_image_views[image_view_id];
                 if (image_view_id != NULL_IMAGE_VIEW_ID) {
@@ -132,14 +127,12 @@ public:
 
     void FillGraphicsImageViews(std::span<const u32> indices,
                                 std::span<ImageViewId> image_view_ids) {
-        FillImageViews(graphics_image_table.Descriptors(), graphics_image_view_ids, indices,
-                       image_view_ids);
+        FillImageViews(graphics_image_table, indices, image_view_ids);
     }
 
     void FillComputeImageViews(std::span<const u32> indices,
                                std::span<ImageViewId> image_view_ids) {
-        FillImageViews(compute_image_table.Descriptors(), compute_image_view_ids, indices,
-                       image_view_ids);
+        FillImageViews(compute_image_table, indices, image_view_ids);
     }
 
     void SynchronizeGraphicsDescriptors() {
@@ -147,13 +140,8 @@ public:
         const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
         const u32 tic_limit = maxwell3d.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
-        if (graphics_sampler_table.Synchronize(maxwell3d.regs.tsc.Address(), tsc_limit)) {
-            UpdateSamplerIds(graphics_sampler_ids, graphics_sampler_table.Descriptors());
-        }
-        if (graphics_image_table.Synchronize(maxwell3d.regs.tic.Address(), tic_limit)) {
-            graphics_image_view_ids.clear();
-            graphics_image_view_ids.resize(graphics_image_table.Descriptors().size());
-        }
+        graphics_sampler_table.SetState(maxwell3d.regs.tsc.Address(), tsc_limit);
+        graphics_image_table.SetState(maxwell3d.regs.tic.Address(), tic_limit);
     }
 
     void SynchronizeComputeDescriptors() {
@@ -161,20 +149,8 @@ public:
         const u32 tic_limit = kepler_compute.regs.tic.limit;
         const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
         const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
-        if (compute_sampler_table.Synchronize(tsc_gpu_addr, tsc_limit)) {
-            UpdateSamplerIds(compute_sampler_ids, compute_sampler_table.Descriptors());
-        }
-        if (compute_image_table.Synchronize(kepler_compute.regs.tic.Address(), tic_limit)) {
-            compute_image_view_ids.clear();
-            compute_image_view_ids.resize(compute_image_table.Descriptors().size());
-        }
-    }
-
-    void UpdateSamplerIds(std::vector<SamplerId>& ids, std::span<const TSCEntry> descriptors) {
-        ids.resize(descriptors.size());
-        std::ranges::transform(descriptors, ids.begin(), [this](const TSCEntry& descriptor) {
-            return FindSampler(descriptor);
-        });
+        compute_sampler_table.SetState(tsc_gpu_addr, tsc_limit);
+        compute_image_table.SetState(kepler_compute.regs.tic.Address(), tic_limit);
     }
 
     /**
@@ -371,15 +347,11 @@ private:
     Tegra::Engines::KeplerCompute& kepler_compute;
     Tegra::MemoryManager& gpu_memory;
 
-    DescriptorTable<TICEntry> graphics_image_table{rasterizer, gpu_memory};
-    DescriptorTable<TSCEntry> graphics_sampler_table{rasterizer, gpu_memory};
-    std::vector<SamplerId> graphics_sampler_ids;
-    std::vector<ImageViewId> graphics_image_view_ids;
+    DescriptorTable<TICEntry> graphics_image_table{gpu_memory};
+    DescriptorTable<TSCEntry> graphics_sampler_table{gpu_memory};
 
-    DescriptorTable<TICEntry> compute_image_table{rasterizer, gpu_memory};
-    DescriptorTable<TSCEntry> compute_sampler_table{rasterizer, gpu_memory};
-    std::vector<SamplerId> compute_sampler_ids;
-    std::vector<ImageViewId> compute_image_view_ids;
+    DescriptorTable<TICEntry> compute_image_table{gpu_memory};
+    DescriptorTable<TSCEntry> compute_sampler_table{gpu_memory};
 
     RenderTargets render_targets;
 
