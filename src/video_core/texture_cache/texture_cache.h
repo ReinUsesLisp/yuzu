@@ -103,67 +103,10 @@ public:
         return slot_images[id];
     }
 
-    void FillImageViews(DescriptorTable<TICEntry>& table,
-                        std::span<ImageViewId> cached_image_view_ids, std::span<const u32> indices,
-                        std::span<ImageViewId> image_view_ids) {
-        const size_t num_indices = indices.size();
-        ASSERT(num_indices <= image_view_ids.size());
-        do {
-            has_deleted_images = false;
-            for (size_t i = num_indices; i--;) {
-                const u32 index = indices[i];
-                const auto [descriptor, is_new] = table.Read(index);
-                ImageViewId& image_view_id = cached_image_view_ids[index];
-                if (is_new) {
-                    image_view_id = FindImageView(descriptor);
-                }
-                image_view_ids[i] = image_view_id;
-
-                if (image_view_id != NULL_IMAGE_VIEW_ID) {
-                    ImageView* const image_view = &slot_image_views[image_view_id];
-                    const ImageId image_id = image_view->image_id;
-                    UpdateImageContents(slot_images[image_id]);
-                    SynchronizeAliases(image_id);
-                }
-            }
-        } while (has_deleted_images);
-    }
-
     void FillGraphicsImageViews(std::span<const u32> indices,
-                                std::span<ImageViewId> image_view_ids) {
-        FillImageViews(graphics_image_table, graphics_image_view_ids, indices, image_view_ids);
-    }
+                                std::span<ImageViewId> image_view_ids);
 
-    void FillComputeImageViews(std::span<const u32> indices,
-                               std::span<ImageViewId> image_view_ids) {
-        FillImageViews(compute_image_table, compute_image_view_ids, indices, image_view_ids);
-    }
-
-    void SynchronizeGraphicsDescriptors() {
-        using SamplerIndex = Tegra::Engines::Maxwell3D::Regs::SamplerIndex;
-        const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
-        const u32 tic_limit = maxwell3d.regs.tic.limit;
-        const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
-        if (graphics_sampler_table.Synchornize(maxwell3d.regs.tsc.Address(), tsc_limit)) {
-            graphics_sampler_ids.resize(tsc_limit + 1, CORRUPT_ID);
-        }
-        if (graphics_image_table.Synchornize(maxwell3d.regs.tic.Address(), tic_limit)) {
-            graphics_image_view_ids.resize(tic_limit + 1, CORRUPT_ID);
-        }
-    }
-
-    void SynchronizeComputeDescriptors() {
-        const bool linked_tsc = kepler_compute.launch_description.linked_tsc;
-        const u32 tic_limit = kepler_compute.regs.tic.limit;
-        const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
-        const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
-        if (compute_sampler_table.Synchornize(tsc_gpu_addr, tsc_limit)) {
-            compute_sampler_ids.resize(tsc_limit + 1, CORRUPT_ID);
-        }
-        if (compute_image_table.Synchornize(kepler_compute.regs.tic.Address(), tic_limit)) {
-            compute_image_view_ids.resize(tic_limit + 1, CORRUPT_ID);
-        }
-    }
+    void FillComputeImageViews(std::span<const u32> indices, std::span<ImageViewId> image_view_ids);
 
     /**
      * Get the sampler from the graphics descriptor table in the specified index
@@ -184,6 +127,10 @@ public:
      * @pre @a index is less than the size of the descriptor table
      */
     Sampler* GetComputeSampler(u32 index);
+
+    void SynchronizeGraphicsDescriptors();
+
+    void SynchronizeComputeDescriptors();
 
     /*
      * Update bound render targets and upload memory if necessary
@@ -266,6 +213,10 @@ private:
             }
         }
     }
+
+    void FillImageViews(DescriptorTable<TICEntry>& table,
+                        std::span<ImageViewId> cached_image_view_ids, std::span<const u32> indices,
+                        std::span<ImageViewId> image_view_ids);
 
     FramebufferId GetFramebufferId(const RenderTargets& key);
 

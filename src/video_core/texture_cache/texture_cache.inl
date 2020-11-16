@@ -33,6 +33,18 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 }
 
 template <class P>
+void TextureCache<P>::FillGraphicsImageViews(std::span<const u32> indices,
+                                             std::span<ImageViewId> image_view_ids) {
+    FillImageViews(graphics_image_table, graphics_image_view_ids, indices, image_view_ids);
+}
+
+template <class P>
+void TextureCache<P>::FillComputeImageViews(std::span<const u32> indices,
+                                            std::span<ImageViewId> image_view_ids) {
+    FillImageViews(compute_image_table, compute_image_view_ids, indices, image_view_ids);
+}
+
+template <class P>
 typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
     const auto [descriptor, is_new] = graphics_sampler_table.Read(index);
     SamplerId& id = graphics_sampler_ids[index];
@@ -50,6 +62,34 @@ typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
         id = FindSampler(descriptor);
     }
     return &slot_samplers[id];
+}
+
+template <class P>
+void TextureCache<P>::SynchronizeGraphicsDescriptors() {
+    using SamplerIndex = Tegra::Engines::Maxwell3D::Regs::SamplerIndex;
+    const bool linked_tsc = maxwell3d.regs.sampler_index == SamplerIndex::ViaHeaderIndex;
+    const u32 tic_limit = maxwell3d.regs.tic.limit;
+    const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d.regs.tsc.limit;
+    if (graphics_sampler_table.Synchornize(maxwell3d.regs.tsc.Address(), tsc_limit)) {
+        graphics_sampler_ids.resize(tsc_limit + 1, CORRUPT_ID);
+    }
+    if (graphics_image_table.Synchornize(maxwell3d.regs.tic.Address(), tic_limit)) {
+        graphics_image_view_ids.resize(tic_limit + 1, CORRUPT_ID);
+    }
+}
+
+template <class P>
+void TextureCache<P>::SynchronizeComputeDescriptors() {
+    const bool linked_tsc = kepler_compute.launch_description.linked_tsc;
+    const u32 tic_limit = kepler_compute.regs.tic.limit;
+    const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute.regs.tsc.limit;
+    const GPUVAddr tsc_gpu_addr = kepler_compute.regs.tsc.Address();
+    if (compute_sampler_table.Synchornize(tsc_gpu_addr, tsc_limit)) {
+        compute_sampler_ids.resize(tsc_limit + 1, CORRUPT_ID);
+    }
+    if (compute_image_table.Synchornize(kepler_compute.regs.tic.Address(), tic_limit)) {
+        compute_image_view_ids.resize(tic_limit + 1, CORRUPT_ID);
+    }
 }
 
 template <class P>
@@ -98,6 +138,34 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
 template <class P>
 typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
     return &slot_framebuffers[GetFramebufferId(render_targets)];
+}
+
+template <class P>
+void TextureCache<P>::FillImageViews(DescriptorTable<TICEntry>& table,
+                                     std::span<ImageViewId> cached_image_view_ids,
+                                     std::span<const u32> indices,
+                                     std::span<ImageViewId> image_view_ids) {
+    const size_t num_indices = indices.size();
+    ASSERT(num_indices <= image_view_ids.size());
+    do {
+        has_deleted_images = false;
+        for (size_t i = num_indices; i--;) {
+            const u32 index = indices[i];
+            const auto [descriptor, is_new] = table.Read(index);
+            ImageViewId& image_view_id = cached_image_view_ids[index];
+            if (is_new) {
+                image_view_id = FindImageView(descriptor);
+            }
+            image_view_ids[i] = image_view_id;
+
+            if (image_view_id != NULL_IMAGE_VIEW_ID) {
+                ImageView* const image_view = &slot_image_views[image_view_id];
+                const ImageId image_id = image_view->image_id;
+                UpdateImageContents(slot_images[image_id]);
+                SynchronizeAliases(image_id);
+            }
+        }
+    } while (has_deleted_images);
 }
 
 template <class P>
