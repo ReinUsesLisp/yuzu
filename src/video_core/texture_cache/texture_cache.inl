@@ -876,6 +876,11 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const 
     const auto dst_format_type = GetFormatType(dst.info.format);
     const auto src_format_type = GetFormatType(src.info.format);
     if (src_format_type == dst_format_type) {
+        if constexpr (HAS_EMULATED_COPIES) {
+            if (!runtime.CanImageBeCopied(dst, src)) {
+                return runtime.EmulateCopyImage(dst, src, copies);
+            }
+        }
         return runtime.CopyImage(dst, src, copies);
     }
     UNIMPLEMENTED_IF(dst.info.type != ImageType::e2D);

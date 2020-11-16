@@ -12,6 +12,7 @@
 #include "common/div_ceil.h"
 #include "video_core/host_shaders/block_linear_unswizzle_2d_comp.h"
 #include "video_core/host_shaders/block_linear_unswizzle_3d_comp.h"
+#include "video_core/host_shaders/opengl_copy_bc4_comp.h"
 #include "video_core/host_shaders/pitch_unswizzle_comp.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
@@ -30,6 +31,8 @@ using Tegra::Texture::GOB_SIZE_SHIFT;
 using Tegra::Texture::GOB_SIZE_X;
 using Tegra::Texture::GOB_SIZE_X_SHIFT;
 using Tegra::Texture::GOB_SIZE_Y_SHIFT;
+using VideoCommon::Extent3D;
+using VideoCommon::ImageCopy;
 using VideoCommon::ImageType;
 using VideoCommon::SwizzleParameters;
 using VideoCore::Surface::BytesPerBlock;
@@ -51,7 +54,8 @@ UtilShaders::UtilShaders(ProgramManager& program_manager_)
     : program_manager{program_manager_},
       block_linear_unswizzle_2d_program(MakeProgram(BLOCK_LINEAR_UNSWIZZLE_2D_COMP)),
       block_linear_unswizzle_3d_program(MakeProgram(BLOCK_LINEAR_UNSWIZZLE_3D_COMP)),
-      pitch_unswizzle_program(MakeProgram(PITCH_UNSWIZZLE_COMP)) {
+      pitch_unswizzle_program(MakeProgram(PITCH_UNSWIZZLE_COMP)),
+      copy_bc4_program(MakeProgram(OPENGL_COPY_BC4_COMP)) {
     const auto swizzle_table = Tegra::Texture::MakeSwizzleTable();
     swizzle_table_buffer.Create();
     glNamedBufferStorage(swizzle_table_buffer.handle, sizeof(swizzle_table), &swizzle_table, 0);
@@ -61,7 +65,7 @@ UtilShaders::~UtilShaders() = default;
 
 void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, size_t buffer_offset,
                                       std::span<const SwizzleParameters> swizzles) {
-    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE{32, 32, 1};
+    static constexpr Extent3D WORKGROUP_SIZE{32, 32, 1};
     static constexpr GLuint BINDING_SWIZZLE_BUFFER = 0;
     static constexpr GLuint BINDING_INPUT_BUFFER = 1;
     static constexpr GLuint BINDING_OUTPUT_IMAGE = 0;
@@ -85,8 +89,8 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
     glUniform1ui(LOC_BYTES_PER_BLOCK, bytes_per_block_log2);
     glUniform1ui(LOC_LAYER_STRIDE, image.info.layer_stride);
     for (const SwizzleParameters& swizzle : swizzles) {
-        const VideoCommon::Extent3D block = swizzle.block;
-        const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
+        const Extent3D block = swizzle.block;
+        const Extent3D num_tiles = swizzle.num_tiles;
         const size_t offset = swizzle.buffer_offset + buffer_offset;
 
         const u32 num_dispatches_x = Common::DivCeil(num_tiles.width, WORKGROUP_SIZE.width);
@@ -115,7 +119,7 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
 
 void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, size_t buffer_offset,
                                       std::span<const SwizzleParameters> swizzles) {
-    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE{16, 8, 8};
+    static constexpr Extent3D WORKGROUP_SIZE{16, 8, 8};
 
     static constexpr GLuint BINDING_SWIZZLE_BUFFER = 0;
     static constexpr GLuint BINDING_INPUT_BUFFER = 1;
@@ -142,8 +146,8 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
     glUniform3i(LOC_DESTINATION, 0, 0, 0); // TODO
     glUniform1ui(LOC_BYTES_PER_BLOCK, bytes_per_block_log2);
     for (const SwizzleParameters& swizzle : swizzles) {
-        const VideoCommon::Extent3D block = swizzle.block;
-        const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
+        const Extent3D block = swizzle.block;
+        const Extent3D num_tiles = swizzle.num_tiles;
         const size_t offset = swizzle.buffer_offset + buffer_offset;
 
         const u32 num_dispatches_x = Common::DivCeil(num_tiles.width, WORKGROUP_SIZE.width);
@@ -181,7 +185,7 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
 
 void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t buffer_offset,
                               std::span<const SwizzleParameters> swizzles) {
-    static constexpr VideoCommon::Extent3D WORKGROUP_SIZE{32, 32, 1};
+    static constexpr Extent3D WORKGROUP_SIZE{32, 32, 1};
     static constexpr GLuint BINDING_INPUT_BUFFER = 0;
     static constexpr GLuint BINDING_OUTPUT_IMAGE = 0;
     static constexpr GLuint LOC_ORIGIN = 0;
@@ -204,7 +208,7 @@ void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t bu
     glUniform1ui(LOC_PITCH, pitch);
     glBindImageTexture(BINDING_OUTPUT_IMAGE, image.Handle(), 0, GL_FALSE, 0, GL_WRITE_ONLY, format);
     for (const SwizzleParameters& swizzle : swizzles) {
-        const VideoCommon::Extent3D num_tiles = swizzle.num_tiles;
+        const Extent3D num_tiles = swizzle.num_tiles;
         const size_t offset = swizzle.buffer_offset + buffer_offset;
 
         const u32 aligned_width = Common::AlignUp(num_tiles.width, WORKGROUP_SIZE.width);
@@ -215,6 +219,32 @@ void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t bu
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, BINDING_INPUT_BUFFER, map.Handle(), offset,
                           image.guest_size_bytes - swizzle.buffer_offset);
         glDispatchCompute(num_dispatches_x, num_dispatches_y, 1);
+    }
+}
+
+void UtilShaders::CopyBC4(Image& dst_image, Image& src_image, std::span<const ImageCopy> copies) {
+    static constexpr Extent3D WORKGROUP_SIZE{4, 4, 1};
+    static constexpr GLuint BINDING_INPUT_IMAGE = 0;
+    static constexpr GLuint BINDING_OUTPUT_IMAGE = 1;
+    static constexpr GLuint LOC_SRC_OFFSET = 0;
+    static constexpr GLuint LOC_DST_OFFSET = 1;
+
+    program_manager.BindCompute(copy_bc4_program.handle);
+
+    for (const ImageCopy& copy : copies) {
+        ASSERT(copy.src_subresource.base_layer == 0);
+        ASSERT(copy.src_subresource.num_layers == 1);
+        ASSERT(copy.dst_subresource.base_layer == 0);
+        ASSERT(copy.dst_subresource.num_layers == 1);
+
+        glUniform3ui(LOC_SRC_OFFSET, copy.src_offset.x, copy.src_offset.y, copy.src_offset.z);
+        glUniform3ui(LOC_DST_OFFSET, copy.dst_offset.x, copy.dst_offset.y, copy.dst_offset.z);
+        glBindImageTexture(BINDING_INPUT_IMAGE, src_image.Handle(),
+                           copy.src_subresource.base_mipmap, GL_FALSE, 0, GL_READ_ONLY, GL_RG32UI);
+        glBindImageTexture(BINDING_OUTPUT_IMAGE, dst_image.Handle(),
+                           copy.dst_subresource.base_mipmap, GL_FALSE, 0, GL_WRITE_ONLY,
+                           GL_RGBA8UI);
+        glDispatchCompute(copy.extent.width, copy.extent.height, copy.extent.depth);
     }
 }
 

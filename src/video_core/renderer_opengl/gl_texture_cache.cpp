@@ -32,6 +32,7 @@ using Tegra::Texture::TICEntry;
 using Tegra::Texture::TSCEntry;
 using VideoCommon::CalculateLevelStrideAlignment;
 using VideoCommon::ImageCopy;
+using VideoCommon::ImageFlagBits;
 using VideoCommon::ImageType;
 using VideoCommon::NUM_RT;
 using VideoCommon::SamplesLog2;
@@ -265,6 +266,20 @@ GLenum AttachmentType(PixelFormat format) {
         UNIMPLEMENTED_MSG("Unimplemented type={}", static_cast<int>(type));
         return GL_NONE;
     }
+}
+
+[[nodiscard]] bool IsConverted(const Device& device, PixelFormat format, ImageType type) {
+    if (!device.HasASTC() && IsPixelFormatASTC(format)) {
+        return true;
+    }
+    switch (format) {
+    case PixelFormat::BC4_UNORM:
+    case PixelFormat::BC5_UNORM:
+        return type == ImageType::e3D;
+    default:
+        break;
+    }
+    return false;
 }
 
 constexpr std::string_view DepthStencilDebugName(GLenum attachment) {
@@ -531,6 +546,23 @@ void TextureCacheRuntime::CopyImage(Image& dst_image, Image& src_image,
     }
 }
 
+bool TextureCacheRuntime::CanImageBeCopied(const Image& dst, const Image& src) {
+    if (dst.info.type == ImageType::e3D && dst.info.format == PixelFormat::BC4_UNORM) {
+        return false;
+    }
+    return true;
+}
+
+void TextureCacheRuntime::EmulateCopyImage(Image& dst, Image& src,
+                                           std::span<const ImageCopy> copies) {
+    if (dst.info.type == ImageType::e3D && dst.info.format == PixelFormat::BC4_UNORM) {
+        ASSERT(src.info.type == ImageType::e3D);
+        util_shaders.CopyBC4(dst, src, copies);
+    } else {
+        UNREACHABLE();
+    }
+}
+
 void TextureCacheRuntime::BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
                                           const std::array<Offset2D, 2>& dst_region,
                                           const std::array<Offset2D, 2>& src_region,
@@ -651,20 +683,20 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
              VAddr cpu_addr)
     : VideoCommon::ImageBase(info, gpu_addr, cpu_addr) {
     if (CanBeAccelerated(runtime, info)) {
-        flags |= VideoCommon::ImageFlagBits::AcceleratedUpload;
+        flags |= ImageFlagBits::AcceleratedUpload;
     }
-    if (runtime.device.HasASTC() || !IsPixelFormatASTC(info.format)) {
+    if (IsConverted(runtime.device, info.format, info.type)) {
+        flags |= ImageFlagBits::Converted;
+        gl_internal_format = IsPixelFormatSRGB(info.format) ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+        gl_store_format = GL_RGBA8;
+        gl_format = GL_RGBA;
+        gl_type = GL_UNSIGNED_INT_8_8_8_8_REV;
+    } else {
         const auto& tuple = GetFormatTuple(info.format);
         gl_internal_format = tuple.internal_format;
         gl_store_format = tuple.store_format;
         gl_format = tuple.format;
         gl_type = tuple.type;
-    } else {
-        flags |= VideoCommon::ImageFlagBits::Converted;
-        gl_internal_format = IsPixelFormatSRGB(info.format) ? GL_SRGB8_ALPHA8 : GL_RGBA8;
-        gl_store_format = GL_RGBA8;
-        gl_format = GL_RGBA;
-        gl_type = GL_UNSIGNED_INT_8_8_8_8_REV;
     }
     const GLenum target = ImageTarget(info);
     const GLsizei width = info.size.width;
@@ -721,7 +753,7 @@ void Image::UploadMemory(const ImageBufferMap& map, size_t buffer_offset,
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, map.Handle());
     glFlushMappedBufferRange(GL_PIXEL_UNPACK_BUFFER, buffer_offset, unswizzled_size_bytes);
 
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // FIXME
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     u32 current_row_length = std::numeric_limits<u32>::max();
     u32 current_image_height = std::numeric_limits<u32>::max();
@@ -752,7 +784,7 @@ void Image::DownloadMemory(ImageBufferMap& map, size_t buffer_offset,
     glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT); // TODO: Move this to its own API
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, map.Handle());
-    glPixelStorei(GL_PACK_ALIGNMENT, 1); // FIXME
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
     u32 current_row_length = std::numeric_limits<u32>::max();
     u32 current_image_height = std::numeric_limits<u32>::max();
@@ -874,10 +906,10 @@ void Image::CopyImageToBuffer(const VideoCommon::BufferImageCopy& copy, size_t b
 ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,
                      ImageId image_id, Image& image)
     : VideoCommon::ImageViewBase{info, image.info, image_id}, views{runtime.null_image_views} {
-    if (runtime.device.HasASTC() || !IsPixelFormatASTC(info.format)) {
-        internal_format = GetFormatTuple(format).internal_format;
-    } else {
+    if (True(image.flags & ImageFlagBits::Converted)) {
         internal_format = IsPixelFormatSRGB(info.format) ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+    } else {
+        internal_format = GetFormatTuple(format).internal_format;
     }
     VideoCommon::SubresourceRange flatten_range = info.range;
     std::array<GLuint, 2> handles;

@@ -74,6 +74,10 @@ public:
         UNIMPLEMENTED();
     }
 
+    bool CanImageBeCopied(const Image& dst, const Image& src);
+
+    void EmulateCopyImage(Image& dst, Image& src, std::span<const VideoCommon::ImageCopy> copies);
+
     void BlitFramebuffer(Framebuffer* dst, Framebuffer* src,
                          const std::array<Offset2D, 2>& dst_region,
                          const std::array<Offset2D, 2>& src_region,
@@ -231,6 +235,7 @@ private:
 struct TextureCacheParams {
     static constexpr bool ENABLE_VALIDATION = true;
     static constexpr bool FRAMEBUFFER_BLITS = true;
+    static constexpr bool HAS_EMULATED_COPIES = true;
 
     using Runtime = OpenGL::TextureCacheRuntime;
     using Image = OpenGL::Image;

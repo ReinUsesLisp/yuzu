@@ -16,6 +16,7 @@
 #include "video_core/compatible_formats.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/surface.h"
+#include "video_core/texture_cache/decode_bc4.h"
 #include "video_core/texture_cache/format_lookup_table.h"
 #include "video_core/texture_cache/formatter.h"
 #include "video_core/texture_cache/util.h"
@@ -44,6 +45,7 @@ using VideoCore::Surface::BytesPerBlock;
 using VideoCore::Surface::DefaultBlockHeight;
 using VideoCore::Surface::DefaultBlockWidth;
 using VideoCore::Surface::IsCopyCompatible;
+using VideoCore::Surface::IsPixelFormatASTC;
 using VideoCore::Surface::IsViewCompatible;
 using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
@@ -893,14 +895,19 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
         ASSERT(copy.image_offset == Offset3D{});
         ASSERT(copy.image_subresource.base_layer == 0);
         ASSERT(copy.image_extent == mip_size);
-        ASSERT(copy.image_extent.depth == 1);
         ASSERT(copy.buffer_row_length == Common::AlignUp(mip_size.width, tile_size.width));
         ASSERT(copy.buffer_image_height == Common::AlignUp(mip_size.height, tile_size.height));
 
-        Tegra::Texture::ASTC::Decompress(input.subspan(copy.buffer_offset), copy.image_extent.width,
-                                         copy.image_extent.height,
-                                         copy.image_subresource.num_layers, tile_size.width,
-                                         tile_size.height, output.subspan(output_offset));
+        if (IsPixelFormatASTC(info.format)) {
+            ASSERT(copy.image_extent.depth == 1);
+            Tegra::Texture::ASTC::Decompress(input.subspan(copy.buffer_offset),
+                                             copy.image_extent.width, copy.image_extent.height,
+                                             copy.image_subresource.num_layers, tile_size.width,
+                                             tile_size.height, output.subspan(output_offset));
+        } else {
+            DecompressBC4(input.subspan(copy.buffer_offset), copy.image_extent,
+                          output.subspan(output_offset));
+        }
         copy.buffer_offset = output_offset;
         copy.buffer_row_length = mip_size.width;
         copy.buffer_image_height = mip_size.height;

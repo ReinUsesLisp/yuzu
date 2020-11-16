@@ -32,6 +32,9 @@ public:
     void PitchUpload(Image& image, const ImageBufferMap& map, size_t buffer_offset,
                      std::span<const VideoCommon::SwizzleParameters> swizzles);
 
+    void CopyBC4(Image& dst_image, Image& src_image,
+                 std::span<const VideoCommon::ImageCopy> copies);
+
 private:
     ProgramManager& program_manager;
 
@@ -40,6 +43,7 @@ private:
     OGLProgram block_linear_unswizzle_2d_program;
     OGLProgram block_linear_unswizzle_3d_program;
     OGLProgram pitch_unswizzle_program;
+    OGLProgram copy_bc4_program;
 };
 
 GLenum StoreFormat(u32 bytes_per_block);

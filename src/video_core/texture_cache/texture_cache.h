@@ -57,6 +57,7 @@ class TextureCache {
 
     static constexpr bool ENABLE_VALIDATION = P::ENABLE_VALIDATION;
     static constexpr bool FRAMEBUFFER_BLITS = P::FRAMEBUFFER_BLITS;
+    static constexpr bool HAS_EMULATED_COPIES = P::HAS_EMULATED_COPIES;
 
     static constexpr ImageViewId NULL_IMAGE_VIEW_ID{0};
 

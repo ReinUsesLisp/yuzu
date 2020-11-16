@@ -167,6 +167,8 @@ add_library(video_core STATIC
     shader/transform_feedback.h
     surface.cpp
     surface.h
+    texture_cache/decode_bc4.cpp
+    texture_cache/decode_bc4.h
     texture_cache/descriptor_table.h
     texture_cache/formatter.h
     texture_cache/format_lookup_table.cpp
