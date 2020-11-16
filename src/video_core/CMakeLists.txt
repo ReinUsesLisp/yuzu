@@ -111,8 +111,6 @@ add_library(video_core STATIC
     renderer_opengl/renderer_opengl.h
     renderer_opengl/util_shaders.cpp
     renderer_opengl/util_shaders.h
-    renderer_opengl/utils.cpp
-    renderer_opengl/utils.h
     shader_cache.h
     shader_notify.cpp
     shader_notify.h

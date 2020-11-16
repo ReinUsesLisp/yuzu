@@ -32,7 +32,6 @@
 #include "video_core/renderer_opengl/gl_state_tracker.h"
 #include "video_core/renderer_opengl/gl_stream_buffer.h"
 #include "video_core/renderer_opengl/gl_texture_cache.h"
-#include "video_core/renderer_opengl/utils.h"
 #include "video_core/shader/async_shaders.h"
 #include "video_core/textures/texture.h"
 
