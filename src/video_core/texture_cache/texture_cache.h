@@ -216,8 +216,6 @@ public:
      */
     void DownloadMemory(VAddr cpu_addr, size_t size);
 
-    void UnmapMemory(VAddr cpu_addr, size_t size);
-
     void BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                    const Tegra::Engines::Fermi2D::Surface& src,
                    const Tegra::Engines::Fermi2D::Config& copy);

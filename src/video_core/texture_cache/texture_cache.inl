@@ -161,21 +161,6 @@ void TextureCache<P>::DownloadMemory(VAddr cpu_addr, size_t size) {
 }
 
 template <class P>
-void TextureCache<P>::UnmapMemory(VAddr cpu_addr, size_t size) {
-    std::vector<ImageId> deleted_images;
-    ForEachImageInRegion(cpu_addr, size, [&](ImageId id, Image&) { deleted_images.push_back(id); });
-    for (const ImageId id : deleted_images) {
-        LOG_INFO(HW_GPU, "Deleting image: {}", id.index);
-        Image& image = slot_images[id];
-        if (True(image.flags & ImageFlagBits::Tracked)) {
-            UntrackImage(image);
-        }
-        UnregisterImage(id);
-        DeleteImage(id);
-    }
-}
-
-template <class P>
 void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
@@ -693,6 +678,7 @@ void TextureCache<P>::UntrackImage(ImageBase& image) {
 
 template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id) {
+    LOG_INFO(HW_GPU, "Deleting image: {}", image_id.index);
     ImageBase& image = slot_images[image_id];
     const GPUVAddr gpu_addr = image.gpu_addr;
     const auto alloc_it = image_allocs_table.find(gpu_addr);

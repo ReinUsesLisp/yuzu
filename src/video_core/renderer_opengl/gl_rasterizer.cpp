@@ -772,10 +772,7 @@ void RasterizerOpenGL::SyncGuestHost() {
 }
 
 void RasterizerOpenGL::UnmapMemory(VAddr addr, u64 size) {
-    {
-        auto lock = texture_cache.AcquireLock();
-        texture_cache.UnmapMemory(addr, size);
-    }
+    // The texture cache can handle things properly without informing this memory unmap
     buffer_cache.InvalidateRegion(addr, size);
     shader_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
