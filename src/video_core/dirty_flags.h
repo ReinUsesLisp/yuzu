@@ -19,6 +19,7 @@ enum : u8 {
     Descriptors,
 
     RenderTargets,
+    RenderTargetControl,
     ColorBuffer0,
     ColorBuffer1,
     ColorBuffer2,

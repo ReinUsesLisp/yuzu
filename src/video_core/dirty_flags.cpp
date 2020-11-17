@@ -28,6 +28,9 @@ void SetupDirtyRenderTargets(Tegra::Engines::Maxwell3D::DirtyState::Tables& tabl
     FillBlock(tables[1], begin, num, RenderTargets);
     FillBlock(tables[0], OFF(render_area), NUM(render_area), RenderTargets);
 
+    tables[0][OFF(rt_control)] = RenderTargets;
+    tables[1][OFF(rt_control)] = RenderTargetControl;
+
     static constexpr std::array zeta_flags{ZetaBuffer, RenderTargets};
     for (std::size_t i = 0; i < std::size(zeta_flags); ++i) {
         const u8 flag = zeta_flags[i];

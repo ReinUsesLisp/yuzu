@@ -101,9 +101,13 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
     }
     flags[Dirty::RenderTargets] = false;
 
+    // Render target control is used on all render targets, so force look ups when this one is up
+    const bool force = flags[Dirty::RenderTargetControl];
+    flags[Dirty::RenderTargetControl] = false;
+
     for (size_t index = 0; index < NUM_RT; ++index) {
         ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
-        if (flags[Dirty::ColorBuffer0 + index]) {
+        if (flags[Dirty::ColorBuffer0 + index] || force) {
             flags[Dirty::ColorBuffer0 + index] = false;
             color_buffer_id = FindColorBuffer(index, is_clear);
         }
@@ -115,7 +119,7 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
             MarkModification(image);
         }
     }
-    if (flags[Dirty::ZetaBuffer]) {
+    if (flags[Dirty::ZetaBuffer] || force) {
         flags[Dirty::ZetaBuffer] = false;
         render_targets.depth_buffer_id = FindDepthBuffer(is_clear);
     }
