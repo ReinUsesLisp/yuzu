@@ -60,6 +60,7 @@ class TextureCache {
     static constexpr bool HAS_EMULATED_COPIES = P::HAS_EMULATED_COPIES;
 
     static constexpr ImageViewId NULL_IMAGE_VIEW_ID{0};
+    static constexpr SamplerId NULL_SAMPLER_ID{0};
 
     using Runtime = typename P::Runtime;
     using Image = typename P::Image;

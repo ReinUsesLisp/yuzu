@@ -27,9 +27,16 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
                               Tegra::MemoryManager& gpu_memory_)
     : runtime{runtime_}, rasterizer{rasterizer_}, maxwell3d{maxwell3d_},
       kepler_compute{kepler_compute_}, gpu_memory{gpu_memory_} {
-    // Make sure the first index is reserved for the null image view
-    // This way the null image view becomes a compile time constant
+    TSCEntry sampler_descriptor{};
+    sampler_descriptor.min_filter.Assign(Tegra::Texture::TextureFilter::Linear);
+    sampler_descriptor.mag_filter.Assign(Tegra::Texture::TextureFilter::Linear);
+    sampler_descriptor.mipmap_filter.Assign(Tegra::Texture::TextureMipmapFilter::Linear);
+    sampler_descriptor.cubemap_anisotropy.Assign(1);
+
+    // Make sure the first index is reserved for the null resources
+    // This way the null resource becomes a compile time constant
     (void)slot_image_views.insert(runtime, NullImageParams{});
+    (void)slot_samplers.insert(runtime, sampler_descriptor);
 }
 
 template <class P>
@@ -46,6 +53,10 @@ void TextureCache<P>::FillComputeImageViews(std::span<const u32> indices,
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
+    [[unlikely]] if (index > graphics_sampler_table.Limit()) {
+        LOG_ERROR(HW_GPU, "Invalid sampler index={}", index);
+        return &slot_samplers[NULL_SAMPLER_ID];
+    }
     const auto [descriptor, is_new] = graphics_sampler_table.Read(index);
     SamplerId& id = graphics_sampler_ids[index];
     [[unlikely]] if (is_new) {
@@ -56,6 +67,10 @@ typename P::Sampler* TextureCache<P>::GetGraphicsSampler(u32 index) {
 
 template <class P>
 typename P::Sampler* TextureCache<P>::GetComputeSampler(u32 index) {
+    [[unlikely]] if (index > compute_sampler_table.Limit()) {
+        LOG_ERROR(HW_GPU, "Invalid sampler index={}", index);
+        return &slot_samplers[NULL_SAMPLER_ID];
+    }
     const auto [descriptor, is_new] = compute_sampler_table.Read(index);
     SamplerId& id = compute_sampler_ids[index];
     [[unlikely]] if (is_new) {
@@ -155,6 +170,11 @@ void TextureCache<P>::FillImageViews(DescriptorTable<TICEntry>& table,
         has_deleted_images = false;
         for (size_t i = num_indices; i--;) {
             const u32 index = indices[i];
+            [[unlikely]] if (index > table.Limit()) {
+                LOG_ERROR(HW_GPU, "Invalid image view index={}", index);
+                image_view_ids[i] = NULL_IMAGE_VIEW_ID;
+                continue;
+            }
             const auto [descriptor, is_new] = table.Read(index);
             ImageViewId& image_view_id = cached_image_view_ids[index];
             if (is_new) {
