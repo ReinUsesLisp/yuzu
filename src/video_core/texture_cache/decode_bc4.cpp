@@ -14,7 +14,7 @@
 namespace VideoCommon {
 
 // https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_texture_compression_rgtc.txt
-[[nodiscard]] constexpr u8 DecompressBlock(u64 bits, u32 x, u32 y) {
+[[nodiscard]] constexpr u32 DecompressBlock(u64 bits, u32 x, u32 y) {
     const u32 code_offset = 16 + 3 * (4 * y + x);
     const u32 code = (bits >> code_offset) & 7;
     const u32 red0 = (bits >> 0) & 0xff;
@@ -82,8 +82,8 @@ void DecompressBC4(std::span<const u8> input, Extent3D extent, std::span<u8> out
                         const u32 offset_y = linear_y * extent.width;
                         const u32 offset_x = linear_x;
                         const u32 output_offset = (offset_z + offset_y + offset_x) * 4ULL;
-                        const u8 color = DecompressBlock(bits, x, y);
-                        output[output_offset + 0] = color;
+                        const u32 color = DecompressBlock(bits, x, y);
+                        output[output_offset + 0] = static_cast<u8>(color);
                         output[output_offset + 1] = 0;
                         output[output_offset + 2] = 0;
                         output[output_offset + 3] = 0xff;

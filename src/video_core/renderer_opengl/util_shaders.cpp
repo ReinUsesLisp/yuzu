@@ -223,7 +223,6 @@ void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t bu
 }
 
 void UtilShaders::CopyBC4(Image& dst_image, Image& src_image, std::span<const ImageCopy> copies) {
-    static constexpr Extent3D WORKGROUP_SIZE{4, 4, 1};
     static constexpr GLuint BINDING_INPUT_IMAGE = 0;
     static constexpr GLuint BINDING_OUTPUT_IMAGE = 1;
     static constexpr GLuint LOC_SRC_OFFSET = 0;
