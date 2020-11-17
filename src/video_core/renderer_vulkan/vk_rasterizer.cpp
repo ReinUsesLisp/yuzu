@@ -704,7 +704,10 @@ void RasterizerVulkan::SyncGuestHost() {
 }
 
 void RasterizerVulkan::UnmapMemory(VAddr addr, u64 size) {
-    // The texture cache can handle things properly without informing this memory unmap
+    {
+        auto lock = texture_cache.AcquireLock();
+        texture_cache.UnmapMemory(addr, size);
+    }
     buffer_cache.InvalidateRegion(addr, size);
     pipeline_cache.InvalidateRegion(addr, size);
     query_cache.InvalidateRegion(addr, size);
