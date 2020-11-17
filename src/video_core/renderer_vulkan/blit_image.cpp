@@ -343,7 +343,6 @@ void BlitImageHelper::Convert(VkPipeline pipeline, const Framebuffer* dst_frameb
     const VkPipelineLayout layout = *pipeline_layout;
     const VkImageView src_view = src_image_view.Handle(ImageViewType::e2D);
     const VkSampler sampler = *nearest_sampler;
-    const VkRenderPass renderpass = dst_framebuffer->RenderPass();
     const VkDescriptorSet descriptor_set = descriptor_allocator.Commit();
     const VkExtent2D extent{
         .width = src_image_view.size.width,

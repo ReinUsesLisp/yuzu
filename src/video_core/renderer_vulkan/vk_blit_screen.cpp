@@ -156,8 +156,6 @@ VkSemaphore VKBlitScreen::Draw(const Tegra::FramebufferConfig& framebuffer, bool
     if (!use_accelerated) {
         const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
 
-        const auto pixel_format =
-            VideoCore::Surface::PixelFormatFromGPUPixelFormat(framebuffer.pixel_format);
         const VAddr framebuffer_addr = framebuffer.address + framebuffer.offset;
         const u8* const host_ptr = cpu_memory.GetPointer(framebuffer_addr);
         const size_t size_bytes = GetSizeInBytes(framebuffer);
