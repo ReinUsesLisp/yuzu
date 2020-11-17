@@ -20,7 +20,7 @@ class DescriptorTable {
 public:
     explicit DescriptorTable(Tegra::MemoryManager& gpu_memory_) : gpu_memory{gpu_memory_} {}
 
-    [[nodiscard]] bool Synchornize(GPUVAddr gpu_addr, size_t limit) {
+    [[nodiscard]] bool Synchornize(GPUVAddr gpu_addr, u32 limit) {
         [[likely]] if (current_gpu_addr == gpu_addr && current_limit == limit) {
             return false;
         }
@@ -32,7 +32,7 @@ public:
         std::ranges::fill(read_descriptors, 0);
     }
 
-    [[nodiscard]] std::pair<Descriptor, bool> Read(size_t index) {
+    [[nodiscard]] std::pair<Descriptor, bool> Read(u32 index) {
         DEBUG_ASSERT(index <= current_limit);
         const GPUVAddr gpu_addr = current_gpu_addr + index * sizeof(Descriptor);
         std::pair<Descriptor, bool> result;
@@ -49,28 +49,32 @@ public:
         return result;
     }
 
+    [[nodiscard]] u32 Limit() const noexcept {
+        return current_limit;
+    }
+
 private:
-    void Refresh(GPUVAddr gpu_addr, size_t limit) {
+    void Refresh(GPUVAddr gpu_addr, u32 limit) {
         current_gpu_addr = gpu_addr;
         current_limit = limit;
 
-        const size_t num_descriptors = limit + 1;
+        const size_t num_descriptors = static_cast<size_t>(limit) + 1;
         read_descriptors.clear();
         read_descriptors.resize(Common::DivCeil(num_descriptors, 64U), 0);
         descriptors.resize(num_descriptors);
     }
 
-    void MarkDescriptorAsRead(size_t index) noexcept {
+    void MarkDescriptorAsRead(u32 index) noexcept {
         read_descriptors[index / 64] |= 1ULL << (index % 64);
     }
 
-    [[nodiscard]] bool IsDescriptorRead(size_t index) const noexcept {
+    [[nodiscard]] bool IsDescriptorRead(u32 index) const noexcept {
         return (read_descriptors[index / 64] & (1ULL << (index % 64))) != 0;
     }
 
     Tegra::MemoryManager& gpu_memory;
     GPUVAddr current_gpu_addr{};
-    size_t current_limit{};
+    u32 current_limit{};
     std::vector<u64> read_descriptors;
     std::vector<Descriptor> descriptors;
 };
