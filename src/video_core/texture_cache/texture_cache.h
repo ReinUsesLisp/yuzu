@@ -303,6 +303,8 @@ private:
 
     void CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies);
 
+    void PrepareRenderTarget(ImageViewId id);
+
     [[nodiscard]] std::pair<FramebufferId, ImageViewId> RenderTargetFromImage(
         ImageId, const ImageViewInfo& view_info);
 

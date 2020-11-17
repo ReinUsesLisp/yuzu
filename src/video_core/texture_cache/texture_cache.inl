@@ -126,25 +126,14 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
             flags[Dirty::ColorBuffer0 + index] = false;
             color_buffer_id = FindColorBuffer(index, is_clear);
         }
-        if (color_buffer_id) {
-            const ImageId image_id = slot_image_views[color_buffer_id].image_id;
-            Image& image = slot_images[image_id];
-            UpdateImageContents(image);
-            SynchronizeAliases(image_id);
-            MarkModification(image);
-        }
+        PrepareRenderTarget(color_buffer_id);
     }
     if (flags[Dirty::ZetaBuffer] || force) {
         flags[Dirty::ZetaBuffer] = false;
         render_targets.depth_buffer_id = FindDepthBuffer(is_clear);
     }
-    if (render_targets.depth_buffer_id) {
-        const ImageId image_id = slot_image_views[render_targets.depth_buffer_id].image_id;
-        Image& image = slot_images[image_id];
-        UpdateImageContents(image);
-        SynchronizeAliases(image_id);
-        MarkModification(image);
-    }
+    PrepareRenderTarget(render_targets.depth_buffer_id);
+
     for (size_t index = 0; index < NUM_RT; ++index) {
         render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d.regs.rt_control.Map(index));
     }
@@ -957,6 +946,18 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const 
 
         runtime.ConvertImage(dst_framebuffer, dst_view, src_view);
     }
+}
+
+template <class P>
+void TextureCache<P>::PrepareRenderTarget(ImageViewId id) {
+    if (!color_buffer_id) {
+        return;
+    }
+    const ImageId image_id = slot_image_views[color_buffer_id].image_id;
+    Image& image = slot_images[image_id];
+    UpdateImageContents(image);
+    SynchronizeAliases(image_id);
+    MarkModification(image);
 }
 
 template <class P>
