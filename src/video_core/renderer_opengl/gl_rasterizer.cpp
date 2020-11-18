@@ -843,6 +843,7 @@ void RasterizerOpenGL::TickFrame() {
     // Ticking a frame means that buffers will be swapped, calling glFlush implicitly.
     num_queued_commands = 0;
 
+    fence_manager.TickFrame();
     buffer_cache.TickFrame();
     {
         auto lock = texture_cache.AcquireLock();

@@ -781,6 +781,7 @@ void RasterizerVulkan::FlushCommands() {
 void RasterizerVulkan::TickFrame() {
     draw_counter = 0;
     update_descriptor_queue.TickFrame();
+    fence_manager.TickFrame();
     buffer_cache.TickFrame();
     staging_pool.TickFrame();
     {
