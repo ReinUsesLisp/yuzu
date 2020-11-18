@@ -45,6 +45,7 @@ void TextureCache<P>::TickFrame() {
     sentenced_images.Tick();
     sentenced_framebuffers.Tick();
     sentenced_image_view.Tick();
+    ++frame_tick;
 }
 
 template <class P>
@@ -134,13 +135,13 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
             flags[Dirty::ColorBuffer0 + index] = false;
             BindRenderTarget(&color_buffer_id, FindColorBuffer(index, is_clear));
         }
-        PrepareRenderTarget(color_buffer_id);
+        PrepareImageView(color_buffer_id, true);
     }
     if (flags[Dirty::ZetaBuffer] || force) {
         flags[Dirty::ZetaBuffer] = false;
         BindRenderTarget(&render_targets.depth_buffer_id, FindDepthBuffer(is_clear));
     }
-    PrepareRenderTarget(render_targets.depth_buffer_id);
+    PrepareImageView(render_targets.depth_buffer_id, true);
 
     for (size_t index = 0; index < NUM_RT; ++index) {
         render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d.regs.rt_control.Map(index));
@@ -180,10 +181,7 @@ void TextureCache<P>::FillImageViews(DescriptorTable<TICEntry>& table,
             image_view_ids[i] = image_view_id;
 
             if (image_view_id != NULL_IMAGE_VIEW_ID) {
-                ImageView* const image_view = &slot_image_views[image_view_id];
-                const ImageId image_id = image_view->image_id;
-                UpdateImageContents(slot_images[image_id]);
-                SynchronizeAliases(image_id);
+                PrepareImageView(image_view_id, false);
             }
         }
     } while (has_deleted_images);
@@ -272,13 +270,11 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     const BlitImages images = GetBlitImages(dst, src);
     const ImageId dst_id = images.dst_id;
     const ImageId src_id = images.src_id;
-    SynchronizeAliases(dst_id);
-    SynchronizeAliases(src_id);
+    PrepareImage(src_id, false);
+    PrepareImage(dst_id, true);
 
     ImageBase& dst_image = slot_images[dst_id];
     const ImageBase& src_image = slot_images[src_id];
-
-    MarkModification(dst_image);
 
     // TODO: Deduplicate
     const std::optional dst_base = dst_image.TryFindBase(dst.Address());
@@ -863,10 +859,10 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
         dirty[Dirty::ColorBuffer0 + rt] = true;
     }
     const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
-    if constexpr (ENABLE_VALIDATION) {
-        std::ranges::replace(render_targets.color_buffer_ids, image_id, CORRUPT_ID);
-        if (render_targets.depth_buffer_id == image_id) {
-            render_targets.depth_buffer_id = CORRUPT_ID;
+    for (const ImageViewId image_view_id : image_view_ids) {
+        std::ranges::replace(render_targets.color_buffer_ids, image_view_id, ImageViewId{});
+        if (render_targets.depth_buffer_id == image_view_id) {
+            render_targets.depth_buffer_id = ImageViewId{};
         }
     }
     RemoveImageViewReferences(image_view_ids);
@@ -960,6 +956,26 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
 }
 
 template <class P>
+void TextureCache<P>::PrepareImage(ImageId image_id, bool is_modification) {
+    Image& image = slot_images[image_id];
+    UpdateImageContents(image);
+    SynchronizeAliases(image_id);
+    if (is_modification) {
+        MarkModification(image);
+    }
+    image.frame_tick = frame_tick;
+}
+
+template <class P>
+void TextureCache<P>::PrepareImageView(ImageViewId image_view_id, bool is_modification) {
+    if (!image_view_id) {
+        return;
+    }
+    const ImageViewBase& image_view = slot_image_views[image_view_id];
+    PrepareImage(image_view.image_id, is_modification);
+}
+
+template <class P>
 void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies) {
     Image& dst = slot_images[dst_id];
     Image& src = slot_images[src_id];
@@ -1023,18 +1039,6 @@ void TextureCache<P>::BindRenderTarget(ImageViewId* old_id, ImageViewId new_id) 
         }
     }
     *old_id = new_id;
-}
-
-template <class P>
-void TextureCache<P>::PrepareRenderTarget(ImageViewId id) {
-    if (!id) {
-        return;
-    }
-    const ImageId image_id = slot_image_views[id].image_id;
-    Image& image = slot_images[image_id];
-    UpdateImageContents(image);
-    SynchronizeAliases(image_id);
-    MarkModification(image);
 }
 
 template <class P>

@@ -307,11 +307,13 @@ private:
 
     void SynchronizeAliases(ImageId image_id);
 
+    void PrepareImage(ImageId image_id, bool is_modification);
+
+    void PrepareImageView(ImageViewId image_view_id, bool is_modification);
+
     void CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies);
 
     void BindRenderTarget(ImageViewId* old_id, ImageViewId new_id);
-
-    void PrepareRenderTarget(ImageViewId id);
 
     [[nodiscard]] std::pair<FramebufferId, ImageViewId> RenderTargetFromImage(
         ImageId, const ImageViewInfo& view_info);
@@ -362,6 +364,7 @@ private:
     std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
 
     u64 modification_tick = 0;
+    u64 frame_tick = 0;
 };
 
 } // namespace VideoCommon

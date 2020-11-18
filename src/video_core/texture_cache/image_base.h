@@ -58,6 +58,7 @@ struct ImageBase {
     VAddr cpu_addr_end = 0;
 
     u64 modification_tick = 0;
+    u64 frame_tick = 0;
 
     std::array<u32, MAX_MIPMAP> mipmap_offsets{};
 

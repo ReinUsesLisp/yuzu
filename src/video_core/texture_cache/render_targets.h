@@ -13,7 +13,7 @@
 
 namespace VideoCommon {
 
-/// Framebuffer properties that are used to lookup a framebuffer
+/// Framebuffer properties used to lookup a framebuffer
 struct RenderTargets {
     constexpr auto operator<=>(const RenderTargets&) const noexcept = default;
 
