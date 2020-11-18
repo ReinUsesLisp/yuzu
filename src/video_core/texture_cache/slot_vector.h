@@ -34,7 +34,6 @@ requires std::is_nothrow_move_assignable_v<T>&&
 public:
     ~SlotVector() noexcept {
         size_t index = 0;
-
         for (u64 bits : stored_bitset) {
             for (size_t bit = 0; bits; ++bit, bits >>= 1) {
                 if ((bits & 1) != 0) {
@@ -43,7 +42,6 @@ public:
             }
             index += 64;
         }
-
         delete[] values;
     }
 
@@ -93,9 +91,9 @@ private:
     }
 
     void ValidateIndex(SlotId id) const noexcept {
-        ASSERT(id);
-        ASSERT(id.index / 64 < stored_bitset.size());
-        ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
+        DEBUG_ASSERT(id);
+        DEBUG_ASSERT(id.index / 64 < stored_bitset.size());
+        DEBUG_ASSERT(((stored_bitset[id.index / 64] >> (id.index % 64)) & 1) != 0);
     }
 
     [[nodiscard]] u32 FreeValueIndex() noexcept {
