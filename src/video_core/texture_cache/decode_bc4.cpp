@@ -62,9 +62,9 @@ namespace VideoCommon {
 }
 
 void DecompressBC4(std::span<const u8> input, Extent3D extent, std::span<u8> output) {
-    UNIMPLEMENTED_IF(extent.width % 4 != 0);
-    UNIMPLEMENTED_IF(extent.height % 4 != 0);
-    constexpr u32 block_size = 4;
+    UNIMPLEMENTED_IF_MSG(extent.width % 4 != 0, "Unaligned width={}", extent.width);
+    UNIMPLEMENTED_IF_MSG(extent.height % 4 != 0, "Unaligned height={}", extent.height);
+    static constexpr u32 BLOCK_SIZE = 4;
     size_t input_offset = 0;
     for (u32 slice = 0; slice < extent.depth; ++slice) {
         for (u32 block_y = 0; block_y < extent.height / 4; ++block_y) {
@@ -73,11 +73,11 @@ void DecompressBC4(std::span<const u8> input, Extent3D extent, std::span<u8> out
                 std::memcpy(&bits, &input[input_offset], sizeof(bits));
                 input_offset += sizeof(bits);
 
-                for (u32 y = 0; y < block_size; ++y) {
-                    for (u32 x = 0; x < block_size; ++x) {
+                for (u32 y = 0; y < BLOCK_SIZE; ++y) {
+                    for (u32 x = 0; x < BLOCK_SIZE; ++x) {
                         const u32 linear_z = slice;
-                        const u32 linear_y = block_y * block_size + y;
-                        const u32 linear_x = block_x * block_size + x;
+                        const u32 linear_y = block_y * BLOCK_SIZE + y;
+                        const u32 linear_x = block_x * BLOCK_SIZE + x;
                         const u32 offset_z = linear_z * extent.width * extent.height;
                         const u32 offset_y = linear_y * extent.width;
                         const u32 offset_x = linear_x;
