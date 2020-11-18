@@ -522,6 +522,10 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& 
 
 TextureCacheRuntime::~TextureCacheRuntime() = default;
 
+void TextureCacheRuntime::Finish() {
+    glFinish();
+}
+
 ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
     return upload_buffers.RequestMap(size, true);
 }
@@ -800,7 +804,6 @@ void Image::DownloadMemory(ImageBufferMap& map, size_t buffer_offset,
         }
         CopyImageToBuffer(copy, buffer_offset);
     }
-    glFinish();
 }
 
 void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t buffer_offset) {

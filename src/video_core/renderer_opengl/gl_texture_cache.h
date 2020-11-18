@@ -64,6 +64,8 @@ public:
                                  StateTracker& state_tracker);
     ~TextureCacheRuntime();
 
+    void Finish();
+
     ImageBufferMap MapUploadBuffer(size_t size);
 
     ImageBufferMap MapDownloadBuffer(size_t size);

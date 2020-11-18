@@ -513,6 +513,10 @@ void CopyBufferToImage(vk::CommandBuffer cmdbuf, VkBuffer src_buffer, VkImage im
 
 } // Anonymous namespace
 
+void TextureCacheRuntime::Finish() {
+    scheduler.Finish();
+}
+
 ImageBufferMap TextureCacheRuntime::MapUploadBuffer(size_t size) {
     const auto& buffer = staging_buffer_pool.GetUnusedBuffer(size, true);
     return ImageBufferMap{
@@ -738,7 +742,6 @@ void Image::DownloadMemory(const ImageBufferMap& map, size_t buffer_offset,
         // TODO: Barriers
         cmdbuf.CopyImageToBuffer(image, VK_IMAGE_LAYOUT_GENERAL, buffer, vk_copies);
     });
-    scheduler->Finish();
 }
 
 ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewInfo& info,

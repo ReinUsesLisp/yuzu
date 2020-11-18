@@ -237,6 +237,7 @@ void TextureCache<P>::DownloadMemory(VAddr cpu_addr, size_t size) {
         auto map = runtime.MapDownloadBuffer(image.unswizzled_size_bytes);
         const auto copies = FullDownloadCopies(image.info);
         image.DownloadMemory(map, 0, copies);
+        runtime.Finish();
         SwizzleImage(gpu_memory, image.gpu_addr, image.info, copies, map.Span());
     }
 }
@@ -386,13 +387,34 @@ void TextureCache<P>::PopAsyncFlushes() {
     if (committed_downloads.empty()) {
         return;
     }
-    for (const ImageId image_id : committed_downloads.front()) {
-        // TODO: Optimize flush allocations to use a single map
+    const std::span<const ImageId> download_ids = committed_downloads.front();
+    if (download_ids.empty()) {
+        committed_downloads.pop();
+        return;
+    }
+    size_t total_size_bytes = 0;
+    for (const ImageId image_id : download_ids) {
+        total_size_bytes += slot_images[image_id].unswizzled_size_bytes;
+    }
+    auto download_map = runtime.MapDownloadBuffer(total_size_bytes);
+    size_t buffer_offset = 0;
+    for (const ImageId image_id : download_ids) {
         Image& image = slot_images[image_id];
-        auto map = runtime.MapDownloadBuffer(image.unswizzled_size_bytes);
         const auto copies = FullDownloadCopies(image.info);
-        image.DownloadMemory(map, 0, copies);
-        SwizzleImage(gpu_memory, image.gpu_addr, image.info, copies, map.Span());
+        image.DownloadMemory(download_map, buffer_offset, copies);
+        buffer_offset += image.unswizzled_size_bytes;
+    }
+    // Wait for downloads to finish
+    runtime.Finish();
+
+    buffer_offset = 0;
+    const std::span<u8> download_span = download_map.Span();
+    for (const ImageId image_id : download_ids) {
+        const ImageBase& image = slot_images[image_id];
+        const auto copies = FullDownloadCopies(image.info);
+        const std::span<u8> image_download_span = download_span.subspan(buffer_offset);
+        SwizzleImage(gpu_memory, image.gpu_addr, image.info, copies, image_download_span);
+        buffer_offset += image.unswizzled_size_bytes;
     }
     committed_downloads.pop();
 }
@@ -428,7 +450,7 @@ void TextureCache<P>::UpdateImageContents(Image& image) {
 template <class P>
 template <typename MapBuffer>
 void TextureCache<P>::UploadImageContents(Image& image, MapBuffer& map, size_t buffer_offset) {
-    const std::span<u8> mapped_span = map.Span();
+    const std::span<u8> mapped_span = map.Span().subspan(buffer_offset);
     const GPUVAddr gpu_addr = image.gpu_addr;
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {

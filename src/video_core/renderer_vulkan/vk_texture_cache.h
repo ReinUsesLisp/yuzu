@@ -75,6 +75,8 @@ struct TextureCacheRuntime {
     BlitImageHelper& blit_image_helper;
     std::unordered_map<RenderPassKey, vk::RenderPass> renderpass_cache;
 
+    void Finish();
+
     [[nodiscard]] ImageBufferMap MapUploadBuffer(size_t size);
 
     [[nodiscard]] ImageBufferMap MapDownloadBuffer(size_t size) {
