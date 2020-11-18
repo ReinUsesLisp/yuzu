@@ -40,6 +40,14 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 }
 
 template <class P>
+void TextureCache<P>::TickFrame() {
+    // Tick sentenced resources in this order to ensure they are destroyed in the right order
+    sentenced_images.Tick();
+    sentenced_framebuffers.Tick();
+    sentenced_image_view.Tick();
+}
+
+template <class P>
 void TextureCache<P>::FillGraphicsImageViews(std::span<const u32> indices,
                                              std::span<ImageViewId> image_view_ids) {
     FillImageViews(graphics_image_table, graphics_image_view_ids, indices, image_view_ids);
@@ -874,10 +882,10 @@ void TextureCache<P>::DeleteImage(ImageId image_id) {
                    num_removed_aliases);
     }
     for (const ImageViewId image_view_id : image_view_ids) {
-        sentenced_image_view.push_back(std::move(slot_image_views[image_view_id]));
+        sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
         slot_image_views.erase(image_view_id);
     }
-    sentenced_images.push_back(std::move(slot_images[image_id]));
+    sentenced_images.Push(std::move(slot_images[image_id]));
     slot_images.erase(image_id);
 
     alloc_images.erase(alloc_image_it);

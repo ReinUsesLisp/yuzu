@@ -11,6 +11,7 @@
 #include "common/common_funcs.h"
 #include "common/common_types.h"
 #include "video_core/texture_cache/image_info.h"
+#include "video_core/texture_cache/image_view_info.h"
 #include "video_core/texture_cache/types.h"
 
 namespace VideoCommon {

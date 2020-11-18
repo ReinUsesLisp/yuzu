@@ -19,6 +19,7 @@
 #include "common/common_types.h"
 #include "common/logging/log.h"
 #include "video_core/compatible_formats.h"
+#include "video_core/delayed_destruction_ring.h"
 #include "video_core/dirty_flags.h"
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/engines/kepler_compute.h"
@@ -80,10 +81,7 @@ public:
     explicit TextureCache(Runtime&, VideoCore::RasterizerInterface&, Tegra::Engines::Maxwell3D&,
                           Tegra::Engines::KeplerCompute&, Tegra::MemoryManager&);
 
-    int frame_no = 0;
-    void TickFrame() {
-        ++frame_no;
-    }
+    void TickFrame();
 
     [[nodiscard]] std::unique_lock<std::mutex> AcquireLock() {
         return std::unique_lock{mutex};
@@ -356,9 +354,10 @@ private:
     std::vector<ImageId> uncommitted_downloads;
     std::queue<std::vector<ImageId>> committed_downloads;
 
-    std::vector<Image> sentenced_images;
-    std::vector<ImageView> sentenced_image_view;
-    std::vector<Framebuffer> sentenced_framebuffers;
+    static constexpr size_t TICKS_TO_DESTROY = 6;
+    DelayedDestructionRing<Image, TICKS_TO_DESTROY> sentenced_images;
+    DelayedDestructionRing<ImageView, TICKS_TO_DESTROY> sentenced_image_view;
+    DelayedDestructionRing<Framebuffer, TICKS_TO_DESTROY> sentenced_framebuffers;
 
     std::unordered_map<GPUVAddr, ImageAllocId> image_allocs_table;
 
