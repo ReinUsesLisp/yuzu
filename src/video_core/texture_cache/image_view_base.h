@@ -18,7 +18,8 @@ struct ImageInfo;
 struct NullImageParams {};
 
 enum class ImageViewFlagBits : u16 {
-    Strong = 1 << 0,
+    PreemtiveDownload = 1 << 0,
+    Strong = 1 << 1,
 };
 DECLARE_ENUM_FLAG_OPERATORS(ImageViewFlagBits)
 

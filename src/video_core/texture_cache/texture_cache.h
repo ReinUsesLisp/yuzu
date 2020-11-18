@@ -193,7 +193,15 @@ public:
      * @param cpu_addr Virtual CPU address
      * @returns        Pointer to image view
      */
-    ImageView* TryFindFramebufferImageView(VAddr cpu_addr);
+    [[nodiscard]] ImageView* TryFindFramebufferImageView(VAddr cpu_addr);
+
+    [[nodiscard]] bool HasUncommittedFlushes() const noexcept;
+
+    [[nodiscard]] bool ShouldWaitAsyncFlushes() const noexcept;
+
+    void CommitAsyncFlushes();
+
+    void PopAsyncFlushes();
 
 private:
     /**
@@ -303,6 +311,8 @@ private:
 
     void CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies);
 
+    void BindRenderTarget(ImageViewId* old_id, ImageViewId new_id);
+
     void PrepareRenderTarget(ImageViewId id);
 
     [[nodiscard]] std::pair<FramebufferId, ImageViewId> RenderTargetFromImage(
@@ -341,6 +351,10 @@ private:
     SlotVector<ImageAlloc> slot_image_allocs;
     SlotVector<Sampler> slot_samplers;
     SlotVector<Framebuffer> slot_framebuffers;
+
+    // TODO: This data structure is not optimal and it should be reworked
+    std::vector<ImageId> uncommitted_downloads;
+    std::queue<std::vector<ImageId>> committed_downloads;
 
     std::vector<Image> sentenced_images;
     std::vector<ImageView> sentenced_image_view;

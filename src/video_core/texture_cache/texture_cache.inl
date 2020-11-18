@@ -124,13 +124,13 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
         ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
         if (flags[Dirty::ColorBuffer0 + index] || force) {
             flags[Dirty::ColorBuffer0 + index] = false;
-            color_buffer_id = FindColorBuffer(index, is_clear);
+            BindRenderTarget(&color_buffer_id, FindColorBuffer(index, is_clear));
         }
         PrepareRenderTarget(color_buffer_id);
     }
     if (flags[Dirty::ZetaBuffer] || force) {
         flags[Dirty::ZetaBuffer] = false;
-        render_targets.depth_buffer_id = FindDepthBuffer(is_clear);
+        BindRenderTarget(&render_targets.depth_buffer_id, FindDepthBuffer(is_clear));
     }
     PrepareRenderTarget(render_targets.depth_buffer_id);
 
@@ -362,6 +362,39 @@ typename P::ImageView* TextureCache<P>::TryFindFramebufferImageView(VAddr cpu_ad
         return &slot_image_views[image.image_view_ids.at(0)];
     }
     return nullptr;
+}
+
+template <class P>
+bool TextureCache<P>::HasUncommittedFlushes() const noexcept {
+    return uncommitted_downloads.empty();
+}
+
+template <class P>
+bool TextureCache<P>::ShouldWaitAsyncFlushes() const noexcept {
+    return !committed_downloads.empty() && !committed_downloads.front().empty();
+}
+
+template <class P>
+void TextureCache<P>::CommitAsyncFlushes() {
+    // This is intentionally passing the value by copy
+    committed_downloads.push(uncommitted_downloads);
+    uncommitted_downloads.clear();
+}
+
+template <class P>
+void TextureCache<P>::PopAsyncFlushes() {
+    if (committed_downloads.empty()) {
+        return;
+    }
+    for (const ImageId image_id : committed_downloads.front()) {
+        // TODO: Optimize flush allocations to use a single map
+        Image& image = slot_images[image_id];
+        auto map = runtime.MapDownloadBuffer(image.unswizzled_size_bytes);
+        const auto copies = FullDownloadCopies(image.info);
+        image.DownloadMemory(map, 0, copies);
+        SwizzleImage(gpu_memory, image.gpu_addr, image.info, copies, map.Span());
+    }
+    committed_downloads.pop();
 }
 
 inline u32 MapSizeBytes(const ImageBase& image) {
@@ -949,11 +982,25 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const 
 }
 
 template <class P>
-void TextureCache<P>::PrepareRenderTarget(ImageViewId id) {
-    if (!color_buffer_id) {
+void TextureCache<P>::BindRenderTarget(ImageViewId* old_id, ImageViewId new_id) {
+    if (*old_id == new_id) {
         return;
     }
-    const ImageId image_id = slot_image_views[color_buffer_id].image_id;
+    if (*old_id) {
+        const ImageViewBase& old_view = slot_image_views[*old_id];
+        if (True(old_view.flags & ImageViewFlagBits::PreemtiveDownload)) {
+            uncommitted_downloads.push_back(old_view.image_id);
+        }
+    }
+    *old_id = new_id;
+}
+
+template <class P>
+void TextureCache<P>::PrepareRenderTarget(ImageViewId id) {
+    if (!id) {
+        return;
+    }
+    const ImageId image_id = slot_image_views[id].image_id;
     Image& image = slot_images[image_id];
     UpdateImageContents(image);
     SynchronizeAliases(image_id);

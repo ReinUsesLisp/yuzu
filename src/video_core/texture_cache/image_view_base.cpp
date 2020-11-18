@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "common/assert.h"
+#include "core/settings.h"
 #include "video_core/compatible_formats.h"
 #include "video_core/surface.h"
 #include "video_core/texture_cache/formatter.h"
@@ -19,13 +20,17 @@ ImageViewBase::ImageViewBase(const ImageViewInfo& info, const ImageInfo& image_i
                              ImageId image_id_)
     : image_id{image_id_}, format{info.format}, type{info.type}, range{info.range},
       size{
-          std::max(image_info.size.width >> range.base.mipmap, 1u),
-          std::max(image_info.size.height >> range.base.mipmap, 1u),
-          std::max(image_info.size.depth >> range.base.mipmap, 1u),
+          .width = std::max(image_info.size.width >> range.base.mipmap, 1u),
+          .height = std::max(image_info.size.height >> range.base.mipmap, 1u),
+          .depth = std::max(image_info.size.depth >> range.base.mipmap, 1u),
       } {
     ASSERT_MSG(VideoCore::Surface::IsViewCompatible(image_info.format, info.format),
                "Image view format {} is incompatible with image format {}", info.format,
                image_info.format);
+    const bool is_async = Settings::values.use_asynchronous_gpu_emulation.GetValue();
+    if (image_info.type == ImageType::Linear && is_async) {
+        flags |= ImageViewFlagBits::PreemtiveDownload;
+    }
 }
 
 ImageViewBase::ImageViewBase(const NullImageParams&) {}

@@ -137,29 +137,23 @@ private:
     }
 
     bool ShouldWait() const {
-        return buffer_cache.ShouldWaitAsyncFlushes() || query_cache.ShouldWaitAsyncFlushes();
-        /*
         return texture_cache.ShouldWaitAsyncFlushes() || buffer_cache.ShouldWaitAsyncFlushes() ||
                query_cache.ShouldWaitAsyncFlushes();
-        */
     }
 
     bool ShouldFlush() const {
-        return buffer_cache.HasUncommittedFlushes() || query_cache.HasUncommittedFlushes();
-        /*
         return texture_cache.HasUncommittedFlushes() || buffer_cache.HasUncommittedFlushes() ||
                query_cache.HasUncommittedFlushes();
-        */
     }
 
     void PopAsyncFlushes() {
-        // texture_cache.PopAsyncFlushes();
+        texture_cache.PopAsyncFlushes();
         buffer_cache.PopAsyncFlushes();
         query_cache.PopAsyncFlushes();
     }
 
     void CommitAsyncFlushes() {
-        // texture_cache.CommitAsyncFlushes();
+        texture_cache.CommitAsyncFlushes();
         buffer_cache.CommitAsyncFlushes();
         query_cache.CommitAsyncFlushes();
     }
