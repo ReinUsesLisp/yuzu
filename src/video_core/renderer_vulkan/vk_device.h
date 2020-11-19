@@ -267,6 +267,7 @@ private:
     bool ext_transform_feedback{};             ///< Support for VK_EXT_transform_feedback.
     bool ext_custom_border_color{};            ///< Support for VK_EXT_custom_border_color.
     bool ext_extended_dynamic_state{};         ///< Support for VK_EXT_extended_dynamic_state.
+    bool ext_robustness2{};                    ///< Support for VK_EXT_robustness2.
     bool nv_device_diagnostics_config{};       ///< Support for VK_NV_device_diagnostics_config.
 
     // Asynchronous Graphics Pipeline setting

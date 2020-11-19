@@ -283,7 +283,6 @@ bool VKDevice::Create() {
         .variableMultisampleRate = false,
         .inheritedQueries = false,
     };
-
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR,
         .pNext = nullptr,
@@ -384,7 +383,6 @@ bool VKDevice::Create() {
     }
 
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynamic_state;
-    ext_extended_dynamic_state = false; // FIXME
     if (ext_extended_dynamic_state) {
         dynamic_state = {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
@@ -394,6 +392,20 @@ bool VKDevice::Create() {
         SetNext(next, dynamic_state);
     } else {
         LOG_INFO(Render_Vulkan, "Device doesn't support extended dynamic state");
+    }
+
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness2;
+    if (ext_robustness2) {
+        robustness2 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT,
+            .pNext = nullptr,
+            .robustBufferAccess2 = false,
+            .robustImageAccess2 = true,
+            .nullDescriptor = true,
+        };
+        SetNext(next, robustness2);
+    } else {
+        LOG_INFO(Render_Vulkan, "Device doesn't support robustness2");
     }
 
     if (!ext_depth_range_unrestricted) {
@@ -626,6 +638,7 @@ std::vector<const char*> VKDevice::LoadExtensions() {
     bool has_ext_transform_feedback{};
     bool has_ext_custom_border_color{};
     bool has_ext_extended_dynamic_state{};
+    bool has_ext_robustness2{};
     for (const VkExtensionProperties& extension : physical.EnumerateDeviceExtensionProperties()) {
         const auto test = [&](std::optional<std::reference_wrapper<bool>> status, const char* name,
                               bool push) {
@@ -651,6 +664,7 @@ std::vector<const char*> VKDevice::LoadExtensions() {
         test(has_ext_transform_feedback, VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME, false);
         test(has_ext_custom_border_color, VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME, false);
         test(has_ext_extended_dynamic_state, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME, false);
+        test(has_ext_robustness2, VK_EXT_ROBUSTNESS_2_EXTENSION_NAME, false);
         if (instance_version >= VK_API_VERSION_1_1) {
             test(has_ext_subgroup_size_control, VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, false);
         }
@@ -749,6 +763,18 @@ std::vector<const char*> VKDevice::LoadExtensions() {
         if (dynamic_state.extendedDynamicState) {
             extensions.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
             ext_extended_dynamic_state = true;
+        }
+    }
+
+    if (has_ext_robustness2) {
+        VkPhysicalDeviceRobustness2FeaturesEXT robustness2;
+        robustness2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
+        robustness2.pNext = nullptr;
+        features.pNext = &robustness2;
+        physical.GetFeatures2KHR(features);
+        if (robustness2.nullDescriptor && robustness2.robustImageAccess2) {
+            extensions.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+            ext_robustness2 = true;
         }
     }
 
