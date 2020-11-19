@@ -201,6 +201,8 @@ public:
 
     void PopAsyncFlushes();
 
+    [[nodiscard]] bool IsRegionGpuModified(VAddr addr, size_t size);
+
 private:
     /**
      * Iterate over all page indices in a range

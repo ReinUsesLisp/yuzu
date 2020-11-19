@@ -423,6 +423,19 @@ void TextureCache<P>::PopAsyncFlushes() {
     committed_downloads.pop();
 }
 
+template <class P>
+bool TextureCache<P>::IsRegionGpuModified(VAddr addr, size_t size) {
+    bool is_modified = false;
+    ForEachImageInRegion(addr, size, [&is_modified](ImageId, ImageBase& image) {
+        if (False(image.flags & ImageFlagBits::GpuModified)) {
+            return false;
+        }
+        is_modified = true;
+        return true;
+    });
+    return is_modified;
+}
+
 inline u32 MapSizeBytes(const ImageBase& image) {
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
         return image.guest_size_bytes;

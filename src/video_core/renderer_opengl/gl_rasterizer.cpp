@@ -730,8 +730,8 @@ bool RasterizerOpenGL::MustFlushRegion(VAddr addr, u64 size) {
     if (!Settings::IsGPULevelHigh()) {
         return buffer_cache.MustFlushRegion(addr, size);
     }
-    // return texture_cache.MustFlushRegion(addr, size) || buffer_cache.MustFlushRegion(addr, size);
-    return buffer_cache.MustFlushRegion(addr, size);
+    return texture_cache.IsRegionGpuModified(addr, size) ||
+           buffer_cache.MustFlushRegion(addr, size);
 }
 
 void RasterizerOpenGL::InvalidateRegion(VAddr addr, u64 size) {
@@ -763,10 +763,6 @@ void RasterizerOpenGL::OnCPUWrite(VAddr addr, u64 size) {
 
 void RasterizerOpenGL::SyncGuestHost() {
     MICROPROFILE_SCOPE(OpenGL_CacheManagement);
-    {
-        // auto lock = texture_cache.AcquireLock();
-        // texture_cache.SyncGuestHost();
-    }
     buffer_cache.SyncGuestHost();
     shader_cache.SyncGuestHost();
 }
@@ -776,9 +772,8 @@ void RasterizerOpenGL::UnmapMemory(VAddr addr, u64 size) {
         auto lock = texture_cache.AcquireLock();
         texture_cache.UnmapMemory(addr, size);
     }
-    buffer_cache.InvalidateRegion(addr, size);
-    shader_cache.InvalidateRegion(addr, size);
-    query_cache.InvalidateRegion(addr, size);
+    buffer_cache.OnCPUWrite(addr, size);
+    shader_cache.OnCPUWrite(addr, size);
 }
 
 void RasterizerOpenGL::SignalSemaphore(GPUVAddr addr, u32 value) {

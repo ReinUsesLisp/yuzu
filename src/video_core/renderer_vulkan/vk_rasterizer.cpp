@@ -665,8 +665,8 @@ bool RasterizerVulkan::MustFlushRegion(VAddr addr, u64 size) {
     if (!Settings::IsGPULevelHigh()) {
         return buffer_cache.MustFlushRegion(addr, size);
     }
-    // return texture_cache.MustFlushRegion(addr, size) || buffer_cache.MustFlushRegion(addr, size);
-    return buffer_cache.MustFlushRegion(addr, size);
+    return texture_cache.IsRegionGpuModified(addr, size) ||
+           buffer_cache.MustFlushRegion(addr, size);
 }
 
 void RasterizerVulkan::InvalidateRegion(VAddr addr, u64 size) {
@@ -695,10 +695,6 @@ void RasterizerVulkan::OnCPUWrite(VAddr addr, u64 size) {
 }
 
 void RasterizerVulkan::SyncGuestHost() {
-    {
-        // auto lock = texture_cache.AcquireLock();
-        // texture_cache.SyncGuestHost();
-    }
     buffer_cache.SyncGuestHost();
     pipeline_cache.SyncGuestHost();
 }
@@ -708,9 +704,8 @@ void RasterizerVulkan::UnmapMemory(VAddr addr, u64 size) {
         auto lock = texture_cache.AcquireLock();
         texture_cache.UnmapMemory(addr, size);
     }
-    buffer_cache.InvalidateRegion(addr, size);
-    pipeline_cache.InvalidateRegion(addr, size);
-    query_cache.InvalidateRegion(addr, size);
+    buffer_cache.OnCPUWrite(addr, size);
+    pipeline_cache.OnCPUWrite(addr, size);
 }
 
 void RasterizerVulkan::SignalSemaphore(GPUVAddr addr, u32 value) {
