@@ -81,7 +81,7 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
     const u32 bytes_per_block = BytesPerBlock(image.info.format);
     const u32 bytes_per_block_log2 = std::countr_zero(bytes_per_block);
 
-    program_manager.BindCompute(block_linear_unswizzle_2d_program.handle);
+    program_manager.BindHostCompute(block_linear_unswizzle_2d_program.handle);
     glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_bytes);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_SWIZZLE_BUFFER, swizzle_table_buffer.handle);
     glUniform3ui(LOC_ORIGIN, 0, 0, 0);     // TODO
@@ -115,6 +115,7 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
                            GL_WRITE_ONLY, StoreFormat(bytes_per_block));
         glDispatchCompute(num_dispatches_x, num_dispatches_y, image.info.resources.layers);
     }
+    program_manager.RestoreGuestCompute();
 }
 
 void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, size_t buffer_offset,
@@ -140,7 +141,7 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
     const u32 bytes_per_block_log2 = std::countr_zero(bytes_per_block);
 
     glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_bytes);
-    program_manager.BindCompute(block_linear_unswizzle_3d_program.handle);
+    program_manager.BindHostCompute(block_linear_unswizzle_3d_program.handle);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_SWIZZLE_BUFFER, swizzle_table_buffer.handle);
     glUniform3ui(LOC_ORIGIN, 0, 0, 0);     // TODO
     glUniform3i(LOC_DESTINATION, 0, 0, 0); // TODO
@@ -181,6 +182,7 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
 
         glDispatchCompute(num_dispatches_x, num_dispatches_y, num_dispatches_z);
     }
+    program_manager.RestoreGuestCompute();
 }
 
 void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t buffer_offset,
@@ -200,7 +202,7 @@ void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t bu
     UNIMPLEMENTED_IF_MSG(!std::has_single_bit(bytes_per_block),
                          "Non-power of two images are not implemented");
 
-    program_manager.BindCompute(pitch_unswizzle_program.handle);
+    program_manager.BindHostCompute(pitch_unswizzle_program.handle);
     glFlushMappedNamedBufferRange(map.Handle(), buffer_offset, image.guest_size_bytes);
     glUniform2ui(LOC_ORIGIN, 0, 0);     // TODO
     glUniform2i(LOC_DESTINATION, 0, 0); // TODO
@@ -220,6 +222,7 @@ void UtilShaders::PitchUpload(Image& image, const ImageBufferMap& map, size_t bu
                           image.guest_size_bytes - swizzle.buffer_offset);
         glDispatchCompute(num_dispatches_x, num_dispatches_y, 1);
     }
+    program_manager.RestoreGuestCompute();
 }
 
 void UtilShaders::CopyBC4(Image& dst_image, Image& src_image, std::span<const ImageCopy> copies) {
@@ -228,7 +231,7 @@ void UtilShaders::CopyBC4(Image& dst_image, Image& src_image, std::span<const Im
     static constexpr GLuint LOC_SRC_OFFSET = 0;
     static constexpr GLuint LOC_DST_OFFSET = 1;
 
-    program_manager.BindCompute(copy_bc4_program.handle);
+    program_manager.BindHostCompute(copy_bc4_program.handle);
 
     for (const ImageCopy& copy : copies) {
         ASSERT(copy.src_subresource.base_layer == 0);
@@ -245,6 +248,7 @@ void UtilShaders::CopyBC4(Image& dst_image, Image& src_image, std::span<const Im
                            GL_RGBA8UI);
         glDispatchCompute(copy.extent.width, copy.extent.height, copy.extent.depth);
     }
+    program_manager.RestoreGuestCompute();
 }
 
 GLenum StoreFormat(u32 bytes_per_block) {
