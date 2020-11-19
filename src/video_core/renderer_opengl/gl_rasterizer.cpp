@@ -363,7 +363,6 @@ void RasterizerOpenGL::SetupShaders() {
     image_view_indices.clear();
     sampler_handles.clear();
 
-    auto lock = texture_cache.AcquireLock();
     texture_cache.SynchronizeGraphicsDescriptors();
 
     for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
@@ -618,15 +617,13 @@ void RasterizerOpenGL::Draw(bool is_indexed, bool is_instanced) {
     }
 
     // Setup shaders and their used resources.
+    auto lock = texture_cache.AcquireLock();
     SetupShaders();
 
     // Signal the buffer cache that we are not going to upload more things.
     buffer_cache.Unmap();
-    {
-        auto lock = texture_cache.AcquireLock();
-        texture_cache.UpdateRenderTargets(false);
-        state_tracker.BindFramebuffer(texture_cache.GetFramebuffer()->Handle());
-    }
+    texture_cache.UpdateRenderTargets(false);
+    state_tracker.BindFramebuffer(texture_cache.GetFramebuffer()->Handle());
     program_manager.BindGraphicsPipeline();
 
     const GLenum primitive_mode = MaxwellToGL::PrimitiveTopology(maxwell3d.regs.draw.topology);
@@ -682,7 +679,6 @@ void RasterizerOpenGL::DispatchCompute(GPUVAddr code_addr) {
     current_cbuf = 0;
 
     Shader* const kernel = shader_cache.GetComputeKernel(code_addr);
-    program_manager.BindCompute(kernel->GetHandle());
 
     auto lock = texture_cache.AcquireLock();
     BindComputeTextures(kernel);
@@ -697,7 +693,6 @@ void RasterizerOpenGL::DispatchCompute(GPUVAddr code_addr) {
     buffer_cache.Unmap();
 
     const auto& launch_desc = kepler_compute.launch_description;
-    program_manager.BindCompute(kernel->GetHandle());
     glDispatchCompute(launch_desc.grid_dim_x, launch_desc.grid_dim_y, launch_desc.grid_dim_z);
     ++num_queued_commands;
 }
@@ -888,6 +883,7 @@ void RasterizerOpenGL::BindComputeTextures(Shader* kernel) {
     const std::span indices_span(image_view_indices.data(), image_view_indices.size());
     texture_cache.FillComputeImageViews(indices_span, image_view_ids);
 
+    program_manager.BindCompute(kernel->GetHandle());
     size_t image_view_index = 0;
     size_t texture_index = 0;
     size_t image_index = 0;
