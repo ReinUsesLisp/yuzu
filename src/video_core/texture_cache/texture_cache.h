@@ -95,14 +95,6 @@ public:
         return slot_image_views[id];
     }
 
-    [[nodiscard]] const Image& GetImage(ImageId id) const noexcept {
-        return slot_images[id];
-    }
-
-    [[nodiscard]] Image& GetImage(ImageId id) noexcept {
-        return slot_images[id];
-    }
-
     void FillGraphicsImageViews(std::span<const u32> indices,
                                 std::span<ImageViewId> image_view_ids);
 

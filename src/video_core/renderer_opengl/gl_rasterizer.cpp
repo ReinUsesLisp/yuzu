@@ -908,6 +908,7 @@ void RasterizerOpenGL::BindTextures(const ShaderEntries& entries, GLuint base_te
     }
     const size_t num_images = entries.images.size();
     for (size_t unit = 0; unit < num_images; ++unit) {
+        // TODO: Mark as modified
         const ImageViewId image_view_id = image_view_ids[image_view_index++];
         const ImageView& image_view = texture_cache.GetImageView(image_view_id);
         const GLuint handle = image_view.Handle(ImageViewTypeFromEntry(entries.images[unit]));

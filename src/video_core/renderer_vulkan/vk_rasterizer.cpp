@@ -213,10 +213,7 @@ void PushImageDescriptors(const ShaderEntries& entries, TextureCache& texture_ca
         update_descriptor_queue.AddTexelBuffer(image_view.BufferView());
     }
     for (const auto& entry : entries.images) {
-        if (entry.is_written) {
-            // image_view->image->flags |= VideoCommon::ImageFlagBits::GpuModified;
-            LOG_WARNING(Render_Vulkan, "Writing to image");
-        }
+        // TODO: Mark as modified
         const ImageViewId image_view_id = *image_view_id_ptr++;
         const ImageView& image_view = texture_cache.GetImageView(image_view_id);
         const VkImageView handle = image_view.Handle(ImageViewTypeFromEntry(entry));
