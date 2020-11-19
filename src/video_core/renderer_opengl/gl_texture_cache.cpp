@@ -352,6 +352,8 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
 
 [[nodiscard]] bool CanBeAccelerated(const TextureCacheRuntime& runtime,
                                     const VideoCommon::ImageInfo& info) {
+    // Disable accelerated uploads for now as they don't implement swizzled uploads
+    return false;
     switch (info.type) {
     case ImageType::e2D:
     case ImageType::e3D:
