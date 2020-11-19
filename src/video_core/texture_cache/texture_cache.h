@@ -77,6 +77,13 @@ class TextureCache {
         PixelFormat src_format;
     };
 
+    template <typename T>
+    struct IdentityHash {
+        [[nodiscard]] size_t operator()(T value) const noexcept {
+            return static_cast<size_t>(value);
+        }
+    };
+
 public:
     explicit TextureCache(Runtime&, VideoCore::RasterizerInterface&, Tegra::Engines::Maxwell3D&,
                           Tegra::Engines::KeplerCompute&, Tegra::MemoryManager&);
@@ -336,7 +343,7 @@ private:
     std::unordered_map<TSCEntry, SamplerId> samplers;
     std::unordered_map<RenderTargets, FramebufferId> framebuffers;
 
-    std::unordered_map<u64, std::vector<ImageId>> page_table;
+    std::unordered_map<u64, std::vector<ImageId>, IdentityHash<u64>> page_table;
 
     bool has_deleted_images = false;
 
