@@ -296,27 +296,27 @@ constexpr std::string_view DepthStencilDebugName(GLenum attachment) {
 
 std::string NameView(const VideoCommon::ImageViewBase& image_view) {
     const auto size = image_view.size;
-    const u32 num_mipmaps = image_view.range.extent.mipmaps;
+    const u32 num_levels = image_view.range.extent.levels;
     const u32 num_layers = image_view.range.extent.layers;
 
-    const std::string mipmap = num_mipmaps > 1 ? fmt::format(":{}", num_mipmaps) : "";
+    const std::string level = num_levels > 1 ? fmt::format(":{}", num_levels) : "";
     switch (image_view.type) {
     case ImageViewType::e1D:
-        return fmt::format("1D {}{}", size.width, mipmap);
+        return fmt::format("1D {}{}", size.width, level);
     case ImageViewType::e2D:
-        return fmt::format("2D {}x{}{}", size.width, size.height, mipmap);
+        return fmt::format("2D {}x{}{}", size.width, size.height, level);
     case ImageViewType::Cube:
-        return fmt::format("Cube {}x{}{}", size.width, size.height, mipmap);
+        return fmt::format("Cube {}x{}{}", size.width, size.height, level);
     case ImageViewType::e3D:
-        return fmt::format("3D {}x{}x{}{}", size.width, size.height, size.depth, mipmap);
+        return fmt::format("3D {}x{}x{}{}", size.width, size.height, size.depth, level);
     case ImageViewType::e1DArray:
-        return fmt::format("1DArray {}{}|{}", size.width, mipmap, num_layers);
+        return fmt::format("1DArray {}{}|{}", size.width, level, num_layers);
     case ImageViewType::e2DArray:
-        return fmt::format("2DArray {}x{}{}|{}", size.width, size.height, mipmap, num_layers);
+        return fmt::format("2DArray {}x{}{}|{}", size.width, size.height, level, num_layers);
     case ImageViewType::CubeArray:
-        return fmt::format("CubeArray {}x{}{}|{}", size.width, size.height, mipmap, num_layers);
+        return fmt::format("CubeArray {}x{}{}|{}", size.width, size.height, level, num_layers);
     case ImageViewType::Rect:
-        return fmt::format("Rect {}x{}{}", size.width, size.height, mipmap);
+        return fmt::format("Rect {}x{}{}", size.width, size.height, level);
     case ImageViewType::Buffer:
         return fmt::format("Buffer {}", size.width);
     }
@@ -384,14 +384,14 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
     case GL_TEXTURE_2D_ARRAY:
     case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
         return CopyOrigin{
-            .level = static_cast<GLint>(subresource.base_mipmap),
+            .level = static_cast<GLint>(subresource.base_level),
             .x = static_cast<GLint>(offset.x),
             .y = static_cast<GLint>(offset.y),
             .z = static_cast<GLint>(subresource.base_layer),
         };
     case GL_TEXTURE_3D:
         return CopyOrigin{
-            .level = static_cast<GLint>(subresource.base_mipmap),
+            .level = static_cast<GLint>(subresource.base_level),
             .x = static_cast<GLint>(offset.x),
             .y = static_cast<GLint>(offset.y),
             .z = static_cast<GLint>(offset.z),
@@ -708,7 +708,7 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     const GLsizei width = info.size.width;
     const GLsizei height = info.size.height;
     const GLsizei depth = info.size.depth;
-    const GLsizei num_mipmaps = info.resources.mipmaps;
+    const GLsizei num_levels = info.resources.levels;
     const GLsizei num_layers = info.resources.layers;
     const GLsizei num_samples = info.num_samples;
 
@@ -719,10 +719,10 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     }
     switch (target) {
     case GL_TEXTURE_1D_ARRAY:
-        glTextureStorage2D(handle, num_mipmaps, gl_store_format, width, num_layers);
+        glTextureStorage2D(handle, num_levels, gl_store_format, width, num_layers);
         break;
     case GL_TEXTURE_2D_ARRAY:
-        glTextureStorage3D(handle, num_mipmaps, gl_store_format, width, height, num_layers);
+        glTextureStorage3D(handle, num_levels, gl_store_format, width, height, num_layers);
         break;
     case GL_TEXTURE_2D_MULTISAMPLE_ARRAY: {
         // TODO: Where should 'fixedsamplelocations' come from?
@@ -732,10 +732,10 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
         break;
     }
     case GL_TEXTURE_RECTANGLE:
-        glTextureStorage2D(handle, num_mipmaps, gl_store_format, width, height);
+        glTextureStorage2D(handle, num_levels, gl_store_format, width, height);
         break;
     case GL_TEXTURE_3D:
-        glTextureStorage3D(handle, num_mipmaps, gl_store_format, width, height, depth);
+        glTextureStorage3D(handle, num_levels, gl_store_format, width, height, depth);
         break;
     case GL_TEXTURE_BUFFER:
         buffer.Create();
@@ -816,13 +816,13 @@ void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t b
     switch (info.type) {
     case ImageType::e1D:
         if (is_compressed) {
-            glCompressedTextureSubImage2D(texture.handle, copy.image_subresource.base_mipmap,
+            glCompressedTextureSubImage2D(texture.handle, copy.image_subresource.base_level,
                                           copy.image_offset.x, copy.image_subresource.base_layer,
                                           copy.image_extent.width,
                                           copy.image_subresource.num_layers, gl_internal_format,
                                           static_cast<GLsizei>(copy.buffer_size), offset);
         } else {
-            glTextureSubImage2D(texture.handle, copy.image_subresource.base_mipmap,
+            glTextureSubImage2D(texture.handle, copy.image_subresource.base_level,
                                 copy.image_offset.x, copy.image_subresource.base_layer,
                                 copy.image_extent.width, copy.image_subresource.num_layers,
                                 gl_format, gl_type, offset);
@@ -832,12 +832,12 @@ void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t b
     case ImageType::Linear:
         if (is_compressed) {
             glCompressedTextureSubImage3D(
-                texture.handle, copy.image_subresource.base_mipmap, copy.image_offset.x,
+                texture.handle, copy.image_subresource.base_level, copy.image_offset.x,
                 copy.image_offset.y, copy.image_subresource.base_layer, copy.image_extent.width,
                 copy.image_extent.height, copy.image_subresource.num_layers, gl_internal_format,
                 static_cast<GLsizei>(copy.buffer_size), offset);
         } else {
-            glTextureSubImage3D(texture.handle, copy.image_subresource.base_mipmap,
+            glTextureSubImage3D(texture.handle, copy.image_subresource.base_level,
                                 copy.image_offset.x, copy.image_offset.y,
                                 copy.image_subresource.base_layer, copy.image_extent.width,
                                 copy.image_extent.height, copy.image_subresource.num_layers,
@@ -847,12 +847,12 @@ void Image::CopyBufferToImage(const VideoCommon::BufferImageCopy& copy, size_t b
     case ImageType::e3D:
         if (is_compressed) {
             glCompressedTextureSubImage3D(
-                texture.handle, copy.image_subresource.base_mipmap, copy.image_offset.x,
+                texture.handle, copy.image_subresource.base_level, copy.image_offset.x,
                 copy.image_offset.y, copy.image_offset.z, copy.image_extent.width,
                 copy.image_extent.height, copy.image_extent.depth, gl_internal_format,
                 static_cast<GLsizei>(copy.buffer_size), offset);
         } else {
-            glTextureSubImage3D(texture.handle, copy.image_subresource.base_mipmap,
+            glTextureSubImage3D(texture.handle, copy.image_subresource.base_level,
                                 copy.image_offset.x, copy.image_offset.y, copy.image_offset.z,
                                 copy.image_extent.width, copy.image_extent.height,
                                 copy.image_extent.depth, gl_format, gl_type, offset);
@@ -867,7 +867,7 @@ void Image::CopyImageToBuffer(const VideoCommon::BufferImageCopy& copy, size_t b
     const GLint x_offset = copy.image_offset.x;
     const GLsizei width = copy.image_extent.width;
 
-    const GLint level = copy.image_subresource.base_mipmap;
+    const GLint level = copy.image_subresource.base_level;
     const GLsizei buffer_size = static_cast<GLsizei>(copy.buffer_size);
     void* const offset = reinterpret_cast<void*>(copy.buffer_offset + buffer_offset);
 
@@ -935,12 +935,12 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
     case ImageViewType::e2D:
         if (image.info.type == ImageType::e3D) {
             // 2D and 2D array views on a 3D textures are used exclusively for render targets
-            ASSERT(info.range.extent.mipmaps == 1);
+            ASSERT(info.range.extent.levels == 1);
             glGenTextures(1, handles.data());
             SetupView(image, ImageViewType::e3D, handles[0], info,
                       {
-                          .base = {.mipmap = info.range.base.mipmap, .layer = 0},
-                          .extent = {.mipmaps = 1, .layers = 1},
+                          .base = {.level = info.range.base.level, .layer = 0},
+                          .extent = {.levels = 1, .layers = 1},
                       });
             is_slice_view = true;
             break;
@@ -988,8 +988,8 @@ void ImageView::SetupView(Image& image, ImageViewType type, GLuint handle,
     } else {
         const GLuint parent = image.texture.handle;
         const GLenum target = ImageTarget(type, image.info.num_samples);
-        glTextureView(handle, target, parent, internal_format, range.base.mipmap,
-                      range.extent.mipmaps, range.base.layer, range.extent.layers);
+        glTextureView(handle, target, parent, internal_format, range.base.level,
+                      range.extent.levels, range.base.layer, range.extent.layers);
         ApplySwizzle(handle, format, info.Swizzle());
         name = fmt::format("ImageView {} ({})", NameView(*this), handle);
     }

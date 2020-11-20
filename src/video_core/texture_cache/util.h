@@ -36,7 +36,8 @@ struct OverlapResult {
 
 [[nodiscard]] u32 CalculateLayerSize(const ImageInfo& info) noexcept;
 
-[[nodiscard]] std::array<u32, MAX_MIPMAP> CalculateMipmapOffsets(const ImageInfo& info) noexcept;
+[[nodiscard]] std::array<u32, MAX_MIP_LEVELS> CalculateMipLevelOffsets(
+    const ImageInfo& info) noexcept;
 
 [[nodiscard]] std::vector<u32> CalculateSliceOffsets(const ImageInfo& info);
 
@@ -67,9 +68,9 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
 
 [[nodiscard]] std::vector<BufferImageCopy> FullDownloadCopies(const ImageInfo& info);
 
-[[nodiscard]] Extent3D MipSize(Extent3D size, u32 mipmap);
+[[nodiscard]] Extent3D MipSize(Extent3D size, u32 level);
 
-[[nodiscard]] Extent3D MipBlockSize(const ImageInfo& info, u32 mipmap);
+[[nodiscard]] Extent3D MipBlockSize(const ImageInfo& info, u32 level);
 
 [[nodiscard]] std::vector<SwizzleParameters> FullUploadSwizzles(const ImageInfo& info);
 
@@ -79,8 +80,8 @@ void SwizzleImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const Ima
 [[nodiscard]] std::string CompareImageInfos(const ImageInfo& lhs, const ImageInfo& rhs);
 
 [[nodiscard]] bool IsBlockLinearSizeCompatible(const ImageInfo& new_info,
-                                               const ImageInfo& overlap_info, u32 new_mipmap,
-                                               u32 overlap_mipmap, bool strict_size) noexcept;
+                                               const ImageInfo& overlap_info, u32 new_level,
+                                               u32 overlap_level, bool strict_size) noexcept;
 
 [[nodiscard]] bool IsPitchLinearSameSize(const ImageInfo& lhs, const ImageInfo& rhs,
                                          bool strict_size) noexcept;

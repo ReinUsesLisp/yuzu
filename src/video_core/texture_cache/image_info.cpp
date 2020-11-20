@@ -21,7 +21,7 @@ ImageInfo::ImageInfo(const TICEntry& config) noexcept {
     format = PixelFormatFromTextureInfo(config.format, config.r_type, config.g_type, config.b_type,
                                         config.a_type, config.srgb_conversion);
     num_samples = NumSamples(config.msaa_mode);
-    resources.mipmaps = config.max_mip_level + 1;
+    resources.levels = config.max_mip_level + 1;
     if (config.IsPitchLinear()) {
         pitch = config.Pitch();
     } else if (config.IsBlockLinear()) {
@@ -135,8 +135,7 @@ ImageInfo::ImageInfo(const Tegra::Engines::Maxwell3D::Regs& regs) noexcept {
     format = VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
     size.width = regs.zeta_width;
     size.height = regs.zeta_height;
-    // TODO: Maybe we can deduce the number of mipmaps from the layer stride
-    resources.mipmaps = 1;
+    resources.levels = 1;
     layer_stride = regs.zeta.layer_stride * 4;
     maybe_unaligned_layer_stride = layer_stride;
     num_samples = NumSamples(regs.multisample_mode);

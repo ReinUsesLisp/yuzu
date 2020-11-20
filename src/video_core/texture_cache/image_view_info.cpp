@@ -25,10 +25,10 @@ ImageViewInfo::ImageViewInfo(const TICEntry& config, s32 base_layer) noexcept
       y_source{CastSwizzle(config.y_source)}, z_source{CastSwizzle(config.z_source)},
       w_source{CastSwizzle(config.w_source)} {
     range.base = SubresourceBase{
-        .mipmap = static_cast<s32>(config.res_min_mip_level),
+        .level = static_cast<s32>(config.res_min_mip_level),
         .layer = base_layer,
     };
-    range.extent.mipmaps = config.res_max_mip_level - config.res_min_mip_level + 1;
+    range.extent.levels = config.res_max_mip_level - config.res_min_mip_level + 1;
 
     switch (config.texture_type) {
     case TextureType::Texture1D:

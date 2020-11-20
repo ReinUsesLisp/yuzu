@@ -11,7 +11,7 @@
 namespace VideoCommon {
 
 constexpr size_t NUM_RT = 8;
-constexpr size_t MAX_MIPMAP = 14;
+constexpr size_t MAX_MIP_LEVELS = 14;
 
 constexpr SlotId CORRUPT_ID{0xfffffffe};
 
@@ -81,7 +81,7 @@ struct Extent3D {
 };
 
 struct SubresourceLayers {
-    s32 base_mipmap = 0;
+    s32 base_level = 0;
     s32 base_layer = 0;
     s32 num_layers = 1;
 };
@@ -89,14 +89,14 @@ struct SubresourceLayers {
 struct SubresourceBase {
     constexpr auto operator<=>(const SubresourceBase&) const noexcept = default;
 
-    s32 mipmap = 0;
+    s32 level = 0;
     s32 layer = 0;
 };
 
 struct SubresourceExtent {
     constexpr auto operator<=>(const SubresourceExtent&) const noexcept = default;
 
-    s32 mipmaps = 1;
+    s32 levels = 1;
     s32 layers = 1;
 };
 
@@ -135,7 +135,7 @@ struct SwizzleParameters {
     Extent3D num_tiles;
     Extent3D block;
     size_t buffer_offset;
-    s32 mipmap;
+    s32 level;
 };
 
 } // namespace VideoCommon

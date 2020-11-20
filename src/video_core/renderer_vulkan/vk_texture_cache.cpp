@@ -134,7 +134,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
                 .height = info.size.height >> samples_y,
                 .depth = info.size.depth,
             },
-        .mipLevels = static_cast<u32>(info.resources.mipmaps),
+        .mipLevels = static_cast<u32>(info.resources.levels),
         .arrayLayers = static_cast<u32>(info.resources.layers),
         .samples = ConvertSampleCount(info.num_samples),
         .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -269,7 +269,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     VideoCommon::SubresourceLayers subresource, VkImageAspectFlags aspect_mask) {
     return VkImageSubresourceLayers{
         .aspectMask = aspect_mask,
-        .mipLevel = static_cast<u32>(subresource.base_mipmap),
+        .mipLevel = static_cast<u32>(subresource.base_level),
         .baseArrayLayer = static_cast<u32>(subresource.base_layer),
         .layerCount = static_cast<u32>(subresource.num_layers),
     };
@@ -327,7 +327,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
                 .imageSubresource =
                     {
                         .aspectMask = aspect_mask,
-                        .mipLevel = static_cast<u32>(copy.image_subresource.base_mipmap),
+                        .mipLevel = static_cast<u32>(copy.image_subresource.base_level),
                         .baseArrayLayer = static_cast<u32>(copy.image_subresource.base_layer),
                         .layerCount = static_cast<u32>(copy.image_subresource.num_layers),
                     },
@@ -366,8 +366,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
     VkImageAspectFlags aspect_mask, const VideoCommon::SubresourceRange& range) {
     return VkImageSubresourceRange{
         .aspectMask = aspect_mask,
-        .baseMipLevel = static_cast<u32>(range.base.mipmap),
-        .levelCount = static_cast<u32>(range.extent.mipmaps),
+        .baseMipLevel = static_cast<u32>(range.base.level),
+        .levelCount = static_cast<u32>(range.extent.levels),
         .baseArrayLayer = static_cast<u32>(range.base.layer),
         .layerCount = static_cast<u32>(range.extent.layers),
     };
@@ -380,7 +380,7 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
 [[nodiscard]] VkImageSubresourceLayers MakeSubresourceLayers(const ImageView* image_view) {
     return VkImageSubresourceLayers{
         .aspectMask = ImageAspectMask(image_view->format),
-        .mipLevel = static_cast<u32>(image_view->range.base.mipmap),
+        .mipLevel = static_cast<u32>(image_view->range.base.level),
         .baseArrayLayer = static_cast<u32>(image_view->range.base.layer),
         .layerCount = static_cast<u32>(image_view->range.extent.layers),
     };

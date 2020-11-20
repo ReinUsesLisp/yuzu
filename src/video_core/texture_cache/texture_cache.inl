@@ -513,7 +513,7 @@ ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
     }
     ImageBase& image = slot_images[image_id];
     const SubresourceBase base = image.TryFindBase(config.Address()).value();
-    ASSERT(base.mipmap == 0);
+    ASSERT(base.level == 0);
     const ImageViewInfo view_info(config, base.layer);
     const ImageViewId image_view_id = FindOrEmplaceImageView(image_id, view_info);
     ImageViewBase& image_view = slot_image_views[image_view_id];
@@ -733,14 +733,14 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     const ImageViewType view_type = RenderTargetImageViewType(info);
     SubresourceBase base;
     if (image.info.type == ImageType::Linear) {
-        base = SubresourceBase{.mipmap = 0, .layer = 0};
+        base = SubresourceBase{.level = 0, .layer = 0};
     } else {
         base = image.TryFindBase(gpu_addr).value();
     }
     const s32 layers = image.info.type == ImageType::e3D ? info.size.depth : info.resources.layers;
     const SubresourceRange range{
         .base = base,
-        .extent = {.mipmaps = 1, .layers = layers},
+        .extent = {.levels = 1, .layers = layers},
     };
     return FindOrEmplaceImageView(image_id, ImageViewInfo(view_type, info.format, range));
 }
@@ -1011,15 +1011,15 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::span<const 
         UNIMPLEMENTED_IF(copy.dst_offset != Offset3D{});
 
         const SubresourceBase dst_base{
-            .mipmap = copy.dst_subresource.base_mipmap,
+            .level = copy.dst_subresource.base_level,
             .layer = copy.dst_subresource.base_layer,
         };
         const SubresourceBase src_base{
-            .mipmap = copy.src_subresource.base_mipmap,
+            .level = copy.src_subresource.base_level,
             .layer = copy.src_subresource.base_layer,
         };
-        const SubresourceExtent dst_extent{.mipmaps = 1, .layers = 1};
-        const SubresourceExtent src_extent{.mipmaps = 1, .layers = 1};
+        const SubresourceExtent dst_extent{.levels = 1, .layers = 1};
+        const SubresourceExtent src_extent{.levels = 1, .layers = 1};
         const SubresourceRange dst_range{.base = dst_base, .extent = dst_extent};
         const SubresourceRange src_range{.base = src_base, .extent = src_extent};
         const ImageViewInfo dst_view_info(ImageViewType::e2D, dst.info.format, dst_range);
@@ -1062,7 +1062,7 @@ std::pair<FramebufferId, ImageViewId> TextureCache<P>::RenderTargetFromImage(
     const bool is_color = GetFormatType(image.info.format) == SurfaceType::ColorTexture;
     const ImageViewId color_view_id = is_color ? view_id : ImageViewId{};
     const ImageViewId depth_view_id = is_color ? ImageViewId{} : view_id;
-    const Extent3D extent = MipSize(image.info.size, view_info.range.base.mipmap);
+    const Extent3D extent = MipSize(image.info.size, view_info.range.base.level);
     const u32 num_samples = image.info.num_samples;
     const auto [samples_x, samples_y] = SamplesLog2(num_samples);
     const FramebufferId framebuffer_id = GetFramebufferId(RenderTargets{

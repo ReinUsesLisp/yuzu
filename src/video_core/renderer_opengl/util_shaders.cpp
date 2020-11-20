@@ -96,7 +96,7 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
         const u32 num_dispatches_x = Common::DivCeil(num_tiles.width, WORKGROUP_SIZE.width);
         const u32 num_dispatches_y = Common::DivCeil(num_tiles.height, WORKGROUP_SIZE.height);
 
-        const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
+        const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.level);
         const u32 stride = Common::AlignBits(num_tiles.width, stride_alignment) * bytes_per_block;
 
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
@@ -111,7 +111,7 @@ void UtilShaders::BlockLinearUpload2D(Image& image, const ImageBufferMap& map, s
         glUniform1ui(LOC_BLOCK_HEIGHT_MASK, block_height_mask);
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, BINDING_INPUT_BUFFER, map.Handle(), offset,
                           image.guest_size_bytes - swizzle.buffer_offset);
-        glBindImageTexture(BINDING_OUTPUT_IMAGE, image.Handle(), swizzle.mipmap, GL_TRUE, 0,
+        glBindImageTexture(BINDING_OUTPUT_IMAGE, image.Handle(), swizzle.level, GL_TRUE, 0,
                            GL_WRITE_ONLY, StoreFormat(bytes_per_block));
         glDispatchCompute(num_dispatches_x, num_dispatches_y, image.info.resources.layers);
     }
@@ -155,7 +155,7 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
         const u32 num_dispatches_y = Common::DivCeil(num_tiles.height, WORKGROUP_SIZE.height);
         const u32 num_dispatches_z = Common::DivCeil(num_tiles.depth, WORKGROUP_SIZE.depth);
 
-        const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.mipmap);
+        const u32 stride_alignment = CalculateLevelStrideAlignment(image.info, swizzle.level);
         const u32 stride = Common::AlignBits(num_tiles.width, stride_alignment) * bytes_per_block;
 
         const u32 gobs_in_x = (stride + GOB_SIZE_X - 1) >> GOB_SIZE_X_SHIFT;
@@ -177,7 +177,7 @@ void UtilShaders::BlockLinearUpload3D(Image& image, const ImageBufferMap& map, s
 
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, BINDING_INPUT_BUFFER, map.Handle(), offset,
                           image.guest_size_bytes - swizzle.buffer_offset);
-        glBindImageTexture(BINDING_OUTPUT_IMAGE, image.Handle(), swizzle.mipmap, GL_TRUE, 0,
+        glBindImageTexture(BINDING_OUTPUT_IMAGE, image.Handle(), swizzle.level, GL_TRUE, 0,
                            GL_WRITE_ONLY, StoreFormat(bytes_per_block));
 
         glDispatchCompute(num_dispatches_x, num_dispatches_y, num_dispatches_z);
@@ -241,11 +241,10 @@ void UtilShaders::CopyBC4(Image& dst_image, Image& src_image, std::span<const Im
 
         glUniform3ui(LOC_SRC_OFFSET, copy.src_offset.x, copy.src_offset.y, copy.src_offset.z);
         glUniform3ui(LOC_DST_OFFSET, copy.dst_offset.x, copy.dst_offset.y, copy.dst_offset.z);
-        glBindImageTexture(BINDING_INPUT_IMAGE, src_image.Handle(),
-                           copy.src_subresource.base_mipmap, GL_FALSE, 0, GL_READ_ONLY, GL_RG32UI);
+        glBindImageTexture(BINDING_INPUT_IMAGE, src_image.Handle(), copy.src_subresource.base_level,
+                           GL_FALSE, 0, GL_READ_ONLY, GL_RG32UI);
         glBindImageTexture(BINDING_OUTPUT_IMAGE, dst_image.Handle(),
-                           copy.dst_subresource.base_mipmap, GL_FALSE, 0, GL_WRITE_ONLY,
-                           GL_RGBA8UI);
+                           copy.dst_subresource.base_level, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8UI);
         glDispatchCompute(copy.extent.width, copy.extent.height, copy.extent.depth);
     }
     program_manager.RestoreGuestCompute();

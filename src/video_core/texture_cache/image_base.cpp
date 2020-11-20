@@ -30,13 +30,13 @@ namespace {
 }
 
 [[nodiscard]] bool ValidateLayers(const SubresourceLayers& layers, const ImageInfo& info) {
-    return layers.base_mipmap < info.resources.mipmaps &&
+    return layers.base_level < info.resources.levels &&
            layers.base_layer + layers.num_layers <= info.resources.layers;
 }
 
 [[nodiscard]] bool ValidateCopy(const ImageCopy& copy, const ImageInfo& dst, const ImageInfo& src) {
-    const Extent3D src_size = MipSize(src.size, copy.src_subresource.base_mipmap);
-    const Extent3D dst_size = MipSize(dst.size, copy.dst_subresource.base_mipmap);
+    const Extent3D src_size = MipSize(src.size, copy.src_subresource.base_level);
+    const Extent3D dst_size = MipSize(dst.size, copy.dst_subresource.base_level);
     if (!ValidateLayers(copy.src_subresource, src)) {
         return false;
     }
@@ -62,7 +62,7 @@ ImageBase::ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_
       unswizzled_size_bytes{CalculateUnswizzledSizeBytes(info)},
       converted_size_bytes{CalculateConvertedSizeBytes(info)}, gpu_addr{gpu_addr_},
       cpu_addr{cpu_addr_}, cpu_addr_end{cpu_addr + guest_size_bytes},
-      mipmap_offsets{CalculateMipmapOffsets(info)} {
+      mip_level_offsets{CalculateMipLevelOffsets(info)} {
     if (info.type == ImageType::e3D) {
         slice_offsets = CalculateSliceOffsets(info);
         slice_subresources = CalculateSliceSubresources(info);
@@ -86,13 +86,13 @@ std::optional<SubresourceBase> ImageBase::TryFindBase(GPUVAddr other_addr) const
     }
     if (info.type != ImageType::e3D) {
         const auto [layer, mip_offset] = LayerMipOffset(diff, info.layer_stride);
-        const auto end = mipmap_offsets.begin() + info.resources.mipmaps;
-        const auto it = std::find(mipmap_offsets.begin(), end, mip_offset);
+        const auto end = mip_level_offsets.begin() + info.resources.levels;
+        const auto it = std::find(mip_level_offsets.begin(), end, mip_offset);
         if (layer > info.resources.layers || it == end) {
             return std::nullopt;
         }
         return SubresourceBase{
-            .mipmap = static_cast<s32>(std::distance(mipmap_offsets.begin(), it)),
+            .level = static_cast<s32>(std::distance(mip_level_offsets.begin(), it)),
             .layer = layer,
         };
     } else {
@@ -141,9 +141,9 @@ void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_i
         LOG_ERROR(HW_GPU, "Compressed to compressed image aliasing is not implemented");
         return;
     }
-    const s32 lhs_mips = lhs.info.resources.mipmaps;
-    const s32 rhs_mips = rhs.info.resources.mipmaps;
-    const s32 num_mips = std::min(lhs_mips - base->mipmap, rhs_mips);
+    const s32 lhs_mips = lhs.info.resources.levels;
+    const s32 rhs_mips = rhs.info.resources.levels;
+    const s32 num_mips = std::min(lhs_mips - base->level, rhs_mips);
     AliasedImage lhs_alias;
     AliasedImage rhs_alias;
     lhs_alias.id = rhs_id;
@@ -151,7 +151,7 @@ void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_i
     lhs_alias.copies.reserve(num_mips);
     rhs_alias.copies.reserve(num_mips);
     for (s32 mip_level = 0; mip_level < num_mips; ++mip_level) {
-        Extent3D lhs_size = MipSize(lhs.info.size, base->mipmap + mip_level);
+        Extent3D lhs_size = MipSize(lhs.info.size, base->level + mip_level);
         Extent3D rhs_size = MipSize(rhs.info.size, mip_level);
         if (is_lhs_compressed) {
             lhs_size.width /= lhs_block.width;
@@ -178,12 +178,12 @@ void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_i
         const s32 rhs_layers = is_rhs_3d ? 1 : rhs.info.resources.layers;
         const s32 num_layers = std::min(lhs_layers, rhs_layers);
         const SubresourceLayers lhs_subresource{
-            .base_mipmap = mip_level,
+            .base_level = mip_level,
             .base_layer = 0,
             .num_layers = num_layers,
         };
         const SubresourceLayers rhs_subresource{
-            .base_mipmap = base->mipmap + mip_level,
+            .base_level = base->level + mip_level,
             .base_layer = is_rhs_3d ? 0 : base->layer,
             .num_layers = num_layers,
         };

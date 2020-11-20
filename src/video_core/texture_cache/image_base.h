@@ -60,7 +60,7 @@ struct ImageBase {
     u64 modification_tick = 0;
     u64 frame_tick = 0;
 
-    std::array<u32, MAX_MIPMAP> mipmap_offsets{};
+    std::array<u32, MAX_MIP_LEVELS> mip_level_offsets{};
 
     std::vector<ImageViewInfo> image_view_infos;
     std::vector<ImageViewId> image_view_ids;

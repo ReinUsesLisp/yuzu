@@ -20,9 +20,9 @@ ImageViewBase::ImageViewBase(const ImageViewInfo& info, const ImageInfo& image_i
                              ImageId image_id_)
     : image_id{image_id_}, format{info.format}, type{info.type}, range{info.range},
       size{
-          .width = std::max(image_info.size.width >> range.base.mipmap, 1u),
-          .height = std::max(image_info.size.height >> range.base.mipmap, 1u),
-          .depth = std::max(image_info.size.depth >> range.base.mipmap, 1u),
+          .width = std::max(image_info.size.width >> range.base.level, 1u),
+          .height = std::max(image_info.size.height >> range.base.level, 1u),
+          .depth = std::max(image_info.size.depth >> range.base.level, 1u),
       } {
     ASSERT_MSG(VideoCore::Surface::IsViewCompatible(image_info.format, info.format),
                "Image view format {} is incompatible with image format {}", info.format,
