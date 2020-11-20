@@ -434,6 +434,12 @@ bool VKDevice::Create() {
 
     CollectTelemetryParameters();
 
+    if (ext_extended_dynamic_state && driver_id == VK_DRIVER_ID_MESA_RADV) {
+        LOG_WARNING(
+            Render_Vulkan,
+            "Blacklisting RADV for VK_EXT_extended_dynamic state, likely due to a bug in yuzu");
+        ext_extended_dynamic_state = false;
+    }
     if (ext_extended_dynamic_state && IsRDNA(properties.deviceName, driver_id)) {
         // AMD's proprietary driver supports VK_EXT_extended_dynamic_state but on RDNA devices it
         // seems to cause stability issues
