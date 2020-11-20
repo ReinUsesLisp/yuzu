@@ -5,10 +5,10 @@
 #pragma once
 
 #include <algorithm>
-#include <bit>
 #include <span>
 #include <utility>
 
+#include "common/bit_cast.h"
 #include "video_core/texture_cache/types.h"
 
 namespace VideoCommon {
@@ -32,15 +32,6 @@ struct RenderTargets {
 
 } // namespace VideoCommon
 
-namespace Common {
-template <typename R, typename T>
-inline R BitCast(const T& data) {
-    R result;
-    std::memcpy(&result, &data, sizeof(T));
-    return result;
-}
-} // namespace Common
-
 namespace std {
 
 template <>
@@ -51,13 +42,8 @@ struct hash<VideoCommon::RenderTargets> {
         for (const ImageViewId color_buffer_id : rt.color_buffer_ids) {
             hash ^= std::hash<ImageViewId>{}(color_buffer_id);
         }
-#ifdef __cpp_lib_bit_cast
-        hash ^= std::bit_cast<u64>(rt.draw_buffers);
-        hash ^= std::bit_cast<u64>(rt.size);
-#else
         hash ^= Common::BitCast<u64>(rt.draw_buffers);
         hash ^= Common::BitCast<u64>(rt.size);
-#endif
         return hash;
     }
 };
