@@ -16,7 +16,8 @@ set(SHADER_FILES
     vulkan_uint8.comp
 )
 
-# set(GLSL_FLAGS "-Os")
+find_program(GLSLANGVALIDATOR "glslangValidator" REQUIRED)
+
 set(GLSL_FLAGS "")
 
 set(SHADER_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -53,7 +54,7 @@ foreach(FILENAME IN ITEMS ${SHADER_FILES})
             OUTPUT
                 ${SPIRV_HEADER_FILE}
             COMMAND
-                glslangValidator -V ${GLSL_FLAGS} --variable-name ${SPIRV_VARIABLE_NAME} -o ${SPIRV_HEADER_FILE} ${SOURCE_FILE}
+                ${GLSLANGVALIDATOR} -V ${GLSL_FLAGS} --variable-name ${SPIRV_VARIABLE_NAME} -o ${SPIRV_HEADER_FILE} ${SOURCE_FILE}
             MAIN_DEPENDENCY
                 ${SOURCE_FILE}
         )
