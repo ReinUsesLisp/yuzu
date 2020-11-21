@@ -75,6 +75,8 @@ public:
     void Query(GPUVAddr gpu_addr, VideoCore::QueryType type, std::optional<u64> timestamp) override;
     void FlushAll() override;
     void FlushRegion(VAddr addr, u64 size) override;
+    void InvalidateExceptTextureCache(VAddr addr, u64 size) override;
+    void InvalidateTextureCache(VAddr addr, u64 size) override;
     bool MustFlushRegion(VAddr addr, u64 size) override;
     void InvalidateRegion(VAddr addr, u64 size) override;
     void OnCPUWrite(VAddr addr, u64 size) override;

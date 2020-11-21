@@ -618,6 +618,22 @@ void RasterizerVulkan::FlushRegion(VAddr addr, u64 size) {
     query_cache.FlushRegion(addr, size);
 }
 
+void Vulkan::RasterizerVulkan::InvalidateExceptTextureCache(VAddr addr, u64 size) {
+    if (addr == 0 || size == 0) {
+        return;
+    }
+    pipeline_cache.InvalidateRegion(addr, size);
+    buffer_cache.InvalidateRegion(addr, size);
+    query_cache.InvalidateRegion(addr, size);
+}
+
+void Vulkan::RasterizerVulkan::InvalidateTextureCache(VAddr addr, u64 size) {
+    if (addr == 0 || size == 0) {
+        return;
+    }
+    texture_cache.InvalidateRegion(addr, size);
+}
+
 bool RasterizerVulkan::MustFlushRegion(VAddr addr, u64 size) {
     if (!Settings::IsGPULevelHigh()) {
         return buffer_cache.MustFlushRegion(addr, size);
