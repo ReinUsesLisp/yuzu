@@ -308,9 +308,9 @@ private:
 
     void SynchronizeAliases(ImageId image_id);
 
-    void PrepareImage(ImageId image_id, bool is_modification);
+    void PrepareImage(ImageId image_id, bool is_modification, bool invalidate);
 
-    void PrepareImageView(ImageViewId image_view_id, bool is_modification);
+    void PrepareImageView(ImageViewId image_view_id, bool is_modification, bool invalidate);
 
     void CopyImage(ImageId dst_id, ImageId src_id, std::span<const ImageCopy> copies);
 

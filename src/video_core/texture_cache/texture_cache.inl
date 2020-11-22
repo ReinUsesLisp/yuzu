@@ -135,13 +135,13 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
             flags[Dirty::ColorBuffer0 + index] = false;
             BindRenderTarget(&color_buffer_id, FindColorBuffer(index, is_clear));
         }
-        PrepareImageView(color_buffer_id, true);
+        PrepareImageView(color_buffer_id, true, is_clear);
     }
     if (flags[Dirty::ZetaBuffer] || force) {
         flags[Dirty::ZetaBuffer] = false;
         BindRenderTarget(&render_targets.depth_buffer_id, FindDepthBuffer(is_clear));
     }
-    PrepareImageView(render_targets.depth_buffer_id, true);
+    PrepareImageView(render_targets.depth_buffer_id, true, is_clear);
 
     for (size_t index = 0; index < NUM_RT; ++index) {
         render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d.regs.rt_control.Map(index));
@@ -181,7 +181,7 @@ void TextureCache<P>::FillImageViews(DescriptorTable<TICEntry>& table,
             image_view_ids[i] = image_view_id;
 
             if (image_view_id != NULL_IMAGE_VIEW_ID) {
-                PrepareImageView(image_view_id, false);
+                PrepareImageView(image_view_id, false, false);
             }
         }
     } while (has_deleted_images);
@@ -270,8 +270,8 @@ void TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     const BlitImages images = GetBlitImages(dst, src);
     const ImageId dst_id = images.dst_id;
     const ImageId src_id = images.src_id;
-    PrepareImage(src_id, false);
-    PrepareImage(dst_id, true);
+    PrepareImage(src_id, false, false);
+    PrepareImage(dst_id, true, false);
 
     ImageBase& dst_image = slot_images[dst_id];
     const ImageBase& src_image = slot_images[src_id];
@@ -969,10 +969,17 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
 }
 
 template <class P>
-void TextureCache<P>::PrepareImage(ImageId image_id, bool is_modification) {
+void TextureCache<P>::PrepareImage(ImageId image_id, bool is_modification, bool invalidate) {
     Image& image = slot_images[image_id];
-    UpdateImageContents(image);
-    SynchronizeAliases(image_id);
+    if (invalidate) {
+        image.flags &= ~(ImageFlagBits::CpuModified | ImageFlagBits::GpuModified);
+        if (False(image.flags & ImageFlagBits::Tracked)) {
+            TrackImage(image);
+        }
+    } else {
+        UpdateImageContents(image);
+        SynchronizeAliases(image_id);
+    }
     if (is_modification) {
         MarkModification(image);
     }
@@ -980,12 +987,13 @@ void TextureCache<P>::PrepareImage(ImageId image_id, bool is_modification) {
 }
 
 template <class P>
-void TextureCache<P>::PrepareImageView(ImageViewId image_view_id, bool is_modification) {
+void TextureCache<P>::PrepareImageView(ImageViewId image_view_id, bool is_modification,
+                                       bool invalidate) {
     if (!image_view_id) {
         return;
     }
     const ImageViewBase& image_view = slot_image_views[image_view_id];
-    PrepareImage(image_view.image_id, is_modification);
+    PrepareImage(image_view.image_id, is_modification, invalidate);
 }
 
 template <class P>
