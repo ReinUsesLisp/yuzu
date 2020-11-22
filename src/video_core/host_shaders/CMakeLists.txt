@@ -16,7 +16,7 @@ set(SHADER_FILES
     vulkan_uint8.comp
 )
 
-find_program(GLSLANGVALIDATOR "glslangValidator" REQUIRED)
+# find_program(GLSLANGVALIDATOR "glslangValidator" REQUIRED)
 
 set(GLSL_FLAGS "")
 
@@ -47,19 +47,19 @@ foreach(FILENAME IN ITEMS ${SHADER_FILES})
         set(SHADER_HEADERS ${SHADER_HEADERS} ${SOURCE_HEADER_FILE})
     endif()
     # Skip compiling to SPIR-V OpenGL exclusive files
-    if (NOT ${FILENAME} MATCHES "opengl.*")
-        string(TOUPPER ${SHADER_NAME}_SPV SPIRV_VARIABLE_NAME)
-        set(SPIRV_HEADER_FILE ${SHADER_DIR}/${SHADER_NAME}_spv.h)
-        add_custom_command(
-            OUTPUT
-                ${SPIRV_HEADER_FILE}
-            COMMAND
-                ${GLSLANGVALIDATOR} -V ${GLSL_FLAGS} --variable-name ${SPIRV_VARIABLE_NAME} -o ${SPIRV_HEADER_FILE} ${SOURCE_FILE}
-            MAIN_DEPENDENCY
-                ${SOURCE_FILE}
-        )
-        set(SHADER_HEADERS ${SHADER_HEADERS} ${SPIRV_HEADER_FILE})
-    endif()
+    # if (NOT ${FILENAME} MATCHES "opengl.*")
+    #     string(TOUPPER ${SHADER_NAME}_SPV SPIRV_VARIABLE_NAME)
+    #     set(SPIRV_HEADER_FILE ${SHADER_DIR}/${SHADER_NAME}_spv.h)
+    #     add_custom_command(
+    #         OUTPUT
+    #             ${SPIRV_HEADER_FILE}
+    #         COMMAND
+    #             ${GLSLANGVALIDATOR} -V ${GLSL_FLAGS} --variable-name ${SPIRV_VARIABLE_NAME} -o ${SPIRV_HEADER_FILE} ${SOURCE_FILE}
+    #         MAIN_DEPENDENCY
+    #             ${SOURCE_FILE}
+    #     )
+    #     set(SHADER_HEADERS ${SHADER_HEADERS} ${SPIRV_HEADER_FILE})
+    # endif()
 endforeach()
 
 add_custom_target(host_shaders
