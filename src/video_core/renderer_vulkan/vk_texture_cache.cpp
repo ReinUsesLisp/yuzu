@@ -686,21 +686,6 @@ Image::Image(TextureCacheRuntime& runtime, const ImageInfo& info, GPUVAddr gpu_a
     } else {
         commit = runtime.memory_manager.Commit(buffer, false);
     }
-
-    if (image) {
-        auto vkSetDebugUtilsObjectNameEXT =
-            (PFN_vkSetDebugUtilsObjectNameEXT)runtime.device.GetDispatchLoader()
-                .vkGetDeviceProcAddr(*runtime.device.GetLogical(), "vkSetDebugUtilsObjectNameEXT");
-        auto c = fmt::format("Image 0x{:x} {}", static_cast<u64>(gpu_addr), info.layer_stride);
-        const VkDebugUtilsObjectNameInfoEXT tag{
-            .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-            .pNext = nullptr,
-            .objectType = VK_OBJECT_TYPE_IMAGE,
-            .objectHandle = reinterpret_cast<u64>(*image),
-            .pObjectName = c.c_str(),
-        };
-        vkSetDebugUtilsObjectNameEXT(*runtime.device.GetLogical(), &tag);
-    }
     if (IsPixelFormatASTC(info.format) && !runtime.device.IsOptimalAstcSupported()) {
         flags |= VideoCommon::ImageFlagBits::Converted;
     }

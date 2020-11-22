@@ -509,7 +509,7 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, ProgramManager& 
     }
     const auto set_view = [this](ImageViewType type, GLuint handle) {
         const std::string name = fmt::format("NullImage {}", type);
-        glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
+        // glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
         null_image_views[static_cast<size_t>(type)] = handle;
     };
     set_view(ImageViewType::e1D, null_image_view_1d.handle);
@@ -747,10 +747,10 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info, G
     }
     if (target != GL_TEXTURE_BUFFER) {
         const std::string name = fmt::format("Image 0x{:x}", gpu_addr);
-        glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
+        // glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
     } else {
         const std::string name = fmt::format("Buffer 0x{:x}", gpu_addr);
-        glObjectLabel(GL_BUFFER, buffer.handle, static_cast<GLsizei>(name.size()), name.data());
+        // glObjectLabel(GL_BUFFER, buffer.handle, static_cast<GLsizei>(name.size()), name.data());
     }
 }
 
@@ -993,7 +993,7 @@ void ImageView::SetupView(Image& image, ImageViewType type, GLuint handle,
         ApplySwizzle(handle, format, info.Swizzle());
         name = fmt::format("ImageView {} ({})", NameView(*this), handle);
     }
-    glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
+    // glObjectLabel(GL_TEXTURE, handle, static_cast<GLsizei>(name.size()), name.data());
 
     stored_views.emplace_back().handle = handle;
     views[static_cast<size_t>(type)] = handle;
@@ -1042,7 +1042,7 @@ Sampler::Sampler(TextureCacheRuntime&, const TSCEntry& config) {
     }
 
     const std::string name = fmt::format("Sampler 0x{:x}", std::hash<TSCEntry>{}(config));
-    glObjectLabel(GL_SAMPLER, handle, static_cast<GLsizei>(name.size()), name.data());
+    // glObjectLabel(GL_SAMPLER, handle, static_cast<GLsizei>(name.size()), name.data());
 }
 
 Framebuffer::Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Image>&,
@@ -1103,7 +1103,7 @@ Framebuffer::Framebuffer(TextureCacheRuntime&, const VideoCommon::SlotVector<Ima
 
     const std::string name =
         fmt::format("Framebuffer {}{} ({})", debug_prefix, num_buffers, handle);
-    glObjectLabel(GL_FRAMEBUFFER, handle, static_cast<GLsizei>(name.size()), name.data());
+    // glObjectLabel(GL_FRAMEBUFFER, handle, static_cast<GLsizei>(name.size()), name.data());
 
     framebuffer.handle = handle;
 }
