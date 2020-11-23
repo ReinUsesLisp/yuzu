@@ -45,6 +45,20 @@ public:
         delete[] values;
     }
 
+    template <typename Func>
+    void ForEach(Func&& func) {
+        size_t index = 0;
+        for (u64 bits : stored_bitset) {
+            for (size_t bit = 0; bits; ++bit, bits >>= 1) {
+                if ((bits & 1) != 0) {
+                    func(SlotId{u32(index + bit)},
+                         *reinterpret_cast<T*>(values[index + bit].storage.data()));
+                }
+            }
+            index += 64;
+        }
+    }
+
     [[nodiscard]] T& operator[](SlotId id) noexcept {
         ValidateIndex(id);
         return *reinterpret_cast<T*>(values[id.index].storage.data());

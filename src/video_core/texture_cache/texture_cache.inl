@@ -41,6 +41,20 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
 
 template <class P>
 void TextureCache<P>::TickFrame() {
+    size_t sz = 0;
+    slot_images.ForEach([&](ImageId id, ImageBase& image) {
+        if (image.frame_tick + 10 < frame_tick) {
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image);
+            }
+            UnregisterImage(id);
+            DeleteImage(id);
+        } else {
+            sz += image.unswizzled_size_bytes;
+        }
+    });
+    LOG_INFO(HW_GPU, "{} MiB", sz >> 20);
+
     // Tick sentenced resources in this order to ensure they are destroyed in the right order
     sentenced_images.Tick();
     sentenced_framebuffers.Tick();
