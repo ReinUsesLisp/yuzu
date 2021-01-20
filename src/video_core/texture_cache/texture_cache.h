@@ -353,6 +353,7 @@ private:
 
     u64 modification_tick = 0;
     u64 frame_tick = 0;
+    typename SlotVector<Image>::Iterator deletion_iterator;
 };
 
 template <class P>
@@ -373,10 +374,37 @@ TextureCache<P>::TextureCache(Runtime& runtime_, VideoCore::RasterizerInterface&
     // This way the null resource becomes a compile time constant
     void(slot_image_views.insert(runtime, NullImageParams{}));
     void(slot_samplers.insert(runtime, sampler_descriptor));
+
+    deletion_iterator = slot_images.begin();
 }
 
 template <class P>
 void TextureCache<P>::TickFrame() {
+    static constexpr u64 ticks_to_destroy = 120;
+    int num_iterations = 32;
+    for (; num_iterations > 0; --num_iterations) {
+        if (deletion_iterator == slot_images.end()) {
+            deletion_iterator = slot_images.begin();
+            if (deletion_iterator == slot_images.end()) {
+                break;
+            }
+        }
+        const auto [image_id, image] = *deletion_iterator;
+        if (image->frame_tick + ticks_to_destroy < frame_tick) {
+            if (True(image->flags & ImageFlagBits::Tracked)) {
+                UntrackImage(*image);
+            }
+            UnregisterImage(image_id);
+            DeleteImage(image_id);
+        }
+        ++deletion_iterator;
+    }
+    size_t sz = 0;
+    for (const auto [image_id, image] : slot_images) {
+        sz += image->guest_size_bytes;
+    }
+    LOG_INFO(HW_GPU, "{} MiB", sz / 1024 / 1024);
+
     // Tick sentenced resources in this order to ensure they are destroyed in the right order
     sentenced_images.Tick();
     sentenced_framebuffers.Tick();
