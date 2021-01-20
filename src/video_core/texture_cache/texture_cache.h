@@ -391,6 +391,16 @@ void TextureCache<P>::TickFrame() {
         }
         const auto [image_id, image] = *deletion_iterator;
         if (image->frame_tick + ticks_to_destroy < frame_tick) {
+            if (image->IsSafeDownload() &&
+                std::ranges::none_of(image->aliased_images, [&](const AliasedImage& alias) {
+                    return slot_images[alias.id].modification_tick > image->modification_tick;
+                })) {
+                auto map = runtime.DownloadStagingBuffer(image->unswizzled_size_bytes);
+                const auto copies = FullDownloadCopies(image->info);
+                image->DownloadMemory(map, copies);
+                runtime.Finish();
+                SwizzleImage(gpu_memory, image->gpu_addr, image->info, copies, map.mapped_span);
+            }
             if (True(image->flags & ImageFlagBits::Tracked)) {
                 UntrackImage(*image);
             }
@@ -399,12 +409,6 @@ void TextureCache<P>::TickFrame() {
         }
         ++deletion_iterator;
     }
-    size_t sz = 0;
-    for (const auto [image_id, image] : slot_images) {
-        sz += image->guest_size_bytes;
-    }
-    LOG_INFO(HW_GPU, "{} MiB", sz / 1024 / 1024);
-
     // Tick sentenced resources in this order to ensure they are destroyed in the right order
     sentenced_images.Tick();
     sentenced_framebuffers.Tick();
@@ -596,17 +600,7 @@ template <class P>
 void TextureCache<P>::DownloadMemory(VAddr cpu_addr, size_t size) {
     std::vector<ImageId> images;
     ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
-        // Skip images that were not modified from the GPU
-        if (False(image.flags & ImageFlagBits::GpuModified)) {
-            return;
-        }
-        // Skip images that .are. modified from the CPU
-        // We don't want to write sensitive data from the guest
-        if (True(image.flags & ImageFlagBits::CpuModified)) {
-            return;
-        }
-        if (image.info.num_samples > 1) {
-            LOG_WARNING(HW_GPU, "MSAA image downloads are not implemented");
+        if (!image.IsSafeDownload()) {
             return;
         }
         image.flags &= ~ImageFlagBits::GpuModified;
